@@ -24,7 +24,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # Full history and tags: the version is derived from the commits since
           # the last release tag.
