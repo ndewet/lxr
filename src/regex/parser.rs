@@ -1,7 +1,7 @@
-use crate::regex::ast::{RegexNode, Repetitions};
+use crate::regex::ast::{Node, Repetitions};
 use crate::regex::charset::CharSet;
 use crate::regex::cursor::Cursor;
-use crate::regex::error::{RegexParseError, RegexParseErrorKind as Kind};
+use crate::regex::error::{ParseError, ParseErrorKind as Kind};
 use crate::regex::escape::Escape;
 
 const MAX_REPETITION: usize = 65535;
@@ -20,7 +20,7 @@ impl<'a> RegexParser<'a> {
         }
     }
 
-    pub(crate) fn parse(mut self) -> Result<RegexNode, RegexParseError> {
+    pub(crate) fn parse(mut self) -> Result<Node, ParseError> {
         let pattern = self.parse_alternation()?;
         match self.cursor.peek() {
             None => Ok(pattern),
@@ -29,7 +29,7 @@ impl<'a> RegexParser<'a> {
         }
     }
 
-    fn parse_alternation(&mut self) -> Result<RegexNode, RegexParseError> {
+    fn parse_alternation(&mut self) -> Result<Node, ParseError> {
         let mut alternation = self.parse_sequence()?;
         while self.cursor.accept('|') {
             alternation = alternation.alternate(self.parse_sequence()?);
@@ -37,15 +37,15 @@ impl<'a> RegexParser<'a> {
         Ok(alternation)
     }
 
-    fn parse_sequence(&mut self) -> Result<RegexNode, RegexParseError> {
-        let mut sequence = RegexNode::Epsilon;
+    fn parse_sequence(&mut self) -> Result<Node, ParseError> {
+        let mut sequence = Node::Epsilon;
         while !self.at_sequence_end() {
             sequence = sequence.concat(self.parse_quantified()?);
         }
         Ok(sequence)
     }
 
-    fn parse_quantified(&mut self) -> Result<RegexNode, RegexParseError> {
+    fn parse_quantified(&mut self) -> Result<Node, ParseError> {
         let atom = self.parse_atom()?;
         let quantified = match self.cursor.peek() {
             Some('*') => {
@@ -70,7 +70,7 @@ impl<'a> RegexParser<'a> {
         Ok(quantified)
     }
 
-    fn reject_stacked_quantifier(&mut self) -> Result<(), RegexParseError> {
+    fn reject_stacked_quantifier(&mut self) -> Result<(), ParseError> {
         let position = self.position();
         match self.cursor.peek() {
             Some(found @ ('*' | '+' | '?')) => Err(Kind::RepeatedQuantifier(found).at(position)),
@@ -82,7 +82,7 @@ impl<'a> RegexParser<'a> {
         }
     }
 
-    fn parse_atom(&mut self) -> Result<RegexNode, RegexParseError> {
+    fn parse_atom(&mut self) -> Result<Node, ParseError> {
         let position = self.position();
         match self.cursor.peek() {
             None => Err(Kind::UnexpectedEnd.at(position)),
@@ -102,12 +102,12 @@ impl<'a> RegexParser<'a> {
                 }
                 Ok(group)
             }
-            Some('[') => Ok(RegexNode::Class(self.parse_class()?)),
+            Some('[') => Ok(Node::Class(self.parse_class()?)),
             Some('.') => {
                 self.cursor.pop();
-                Ok(RegexNode::Class(CharSet::single('\n').negate()))
+                Ok(Node::Class(CharSet::single('\n').negate()))
             }
-            Some('\\') => Ok(RegexNode::Class(self.parse_escape()?.into_set())),
+            Some('\\') => Ok(Node::Class(self.parse_escape()?.into_set())),
             Some(quantifier @ ('*' | '+' | '?')) => {
                 Err(Kind::NothingToRepeat(quantifier).at(position))
             }
@@ -117,12 +117,12 @@ impl<'a> RegexParser<'a> {
             Some(anchor @ ('^' | '$')) => Err(Kind::UnsupportedAnchor(anchor).at(position)),
             Some(literal) => {
                 self.cursor.pop();
-                Ok(RegexNode::Class(CharSet::single(literal)))
+                Ok(Node::Class(CharSet::single(literal)))
             }
         }
     }
 
-    fn parse_repetition(&mut self) -> Result<Option<Repetitions>, RegexParseError> {
+    fn parse_repetition(&mut self) -> Result<Option<Repetitions>, ParseError> {
         let checkpoint = self.cursor.clone();
         let position = self.position();
         self.cursor.pop();
@@ -138,7 +138,7 @@ impl<'a> RegexParser<'a> {
         }
     }
 
-    fn parse_repetition_bounds(&mut self) -> Result<Option<Repetitions>, RegexParseError> {
+    fn parse_repetition_bounds(&mut self) -> Result<Option<Repetitions>, ParseError> {
         let Some(minimum) = self.parse_bound()? else {
             return Ok(None);
         };
@@ -160,7 +160,7 @@ impl<'a> RegexParser<'a> {
         Ok(Some(Repetitions::Range(minimum, maximum)))
     }
 
-    fn parse_bound(&mut self) -> Result<Option<usize>, RegexParseError> {
+    fn parse_bound(&mut self) -> Result<Option<usize>, ParseError> {
         let position = self.position();
         let Some(first) = self.cursor.pop_digit(10) else {
             return Ok(None);
@@ -175,7 +175,7 @@ impl<'a> RegexParser<'a> {
         Ok(Some(bound))
     }
 
-    fn parse_class(&mut self) -> Result<CharSet, RegexParseError> {
+    fn parse_class(&mut self) -> Result<CharSet, ParseError> {
         let opened_at = self.position();
         self.cursor.pop();
         let negated = self.cursor.accept('^');
@@ -201,7 +201,7 @@ impl<'a> RegexParser<'a> {
         Ok(set)
     }
 
-    fn parse_class_item(&mut self, opened_at: usize) -> Result<CharSet, RegexParseError> {
+    fn parse_class_item(&mut self, opened_at: usize) -> Result<CharSet, ParseError> {
         let position = self.position();
         let low = match self.parse_class_atom(opened_at)? {
             Escape::Set(_, set) => return Ok(set),
@@ -225,7 +225,7 @@ impl<'a> RegexParser<'a> {
         Ok(CharSet::range(low, high))
     }
 
-    fn parse_class_atom(&mut self, opened_at: usize) -> Result<Escape, RegexParseError> {
+    fn parse_class_atom(&mut self, opened_at: usize) -> Result<Escape, ParseError> {
         match self.cursor.peek() {
             None => Err(Kind::UnclosedClass.at(opened_at)),
             Some('[') if self.cursor.peek_ahead() == Some(':') => {
@@ -239,7 +239,7 @@ impl<'a> RegexParser<'a> {
         }
     }
 
-    fn parse_escape(&mut self) -> Result<Escape, RegexParseError> {
+    fn parse_escape(&mut self) -> Result<Escape, ParseError> {
         let position = self.position();
         self.cursor.pop();
         match self.cursor.pop() {
@@ -253,7 +253,7 @@ impl<'a> RegexParser<'a> {
         }
     }
 
-    fn parse_hex_escape(&mut self, position: usize) -> Result<char, RegexParseError> {
+    fn parse_hex_escape(&mut self, position: usize) -> Result<char, ParseError> {
         let code_point = if self.cursor.accept('{') {
             let code_point = self.parse_code_point()?;
             self.expect('}')?;
@@ -271,7 +271,7 @@ impl<'a> RegexParser<'a> {
             .ok_or_else(|| Kind::InvalidCodePoint(code_point).at(position))
     }
 
-    fn parse_code_point(&mut self) -> Result<u64, RegexParseError> {
+    fn parse_code_point(&mut self) -> Result<u64, ParseError> {
         let mut code_point = u64::from(self.expect_hex_digit()?);
         while let Some(digit) = self.cursor.pop_digit(16) {
             code_point = code_point
@@ -281,14 +281,14 @@ impl<'a> RegexParser<'a> {
         Ok(code_point)
     }
 
-    fn expect_hex_digit(&mut self) -> Result<u32, RegexParseError> {
+    fn expect_hex_digit(&mut self) -> Result<u32, ParseError> {
         match self.cursor.pop_digit(16) {
             Some(digit) => Ok(digit),
             None => Err(self.unexpected()),
         }
     }
 
-    fn expect(&mut self, wanted: char) -> Result<(), RegexParseError> {
+    fn expect(&mut self, wanted: char) -> Result<(), ParseError> {
         if self.cursor.accept(wanted) {
             return Ok(());
         }
@@ -299,7 +299,7 @@ impl<'a> RegexParser<'a> {
         .at(self.position()))
     }
 
-    fn unexpected(&self) -> RegexParseError {
+    fn unexpected(&self) -> ParseError {
         match self.cursor.peek() {
             Some(found) => Kind::UnexpectedCharacter(found).at(self.position()),
             None => Kind::UnexpectedEnd.at(self.position()),
@@ -323,7 +323,7 @@ impl<'a> RegexParser<'a> {
 mod tests {
     use super::*;
 
-    fn parse(pattern: &str) -> Result<RegexNode, RegexParseError> {
+    fn parse(pattern: &str) -> Result<Node, ParseError> {
         RegexParser::new(pattern).parse()
     }
 
@@ -331,12 +331,12 @@ mod tests {
         parse(pattern).unwrap_err().to_string()
     }
 
-    fn single(character: char) -> RegexNode {
-        RegexNode::Class(CharSet::single(character))
+    fn single(character: char) -> Node {
+        Node::Class(CharSet::single(character))
     }
 
-    fn class(set: CharSet) -> RegexNode {
-        RegexNode::Class(set)
+    fn class(set: CharSet) -> Node {
+        Node::Class(set)
     }
 
     fn set_of(characters: &str) -> CharSet {
@@ -345,25 +345,25 @@ mod tests {
         })
     }
 
-    fn literals_after(node: RegexNode, text: &str) -> RegexNode {
+    fn literals_after(node: Node, text: &str) -> Node {
         text.chars()
             .fold(node, |node, character| node.concat(single(character)))
     }
 
-    fn literals(text: &str) -> RegexNode {
-        literals_after(RegexNode::Epsilon, text)
+    fn literals(text: &str) -> Node {
+        literals_after(Node::Epsilon, text)
     }
 
     fn class_of(pattern: &str) -> CharSet {
         match parse(pattern) {
-            Ok(RegexNode::Class(set)) => set,
+            Ok(Node::Class(set)) => set,
             other => panic!("expected {pattern} to parse to a class, got {other:?}"),
         }
     }
 
     #[test]
     fn test_empty_pattern_parses_to_epsilon() {
-        assert_eq!(parse(""), Ok(RegexNode::Epsilon));
+        assert_eq!(parse(""), Ok(Node::Epsilon));
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_empty_alternation_branch_parses_to_epsilon() {
-        let expected = single('a').alternate(RegexNode::Epsilon);
+        let expected = single('a').alternate(Node::Epsilon);
         assert_eq!(parse("a|"), Ok(expected));
     }
 
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_empty_group_parses_to_epsilon() {
-        assert_eq!(parse("()"), Ok(RegexNode::Epsilon));
+        assert_eq!(parse("()"), Ok(Node::Epsilon));
     }
 
     #[test]
@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn test_quantified_empty_group_quantifies_epsilon() {
-        assert_eq!(parse("()*"), Ok(RegexNode::Epsilon.star()));
+        assert_eq!(parse("()*"), Ok(Node::Epsilon.star()));
     }
 
     #[test]
