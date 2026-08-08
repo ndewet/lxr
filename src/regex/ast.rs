@@ -1,18 +1,18 @@
 use crate::regex::charset::CharSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RegexNode {
+pub enum Node {
     Epsilon,
     Class(CharSet),
-    Concatenation(Box<RegexNode>, Box<RegexNode>),
-    Alternation(Box<RegexNode>, Box<RegexNode>),
-    Repetition(Box<RegexNode>, Repetitions),
-    Star(Box<RegexNode>),
-    Plus(Box<RegexNode>),
-    Optional(Box<RegexNode>),
+    Concatenation(Box<Node>, Box<Node>),
+    Alternation(Box<Node>, Box<Node>),
+    Repetition(Box<Node>, Repetitions),
+    Star(Box<Node>),
+    Plus(Box<Node>),
+    Optional(Box<Node>),
 }
 
-impl RegexNode {
+impl Node {
     pub fn concat(self, other: Self) -> Self {
         match (self, other) {
             (Self::Epsilon, node) | (node, Self::Epsilon) => node,

@@ -1,13 +1,13 @@
 use std::fmt::{Display, Formatter, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegexParseError {
+pub struct ParseError {
     pub position: usize,
-    pub kind: RegexParseErrorKind,
+    pub kind: ParseErrorKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RegexParseErrorKind {
+pub enum ParseErrorKind {
     UnexpectedEnd,
     UnexpectedCharacter(char),
     Expected { wanted: char, found: Option<char> },
@@ -31,24 +31,24 @@ pub enum RegexParseErrorKind {
     UnsupportedBackreference,
 }
 
-impl RegexParseErrorKind {
-    pub(crate) fn at(self, position: usize) -> RegexParseError {
-        RegexParseError {
+impl ParseErrorKind {
+    pub(crate) fn at(self, position: usize) -> ParseError {
+        ParseError {
             position,
             kind: self,
         }
     }
 }
 
-impl Display for RegexParseError {
+impl Display for ParseError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result {
         write!(formatter, "{} at position {}", self.kind, self.position)
     }
 }
 
-impl std::error::Error for RegexParseError {}
+impl std::error::Error for ParseError {}
 
-impl Display for RegexParseErrorKind {
+impl Display for ParseErrorKind {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result {
         match self {
             Self::UnexpectedEnd => write!(formatter, "unexpected end of pattern"),

@@ -5,12 +5,12 @@ mod error;
 mod escape;
 mod parser;
 
-pub use ast::{RegexNode, Repetitions};
+pub use ast::{Node, Repetitions};
 pub use charset::CharSet;
-pub use error::{RegexParseError, RegexParseErrorKind};
+pub use error::{ParseError, ParseErrorKind};
 
 use parser::RegexParser;
 
-pub fn parse(pattern: &str) -> Result<RegexNode, RegexParseError> {
+pub fn parse(pattern: &str) -> Result<Node, ParseError> {
     RegexParser::new(pattern).parse()
 }
