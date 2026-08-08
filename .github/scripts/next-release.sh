@@ -8,11 +8,16 @@
 #
 #   major: -> major    feat: -> minor    fix: -> patch    anything else -> ignored
 #
-# If no commit in the range matches, no release is cut. Merge commits are skipped,
-# so a PR's own commits decide the bump rather than "Merge pull request #..".
+# If no commit in the range matches, no release is cut.
 #
-# The base version is the last vX.Y.Z tag reachable from HEAD. With no such tag,
-# the first release ships the version already declared in Cargo.toml as-is.
+# PRs are squash-merged, so each squash commit's subject is the PR title and is
+# what decides the bump - "feat(regex): some pull request title" counts as a
+# minor. Merge commits are skipped; they carry no releasable subject here.
+#
+# The base version is the last vX.Y.Z tag reachable from HEAD: every commit after
+# it is unreleased and feeds the decision, so a dispatch aggregates all of them
+# and cuts one version. With no such tag, the first release ships the version
+# already declared in Cargo.toml as-is.
 #
 # Outputs (stdout, plus $GITHUB_OUTPUT when set):
 #   release=true|false
