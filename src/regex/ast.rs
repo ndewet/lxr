@@ -2,6 +2,10 @@ use crate::regex::charset::CharSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
+    // Sequences and alternations hold their children in a list rather than
+    // nesting pairwise, so a pattern's tree depth is its group nesting rather
+    // than its length. Both sides are flattened, which keeps a folded chain
+    // equal to the same pattern grouped any other way.
     Epsilon,
     Class(CharSet),
     Concatenation(Vec<Node>),
@@ -13,10 +17,10 @@ pub enum Node {
 }
 
 impl Node {
-    /// Sequences and alternations hold their children in a list rather than
-    /// nesting pairwise, so a pattern's tree depth is its group nesting rather
-    /// than its length. Both sides are flattened, which keeps a folded chain
-    /// equal to the same pattern grouped any other way.
+    /// Returns a node matching `self` followed by `other`.
+    ///
+    /// Concatenations are flattened into a single node, and
+    /// [`Epsilon`](Node::Epsilon) operands are dropped.
     pub fn concat(self, other: Self) -> Self {
         match (self, other) {
             (Self::Epsilon, node) | (node, Self::Epsilon) => node,
@@ -28,6 +32,9 @@ impl Node {
         }
     }
 
+    /// Returns a node matching either `self` or `other`.
+    ///
+    /// Alternations are flattened into a single node.
     pub fn alternate(self, other: Self) -> Self {
         let mut branches = self.into_alternation_branches();
         branches.extend(other.into_alternation_branches());
@@ -48,18 +55,23 @@ impl Node {
         }
     }
 
+    /// Returns a node matching `self` repeated zero or more times.
     pub fn star(self) -> Self {
         Self::Star(Box::new(self))
     }
 
+    /// Returns a node matching `self` repeated one or more times.
     pub fn plus(self) -> Self {
         Self::Plus(Box::new(self))
     }
 
+    /// Returns a node matching `self` zero or one times.
     pub fn optional(self) -> Self {
         Self::Optional(Box::new(self))
     }
 
+    /// Returns a node matching `self` repeated as many times as `repetitions`
+    /// allows.
     pub fn repeated(self, repetitions: Repetitions) -> Self {
         Self::Repetition(Box::new(self), repetitions)
     }
