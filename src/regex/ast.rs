@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_concatenation_holds_every_part_in_one_node() {
+    fn concatenation_holds_every_part_in_one_node() {
         let node = class('a').concat(class('b')).concat(class('c'));
         assert_eq!(
             node,
@@ -93,7 +93,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alternation_holds_every_branch_in_one_node() {
+    fn alternation_holds_every_branch_in_one_node() {
         let node = class('a').alternate(class('b')).alternate(class('c'));
         assert_eq!(
             node,
@@ -102,21 +102,21 @@ mod tests {
     }
 
     #[test]
-    fn test_grouping_does_not_change_a_concatenation() {
+    fn grouping_does_not_change_a_concatenation() {
         let left_folded = class('a').concat(class('b')).concat(class('c'));
         let right_folded = class('a').concat(class('b').concat(class('c')));
         assert_eq!(left_folded, right_folded);
     }
 
     #[test]
-    fn test_grouping_does_not_change_an_alternation() {
+    fn grouping_does_not_change_an_alternation() {
         let left_folded = class('a').alternate(class('b')).alternate(class('c'));
         let right_folded = class('a').alternate(class('b').alternate(class('c')));
         assert_eq!(left_folded, right_folded);
     }
 
     #[test]
-    fn test_quantifiers_still_nest_their_operand() {
+    fn quantifiers_still_nest_their_operand() {
         let node = class('a').concat(class('b')).star();
         assert_eq!(
             node,
@@ -125,14 +125,14 @@ mod tests {
     }
 
     #[test]
-    fn test_epsilon_is_absorbed_by_concatenation() {
+    fn epsilon_is_absorbed_by_concatenation() {
         assert_eq!(Node::Epsilon.concat(class('a')), class('a'));
         assert_eq!(class('a').concat(Node::Epsilon), class('a'));
         assert_eq!(Node::Epsilon.concat(Node::Epsilon), Node::Epsilon);
     }
 
     #[test]
-    fn test_a_long_concatenation_is_flat_rather_than_deep() {
+    fn a_long_concatenation_is_flat_rather_than_deep() {
         match folded(100_000) {
             Node::Concatenation(parts) => assert_eq!(parts.len(), 100_000),
             other => panic!("expected one concatenation node, got {other:?}"),
@@ -140,12 +140,12 @@ mod tests {
     }
 
     #[test]
-    fn test_a_long_concatenation_drops_without_overflowing_the_stack() {
+    fn a_long_concatenation_drops_without_overflowing_the_stack() {
         drop(folded(100_000));
     }
 
     #[test]
-    fn test_a_long_alternation_drops_without_overflowing_the_stack() {
+    fn a_long_alternation_drops_without_overflowing_the_stack() {
         let node = (0..100_000).fold(Node::Epsilon, |node, _| node.alternate(class('a')));
         drop(node);
     }
