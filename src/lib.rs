@@ -1,2 +1,2 @@
-pub mod regex;
 mod automata;
+pub mod regex;
