@@ -23,7 +23,18 @@
 #   release=true|false
 #   version=X.Y.Z         (only when release=true)
 #   tag=vX.Y.Z            (only when release=true)
+#   needs_bump=true|false (only when release=true)
 # The changelog body is written to $NOTES_FILE (default: release-notes.md).
+#
+# needs_bump drives the two phases of a release. main takes signed commits
+# through squashed pull requests only, so the version bump cannot be pushed to
+# it directly; it is opened as a PR instead. needs_bump=true means Cargo.toml
+# does not declare the computed version yet and that PR still has to land;
+# false means it does, and the release is just a tag on the current commit.
+#
+# The computed version wins over whatever Cargo.toml happens to say - the last
+# tag plus the commits after it are the source of truth, so a hand-edited
+# Cargo.toml ahead of that gets rewritten back down.
 
 set -euo pipefail
 
@@ -145,6 +156,13 @@ section() {
 	fi
 } >"$notes_file"
 
+if [[ "$(package_version)" == "$version" ]]; then
+	needs_bump=false
+else
+	needs_bump=true
+fi
+
 emit "release=true"
 emit "version=${version}"
 emit "tag=v${version}"
+emit "needs_bump=${needs_bump}"
