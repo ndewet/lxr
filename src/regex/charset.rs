@@ -15,10 +15,12 @@ struct CharRange {
 }
 
 impl CharSet {
+    /// Creates a `CharSet` containing no characters.
     pub fn empty() -> Self {
         Self { ranges: Vec::new() }
     }
 
+    /// Creates a `CharSet` containing `c` and nothing else.
     pub fn single(c: char) -> Self {
         let codepoint = c as u32;
         Self {
@@ -29,6 +31,12 @@ impl CharSet {
         }
     }
 
+    /// Creates a `CharSet` containing every character from `low` to `high`,
+    /// inclusive.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `low` is greater than `high`.
     pub fn range(low: char, high: char) -> Self {
         assert!(low <= high);
         Self::from_ranges(vec![CharRange {
@@ -37,6 +45,7 @@ impl CharSet {
         }])
     }
 
+    /// Returns `true` if the set contains `c`.
     pub fn contains(&self, c: char) -> bool {
         let cp = c as u32;
         self.ranges
@@ -52,12 +61,14 @@ impl CharSet {
             .is_ok()
     }
 
+    /// Returns the set of characters that are in `self` or in `other`.
     pub fn union(&self, other: &Self) -> Self {
         let mut all = self.ranges.clone();
         all.extend_from_slice(&other.ranges);
         Self::from_ranges(all)
     }
 
+    /// Returns the set of characters that are in `self` but not in `other`.
     pub fn subtract(&self, other: &Self) -> Self {
         let mut remaining = Vec::new();
         for range in &self.ranges {
@@ -87,10 +98,12 @@ impl CharSet {
         Self::from_ranges(remaining)
     }
 
+    /// Returns the set of characters that are not in `self`.
     pub fn negate(&self) -> Self {
         Self::any().subtract(self)
     }
 
+    /// Creates a `CharSet` containing every `char`.
     pub fn any() -> Self {
         Self {
             ranges: vec![
@@ -106,10 +119,13 @@ impl CharSet {
         }
     }
 
+    /// Creates a `CharSet` containing the characters `0` to `9`.
     pub fn digits() -> Self {
         Self::range('0', '9')
     }
 
+    /// Creates a `CharSet` containing the ASCII letters, the characters `0` to
+    /// `9`, and `_`.
     pub fn word() -> Self {
         Self::digits()
             .union(&Self::range('a', 'z'))
@@ -117,10 +133,13 @@ impl CharSet {
             .union(&Self::single('_'))
     }
 
+    /// Creates a `CharSet` containing the space and the characters `\t` to
+    /// `\r`.
     pub fn whitespace() -> Self {
         Self::single(' ').union(&Self::range('\t', '\r'))
     }
 
+    /// Returns `true` if the set contains no characters.
     pub fn is_empty(&self) -> bool {
         self.ranges.is_empty()
     }
@@ -159,7 +178,6 @@ impl CharSet {
                     high: range.high,
                 });
             }
-            // Entirely inside the gap: contributes nothing.
         }
         result
     }
