@@ -61,6 +61,18 @@ impl CharSet {
             .is_ok()
     }
 
+    /// Returns the ranges the set is made of, from lowest to highest.
+    ///
+    /// The ranges are disjoint and maximal: no two of them overlap, and each
+    /// one is as wide as the set allows.
+    pub fn ranges(&self) -> impl Iterator<Item = (char, char)> + '_ {
+        self.ranges.iter().map(|range| {
+            let low = char::from_u32(range.low).expect("a bound is never a surrogate");
+            let high = char::from_u32(range.high).expect("a bound is never a surrogate");
+            (low, high)
+        })
+    }
+
     /// Returns the set of characters that are in `self` or in `other`.
     pub fn union(&self, other: &Self) -> Self {
         let mut all = self.ranges.clone();
