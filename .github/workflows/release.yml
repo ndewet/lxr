@@ -2,16 +2,26 @@ name: Release
 
 # Releases are cut by hand, not on every merge. A dispatch aggregates every
 # unreleased commit on main - all the ones since the last tag - into one version.
+#
+# main's ruleset takes no direct pushes and only signed commits, so a release
+# runs in two dispatches:
+#
+#   1. Cargo.toml is behind the computed version: open "chore(release): vX.Y.Z"
+#      as a pull request. Merging it squashes the bump into a commit GitHub
+#      signs itself, which is what satisfies the ruleset.
+#   2. Cargo.toml already declares it: tag the commit and publish the release.
+#      Nothing is written to main.
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Report the version and changelog without tagging or publishing"
+        description: "Report the version and changelog without opening a PR, tagging or publishing"
         type: boolean
         default: false
 
+# Every write goes through the app token below; nothing here uses GITHUB_TOKEN.
 permissions:
-  contents: write
+  contents: read
 
 # Never cut two releases at once; queue them instead of cancelling.
 concurrency:
@@ -40,11 +50,24 @@ jobs:
           echo "::error::Releases must be dispatched from main (got ${REF})."
           exit 1
 
+      # A pull request opened with GITHUB_TOKEN does not trigger the workflows
+      # behind main's required status checks, so the release PR could never be
+      # merged. Acting as an app avoids that. The app needs contents:write and
+      # pull-requests:write, and is deliberately NOT a ruleset bypass actor - it
+      # goes through review like any other contributor.
+      - name: Mint release token
+        id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v5
         with:
           # Full history and tags: the version is derived from the commits since
           # the last release tag.
           fetch-depth: 0
+          token: ${{ steps.token.outputs.token }}
 
       - name: Decide next version
         id: plan
@@ -59,7 +82,8 @@ jobs:
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
 
-      # Don't tag a commit that doesn't build and pass its tests.
+      # Don't tag a commit - or propose a release - that doesn't build and pass
+      # its tests.
       - name: Verify
         if: steps.plan.outputs.release == 'true'
         env:
@@ -68,47 +92,67 @@ jobs:
           cargo test --all-features --all-targets
           cargo test --all-features --doc
 
-      - name: Bump crate version
-        if: steps.plan.outputs.release == 'true' && !inputs.dry_run
+      # Phase 1: main isn't at the release version yet.
+      - name: Open release PR
+        if: steps.plan.outputs.release == 'true' && steps.plan.outputs.needs_bump == 'true' && !inputs.dry_run
         env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           VERSION: ${{ steps.plan.outputs.version }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
+          BODY_FILE: ${{ runner.temp }}/pr-body.md
         run: |
+          branch="release/${TAG}"
+
           bash .github/scripts/set-cargo-version.sh "$VERSION"
           cargo update --workspace   # keep Cargo.lock's own entry in sync
 
-      - name: Commit, tag and push
-        if: steps.plan.outputs.release == 'true' && !inputs.dry_run
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add Cargo.toml Cargo.lock
+          # No [skip ci] marker: main's required status checks have to actually
+          # run on this branch or the PR can never be merged. "chore" keeps the
+          # squashed commit from counting as a release of its own.
+          git commit -m "chore(release): ${TAG}"
+          git push --force-with-lease origin "$branch"
+
+          {
+            echo "Merging this cuts **${TAG}**. Dispatch Release again afterwards to tag and publish it."
+            echo
+            cat "$NOTES_FILE"
+          } >"$BODY_FILE"
+
+          # Re-dispatching before the PR lands should refresh it, not fail.
+          existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            gh pr edit "$existing" --title "chore(release): ${TAG}" --body-file "$BODY_FILE"
+            echo "Updated existing release PR #${existing}."
+          else
+            gh pr create --base main --head "$branch" \
+              --title "chore(release): ${TAG}" --body-file "$BODY_FILE"
+          fi
+
+      # Phase 2: main already declares the version, so the release is a tag on
+      # it. main's ruleset covers branches only, so this needs no bypass.
+      - name: Tag and publish
+        if: steps.plan.outputs.release == 'true' && steps.plan.outputs.needs_bump == 'false' && !inputs.dry_run
         env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           TAG: ${{ steps.plan.outputs.tag }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock
-          if git diff --cached --quiet; then
-            # First release: Cargo.toml already declares this version, so there
-            # is nothing to bump - just tag the commit as it stands.
-            echo "Cargo.toml already at ${TAG}; tagging without a bump commit."
-          else
-            # "chore" so this commit never triggers a release of its own; the
-            # [skip ci] marker also keeps it from re-running the workflows.
-            git commit -m "chore(release): ${TAG} [skip ci]"
-            git push origin HEAD:main
-          fi
           git tag -a "$TAG" -m "$TAG"
           git push origin "$TAG"
-
-      - name: Create GitHub Release
-        if: steps.plan.outputs.release == 'true' && !inputs.dry_run
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.plan.outputs.tag }}
-          NOTES_FILE: ${{ runner.temp }}/release-notes.md
-        run: gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
+          gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
 
       - name: Summary
         if: always() && steps.plan.conclusion == 'success'
         env:
           RELEASE: ${{ steps.plan.outputs.release }}
+          NEEDS_BUMP: ${{ steps.plan.outputs.needs_bump }}
           TAG: ${{ steps.plan.outputs.tag }}
           DRY_RUN: ${{ inputs.dry_run }}
           NOTES_FILE: ${{ runner.temp }}/release-notes.md
@@ -116,12 +160,18 @@ jobs:
           {
             if [[ "$RELEASE" != "true" ]]; then
               echo 'No `major`/`feat`/`fix` commits since the last release - nothing to cut.'
-            elif [[ "$DRY_RUN" == "true" ]]; then
-              echo "Dry run: would release **${TAG}**"
-              echo
-              cat "$NOTES_FILE"
             else
-              echo "Released **${TAG}**"
+              if [[ "$NEEDS_BUMP" == "true" ]]; then
+                if [[ "$DRY_RUN" == "true" ]]; then
+                  echo "Dry run: would open a release PR for **${TAG}**"
+                else
+                  echo "Opened a release PR for **${TAG}**. Merge it, then dispatch Release again to tag and publish."
+                fi
+              elif [[ "$DRY_RUN" == "true" ]]; then
+                echo "Dry run: would release **${TAG}**"
+              else
+                echo "Released **${TAG}**"
+              fi
               echo
               cat "$NOTES_FILE"
             fi
