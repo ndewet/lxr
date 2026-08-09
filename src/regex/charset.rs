@@ -170,13 +170,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty_charset_is_empty() {
+    fn empty_charset_is_empty() {
         let charset = CharSet::empty();
         assert!(charset.is_empty());
     }
 
     #[test]
-    fn test_empty_charset_does_not_contain_anything() {
+    fn empty_charset_does_not_contain_anything() {
         let charset = CharSet::empty();
         assert!(charset.is_empty());
         assert!(!charset.contains('a'));
@@ -185,19 +185,19 @@ mod tests {
     }
 
     #[test]
-    fn test_single_charset_is_not_empty() {
+    fn single_charset_is_not_empty() {
         let charset = CharSet::single('a');
         assert!(!charset.is_empty());
     }
 
     #[test]
-    fn test_single_charset_contains_expected_character() {
+    fn single_charset_contains_expected_character() {
         let charset = CharSet::single('b');
         assert!(charset.contains('b'));
     }
 
     #[test]
-    fn test_single_charset_does_not_contain_other_characters() {
+    fn single_charset_does_not_contain_other_characters() {
         let charset = CharSet::single('c');
         assert!(!charset.contains('a'));
         assert!(!charset.contains('b'));
@@ -206,13 +206,13 @@ mod tests {
     }
 
     #[test]
-    fn test_range_charset_is_not_empty() {
+    fn range_charset_is_not_empty() {
         let charset = CharSet::range('a', 'z');
         assert!(!charset.is_empty());
     }
 
     #[test]
-    fn test_range_charset_contains_all_characters_in_range() {
+    fn range_charset_contains_all_characters_in_range() {
         let charset = CharSet::range('b', 'e');
         assert!(charset.contains('b'));
         assert!(charset.contains('c'));
@@ -221,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn test_range_charset_does_not_contain_characters_outside_range() {
+    fn range_charset_does_not_contain_characters_outside_range() {
         let charset = CharSet::range('b', 'e');
         assert!(!charset.contains('a'));
         assert!(!charset.contains('f'));
@@ -230,13 +230,13 @@ mod tests {
     }
 
     #[test]
-    fn test_any_charset_is_not_empty() {
+    fn any_charset_is_not_empty() {
         let charset = CharSet::any();
         assert!(!charset.is_empty());
     }
 
     #[test]
-    fn test_any_charset_contains_any_character() {
+    fn any_charset_contains_any_character() {
         let charset = CharSet::any();
         assert!(charset.contains(char::MIN));
         assert!(charset.contains('a'));
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_union_of_empty_charset_and_empty_charset_is_empty() {
+    fn union_of_empty_charset_and_empty_charset_is_empty() {
         let empty1 = CharSet::empty();
         let empty2 = CharSet::empty();
         let union = empty1.union(&empty2);
@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn test_union_of_empty_charset_and_any_charset_is_any() {
+    fn union_of_empty_charset_and_any_charset_is_any() {
         let empty = CharSet::empty();
         let any = CharSet::any();
         let union = empty.union(&any);
@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn test_union_of_two_ranges_disjunct_ranges_contains_both_ranges() {
+    fn union_of_two_ranges_disjunct_ranges_contains_both_ranges() {
         let a_to_c = CharSet::range('a', 'c');
         let f_to_h = CharSet::range('f', 'h');
         let union = a_to_c.union(&f_to_h);
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_union_of_two_overlapping_ranges_contains_full_range() {
+    fn union_of_two_overlapping_ranges_contains_full_range() {
         let b_to_d = CharSet::range('b', 'd');
         let c_to_h = CharSet::range('c', 'h');
         let union = b_to_d.union(&c_to_h);
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_negation_of_empty_is_any() {
+    fn negation_of_empty_is_any() {
         let empty = CharSet::empty();
         let any = CharSet::any();
         let negated = empty.negate();
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn test_negation_of_any_is_empty() {
+    fn negation_of_any_is_empty() {
         let empty = CharSet::empty();
         let any = CharSet::any();
         let negated = any.negate();
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn test_negation_of_range_is_two_ranges() {
+    fn negation_of_range_is_two_ranges() {
         let range = CharSet::range('d', 'g');
         let negated = range.negate();
 
@@ -352,20 +352,20 @@ mod tests {
     }
 
     #[test]
-    fn test_range_spanning_the_surrogate_gap_survives_double_negation() {
+    fn range_spanning_the_surrogate_gap_survives_double_negation() {
         let spanning = CharSet::range('\u{D7FF}', '\u{E000}');
         assert_eq!(spanning.negate().negate(), spanning);
     }
 
     #[test]
-    fn test_sets_containing_the_same_characters_are_equal() {
+    fn sets_containing_the_same_characters_are_equal() {
         let as_union = CharSet::single('\u{D7FF}').union(&CharSet::single('\u{E000}'));
         let as_range = CharSet::range('\u{D7FF}', '\u{E000}');
         assert_eq!(as_union, as_range);
     }
 
     #[test]
-    fn test_dot_equals_an_explicit_full_range() {
+    fn dot_equals_an_explicit_full_range() {
         assert_eq!(CharSet::range(char::MIN, char::MAX), CharSet::any());
     }
 }

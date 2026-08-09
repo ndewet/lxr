@@ -61,13 +61,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_cursor_starts_at_position_zero() {
+    fn new_cursor_starts_at_position_zero() {
         let cursor = Cursor::new("ab+c");
         assert_eq!(cursor.position(), 0);
     }
 
     #[test]
-    fn test_pop_increments_position() {
+    fn pop_increments_position() {
         let mut cursor = Cursor::new("ab+c");
         for expected in 1..=4 {
             cursor.pop();
@@ -76,7 +76,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pop_returns_characters_in_order() {
+    fn pop_returns_characters_in_order() {
         let mut cursor = Cursor::new("ab+c");
         for expected in ['a', 'b', '+', 'c'] {
             assert_eq!(cursor.pop(), Some(expected));
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pop_at_end_returns_none_and_does_not_advance() {
+    fn pop_at_end_returns_none_and_does_not_advance() {
         let mut cursor = Cursor::new("a");
         assert_eq!(cursor.pop(), Some('a'));
         assert_eq!(cursor.pop(), None);
@@ -93,7 +93,7 @@ mod tests {
     }
 
     #[test]
-    fn test_peek_returns_the_character_that_pop_will_return() {
+    fn peek_returns_the_character_that_pop_will_return() {
         let mut cursor = Cursor::new("qwerty9");
         for _ in 0..7 {
             let peeked = cursor.peek();
@@ -102,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn test_peek_does_not_advance_position() {
+    fn peek_does_not_advance_position() {
         let cursor = Cursor::new("ab");
         cursor.peek();
         cursor.peek();
@@ -110,13 +110,13 @@ mod tests {
     }
 
     #[test]
-    fn test_peek_at_end_returns_none() {
+    fn peek_at_end_returns_none() {
         let cursor = Cursor::new("");
         assert_eq!(cursor.peek(), None);
     }
 
     #[test]
-    fn test_peek_ahead_returns_the_character_after_the_next_one() {
+    fn peek_ahead_returns_the_character_after_the_next_one() {
         let mut cursor = Cursor::new("ab");
         assert_eq!(cursor.peek_ahead(), Some('b'));
         cursor.pop();
@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[test]
-    fn test_accept_consumes_only_a_matching_character() {
+    fn accept_consumes_only_a_matching_character() {
         let mut cursor = Cursor::new("ab");
         assert!(!cursor.accept('b'));
         assert_eq!(cursor.position(), 0);
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pop_digit_consumes_only_digits_of_the_given_radix() {
+    fn pop_digit_consumes_only_digits_of_the_given_radix() {
         let mut cursor = Cursor::new("7a");
         assert_eq!(cursor.pop_digit(10), Some(7));
         assert_eq!(cursor.pop_digit(10), None);

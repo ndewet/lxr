@@ -362,92 +362,92 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_pattern_parses_to_epsilon() {
+    fn empty_pattern_parses_to_epsilon() {
         assert_eq!(parse(""), Ok(Node::Epsilon));
     }
 
     #[test]
-    fn test_single_character_parses_to_a_class() {
+    fn single_character_parses_to_a_class() {
         assert_eq!(parse("a"), Ok(single('a')));
     }
 
     #[test]
-    fn test_concatenation_associates_to_the_left() {
+    fn concatenation_associates_to_the_left() {
         let expected = single('a').concat(single('b')).concat(single('c'));
         assert_eq!(parse("abc"), Ok(expected));
     }
 
     #[test]
-    fn test_alternation_associates_to_the_left() {
+    fn alternation_associates_to_the_left() {
         let expected = single('a').alternate(single('b')).alternate(single('c'));
         assert_eq!(parse("a|b|c"), Ok(expected));
     }
 
     #[test]
-    fn test_concatenation_binds_tighter_than_alternation() {
+    fn concatenation_binds_tighter_than_alternation() {
         let expected = single('a').concat(single('b')).alternate(single('c'));
         assert_eq!(parse("ab|c"), Ok(expected));
     }
 
     #[test]
-    fn test_empty_alternation_branch_parses_to_epsilon() {
+    fn empty_alternation_branch_parses_to_epsilon() {
         let expected = single('a').alternate(Node::Epsilon);
         assert_eq!(parse("a|"), Ok(expected));
     }
 
     #[test]
-    fn test_group_does_not_appear_in_the_tree() {
+    fn group_does_not_appear_in_the_tree() {
         let expected = single('a').concat(single('b')).concat(single('c'));
         assert_eq!(parse("(ab)c"), Ok(expected));
     }
 
     #[test]
-    fn test_empty_group_parses_to_epsilon() {
+    fn empty_group_parses_to_epsilon() {
         assert_eq!(parse("()"), Ok(Node::Epsilon));
     }
 
     #[test]
-    fn test_quantifier_applies_to_the_preceding_atom_only() {
+    fn quantifier_applies_to_the_preceding_atom_only() {
         let expected = single('a').concat(single('b').star());
         assert_eq!(parse("ab*"), Ok(expected));
     }
 
     #[test]
-    fn test_quantifier_applies_to_a_whole_group() {
+    fn quantifier_applies_to_a_whole_group() {
         let expected = single('a').concat(single('b')).star();
         assert_eq!(parse("(ab)*"), Ok(expected));
     }
 
     #[test]
-    fn test_plus_wraps_the_preceding_atom() {
+    fn plus_wraps_the_preceding_atom() {
         assert_eq!(parse("a+"), Ok(single('a').plus()));
     }
 
     #[test]
-    fn test_optional_wraps_the_preceding_atom() {
+    fn optional_wraps_the_preceding_atom() {
         assert_eq!(parse("a?"), Ok(single('a').optional()));
     }
 
     #[test]
-    fn test_exact_repetition_parses_to_an_equal_range() {
+    fn exact_repetition_parses_to_an_equal_range() {
         let expected = single('a').repeated(Repetitions::Range(3, 3));
         assert_eq!(parse("a{3}"), Ok(expected));
     }
 
     #[test]
-    fn test_open_ended_repetition_parses_to_at_least() {
+    fn open_ended_repetition_parses_to_at_least() {
         let expected = single('a').repeated(Repetitions::AtLeast(3));
         assert_eq!(parse("a{3,}"), Ok(expected));
     }
 
     #[test]
-    fn test_bounded_repetition_parses_to_a_range() {
+    fn bounded_repetition_parses_to_a_range() {
         let expected = single('a').repeated(Repetitions::Range(3, 5));
         assert_eq!(parse("a{3,5}"), Ok(expected));
     }
 
     #[test]
-    fn test_dot_matches_any_character_except_a_newline() {
+    fn dot_matches_any_character_except_a_newline() {
         let dot = class_of(".");
         assert!(!dot.contains('\n'));
         assert!(dot.contains('\r'));
@@ -456,19 +456,19 @@ mod tests {
     }
 
     #[test]
-    fn test_negated_classes_match_a_newline() {
+    fn negated_classes_match_a_newline() {
         assert!(class_of("[^a]").contains('\n'));
         assert!(class_of(r"\D").contains('\n'));
         assert!(class_of(r"\W").contains('\n'));
     }
 
     #[test]
-    fn test_any_character_including_a_newline_is_written_as_a_class_union() {
+    fn any_character_including_a_newline_is_written_as_a_class_union() {
         assert_eq!(class_of(r"[\s\S]"), CharSet::any());
     }
 
     #[test]
-    fn test_class_unions_its_items() {
+    fn class_unions_its_items() {
         let expected = CharSet::single('a')
             .union(&CharSet::single('b'))
             .union(&CharSet::single('c'));
@@ -476,33 +476,33 @@ mod tests {
     }
 
     #[test]
-    fn test_class_range_covers_the_whole_range() {
+    fn class_range_covers_the_whole_range() {
         assert_eq!(parse("[a-c]"), Ok(class(CharSet::range('a', 'c'))));
     }
 
     #[test]
-    fn test_negated_class_matches_everything_else() {
+    fn negated_class_matches_everything_else() {
         assert_eq!(parse("[^a]"), Ok(class(CharSet::single('a').negate())));
     }
 
     #[test]
-    fn test_leading_close_bracket_is_a_literal() {
+    fn leading_close_bracket_is_a_literal() {
         assert_eq!(parse("[]]"), Ok(class(CharSet::single(']'))));
     }
 
     #[test]
-    fn test_negated_class_keeps_a_leading_close_bracket_literal() {
+    fn negated_class_keeps_a_leading_close_bracket_literal() {
         assert_eq!(parse("[^]]"), Ok(class(CharSet::single(']').negate())));
     }
 
     #[test]
-    fn test_trailing_dash_is_a_literal() {
+    fn trailing_dash_is_a_literal() {
         let expected = CharSet::single('a').union(&CharSet::single('-'));
         assert_eq!(parse("[a-]"), Ok(class(expected)));
     }
 
     #[test]
-    fn test_dash_after_a_class_escape_is_a_literal() {
+    fn dash_after_a_class_escape_is_a_literal() {
         let expected = CharSet::digits().union(&set_of("-z"));
         assert_eq!(parse(r"[\d-z]"), Ok(class(expected)));
         let expected = CharSet::word().union(&set_of("-~"));
@@ -510,13 +510,13 @@ mod tests {
     }
 
     #[test]
-    fn test_dash_before_a_close_bracket_is_a_literal_after_a_class_escape() {
+    fn dash_before_a_close_bracket_is_a_literal_after_a_class_escape() {
         let expected = CharSet::digits().union(&CharSet::single('-'));
         assert_eq!(parse(r"[\d-]"), Ok(class(expected)));
     }
 
     #[test]
-    fn test_escaped_dash_after_a_class_escape_is_a_literal() {
+    fn escaped_dash_after_a_class_escape_is_a_literal() {
         let expected = CharSet::digits()
             .union(&CharSet::single('-'))
             .union(&CharSet::single('z'));
@@ -524,12 +524,12 @@ mod tests {
     }
 
     #[test]
-    fn test_escape_is_not_parsed_as_backslash_at_the_low_end_of_a_range() {
+    fn escape_is_not_parsed_as_backslash_at_the_low_end_of_a_range() {
         assert_eq!(parse(r"[\t-\r]"), Ok(class(CharSet::range('\t', '\r'))));
     }
 
     #[test]
-    fn test_escape_is_not_parsed_as_backslash_at_the_high_end_of_a_range() {
+    fn escape_is_not_parsed_as_backslash_at_the_high_end_of_a_range() {
         let expected = Kind::InvertedRange {
             low: '0',
             high: '\t',
@@ -539,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn test_class_escapes_expand_to_their_sets() {
+    fn class_escapes_expand_to_their_sets() {
         assert_eq!(parse(r"\d"), Ok(class(CharSet::digits())));
         assert_eq!(parse(r"\D"), Ok(class(CharSet::digits().negate())));
         assert_eq!(parse(r"\w"), Ok(class(CharSet::word())));
@@ -549,14 +549,14 @@ mod tests {
     }
 
     #[test]
-    fn test_control_escapes_expand_to_single_characters() {
+    fn control_escapes_expand_to_single_characters() {
         assert_eq!(parse(r"\n"), Ok(single('\n')));
         assert_eq!(parse(r"\t"), Ok(single('\t')));
         assert_eq!(parse(r"\r"), Ok(single('\r')));
     }
 
     #[test]
-    fn test_punctuation_escapes_are_literal() {
+    fn punctuation_escapes_are_literal() {
         assert_eq!(parse(r"\."), Ok(single('.')));
         assert_eq!(parse(r"\*"), Ok(single('*')));
         assert_eq!(parse(r"\\"), Ok(single('\\')));
@@ -564,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn test_quantifier_without_an_atom_is_rejected() {
+    fn quantifier_without_an_atom_is_rejected() {
         assert_eq!(parse("*"), Err(Kind::NothingToRepeat('*').at(0)));
         assert_eq!(parse("+"), Err(Kind::NothingToRepeat('+').at(0)));
         assert_eq!(parse("?"), Err(Kind::NothingToRepeat('?').at(0)));
@@ -573,17 +573,17 @@ mod tests {
     }
 
     #[test]
-    fn test_repeated_quantifier_is_rejected() {
+    fn repeated_quantifier_is_rejected() {
         assert_eq!(parse("a**"), Err(Kind::RepeatedQuantifier('*').at(2)));
     }
 
     #[test]
-    fn test_lazy_quantifier_is_rejected() {
+    fn lazy_quantifier_is_rejected() {
         assert_eq!(parse("a*?"), Err(Kind::RepeatedQuantifier('?').at(2)));
     }
 
     #[test]
-    fn test_inverted_range_is_rejected() {
+    fn inverted_range_is_rejected() {
         let expected = Kind::InvertedRange {
             low: 'z',
             high: 'a',
@@ -593,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inverted_repetition_bounds_are_rejected() {
+    fn inverted_repetition_bounds_are_rejected() {
         let expected = Kind::InvertedRepetition {
             minimum: 3,
             maximum: 1,
@@ -603,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn test_repetition_bound_that_does_not_fit_is_rejected() {
+    fn repetition_bound_that_does_not_fit_is_rejected() {
         assert_eq!(
             parse("a{99999999999999999999999}"),
             Err(Kind::RepetitionTooLarge.at(2))
@@ -611,42 +611,42 @@ mod tests {
     }
 
     #[test]
-    fn test_unclosed_class_is_rejected() {
+    fn unclosed_class_is_rejected() {
         assert_eq!(parse("[abc"), Err(Kind::UnclosedClass.at(0)));
     }
 
     #[test]
-    fn test_class_ending_after_a_range_dash_is_rejected() {
+    fn class_ending_after_a_range_dash_is_rejected() {
         assert_eq!(parse("[a-"), Err(Kind::UnclosedClass.at(0)));
     }
 
     #[test]
-    fn test_class_matching_nothing_is_rejected() {
+    fn class_matching_nothing_is_rejected() {
         assert_eq!(parse(r"[^\d\D]"), Err(Kind::EmptyClass.at(0)));
     }
 
     #[test]
-    fn test_unclosed_group_is_rejected() {
+    fn unclosed_group_is_rejected() {
         assert_eq!(parse("(ab"), Err(Kind::UnclosedGroup.at(0)));
     }
 
     #[test]
-    fn test_unopened_group_is_rejected() {
+    fn unopened_group_is_rejected() {
         assert_eq!(parse("a)"), Err(Kind::UnmatchedCloseParenthesis.at(1)));
     }
 
     #[test]
-    fn test_unknown_escape_is_rejected() {
+    fn unknown_escape_is_rejected() {
         assert_eq!(parse(r"\q"), Err(Kind::UnknownEscape('q').at(0)));
     }
 
     #[test]
-    fn test_escape_at_end_of_pattern_is_rejected() {
+    fn escape_at_end_of_pattern_is_rejected() {
         assert_eq!(parse(r"a\"), Err(Kind::UnexpectedEnd.at(1)));
     }
 
     #[test]
-    fn test_braces_that_do_not_form_a_quantifier_are_literal_text() {
+    fn braces_that_do_not_form_a_quantifier_are_literal_text() {
         assert_eq!(parse("a{"), Ok(literals("a{")));
         assert_eq!(parse("a{}"), Ok(literals("a{}")));
         assert_eq!(parse("a{x}"), Ok(literals("a{x}")));
@@ -657,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn test_quantifier_shaped_braces_with_nothing_to_repeat_are_rejected() {
+    fn quantifier_shaped_braces_with_nothing_to_repeat_are_rejected() {
         assert_eq!(parse("{3}"), Err(Kind::NothingToRepeat('{').at(0)));
         assert_eq!(parse("{3,5}"), Err(Kind::NothingToRepeat('{').at(0)));
         assert_eq!(parse("a|{2}"), Err(Kind::NothingToRepeat('{').at(2)));
@@ -665,29 +665,29 @@ mod tests {
     }
 
     #[test]
-    fn test_braces_that_cannot_be_a_quantifier_are_literal_wherever_they_appear() {
+    fn braces_that_cannot_be_a_quantifier_are_literal_wherever_they_appear() {
         assert_eq!(parse("{x}"), Ok(literals("{x}")));
         assert_eq!(parse("{,3}"), Ok(literals("{,3}")));
     }
 
     #[test]
-    fn test_literal_braces_after_a_quantifier_are_not_a_stacked_quantifier() {
+    fn literal_braces_after_a_quantifier_are_not_a_stacked_quantifier() {
         let expected = literals_after(single('a').star(), "{x}");
         assert_eq!(parse("a*{x}"), Ok(expected));
     }
 
     #[test]
-    fn test_braces_that_do_form_a_quantifier_after_a_quantifier_are_rejected() {
+    fn braces_that_do_form_a_quantifier_after_a_quantifier_are_rejected() {
         assert_eq!(parse("a*{3}"), Err(Kind::RepeatedQuantifier('{').at(2)));
     }
 
     #[test]
-    fn test_class_escape_as_a_range_endpoint_is_rejected() {
+    fn class_escape_as_a_range_endpoint_is_rejected() {
         assert_eq!(parse(r"[a-\d]"), Err(Kind::ClassEscapeInRange('d').at(3)));
     }
 
     #[test]
-    fn test_errors_name_the_offending_character_and_position() {
+    fn errors_name_the_offending_character_and_position() {
         assert_eq!(message("*"), "'*' has nothing to repeat at position 0");
         assert_eq!(message("a*+"), "repeated quantifier '+' at position 2");
         assert_eq!(message("(ab"), "unclosed '(' at position 0");
@@ -718,12 +718,12 @@ mod tests {
     }
 
     #[test]
-    fn test_error_messages_escape_control_characters() {
+    fn error_messages_escape_control_characters() {
         assert_eq!(message(r"[0-\t]"), "invalid range '0-\\t' at position 1");
     }
 
     #[test]
-    fn test_shorthand_classes_match_their_definitions() {
+    fn shorthand_classes_match_their_definitions() {
         assert_eq!(class_of(r"\d"), class_of("[0-9]"));
         assert_eq!(class_of(r"\w"), class_of("[0-9A-Za-z_]"));
         assert_eq!(class_of(r"\s"), class_of(r"[ \t\n\v\f\r]"));
@@ -733,34 +733,34 @@ mod tests {
     }
 
     #[test]
-    fn test_control_escapes_cover_every_whitespace_character() {
+    fn control_escapes_cover_every_whitespace_character() {
         assert_eq!(parse(r"\a"), Ok(single('\u{07}')));
         assert_eq!(parse(r"\v"), Ok(single('\u{0B}')));
         assert_eq!(parse(r"\f"), Ok(single('\u{0C}')));
     }
 
     #[test]
-    fn test_two_digit_hex_escapes_name_a_code_point() {
+    fn two_digit_hex_escapes_name_a_code_point() {
         assert_eq!(parse(r"\x41"), Ok(single('A')));
         assert_eq!(parse(r"\x00"), Ok(single('\0')));
         assert_eq!(parse(r"\x7f"), Ok(single('\u{7F}')));
     }
 
     #[test]
-    fn test_braced_hex_escapes_name_a_code_point() {
+    fn braced_hex_escapes_name_a_code_point() {
         assert_eq!(parse(r"\x{a}"), Ok(single('\n')));
         assert_eq!(parse(r"\x{1F600}"), Ok(single('\u{1F600}')));
         assert_eq!(parse(r"\x{10FFFF}"), Ok(single('\u{10FFFF}')));
     }
 
     #[test]
-    fn test_hex_escapes_are_range_endpoints() {
+    fn hex_escapes_are_range_endpoints() {
         let expected = CharSet::range('\0', '\u{7F}');
         assert_eq!(parse(r"[\x00-\x{7F}]"), Ok(class(expected)));
     }
 
     #[test]
-    fn test_hex_escape_outside_the_unicode_range_is_rejected() {
+    fn hex_escape_outside_the_unicode_range_is_rejected() {
         assert_eq!(
             parse(r"\x{110000}"),
             Err(Kind::InvalidCodePoint(0x0011_0000).at(0))
@@ -768,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hex_escape_naming_a_surrogate_is_rejected() {
+    fn hex_escape_naming_a_surrogate_is_rejected() {
         assert_eq!(
             parse(r"\x{D800}"),
             Err(Kind::InvalidCodePoint(0xD800).at(0))
@@ -776,21 +776,21 @@ mod tests {
     }
 
     #[test]
-    fn test_incomplete_hex_escape_is_rejected() {
+    fn incomplete_hex_escape_is_rejected() {
         assert_eq!(parse(r"\x"), Err(Kind::UnexpectedEnd.at(2)));
         assert_eq!(parse(r"\xZZ"), Err(Kind::UnexpectedCharacter('Z').at(2)));
         assert_eq!(parse(r"\x{}"), Err(Kind::UnexpectedCharacter('}').at(3)));
     }
 
     #[test]
-    fn test_hex_escapes_allow_leading_zeros_and_a_single_digit() {
+    fn hex_escapes_allow_leading_zeros_and_a_single_digit() {
         assert_eq!(parse(r"\x4"), Ok(single('\u{4}')));
         assert_eq!(parse(r"\x{041}"), Ok(single('A')));
         assert_eq!(parse(r"\x{000000000041}"), Ok(single('A')));
     }
 
     #[test]
-    fn test_repetition_bound_above_the_pcre_limit_is_rejected() {
+    fn repetition_bound_above_the_pcre_limit_is_rejected() {
         let expected = single('a').repeated(Repetitions::Range(65535, 65535));
         assert_eq!(parse("a{65535}"), Ok(expected));
         assert_eq!(parse("a{65536}"), Err(Kind::RepetitionTooLarge.at(2)));
@@ -798,26 +798,26 @@ mod tests {
     }
 
     #[test]
-    fn test_anchors_are_rejected_rather_than_read_as_literals() {
+    fn anchors_are_rejected_rather_than_read_as_literals() {
         assert_eq!(parse("^a"), Err(Kind::UnsupportedAnchor('^').at(0)));
         assert_eq!(parse("a$"), Err(Kind::UnsupportedAnchor('$').at(1)));
         assert_eq!(parse("(^)"), Err(Kind::UnsupportedAnchor('^').at(1)));
     }
 
     #[test]
-    fn test_escaped_anchors_are_literals() {
+    fn escaped_anchors_are_literals() {
         assert_eq!(parse(r"\^"), Ok(single('^')));
         assert_eq!(parse(r"\$"), Ok(single('$')));
     }
 
     #[test]
-    fn test_anchor_characters_inside_a_class_are_literals() {
+    fn anchor_characters_inside_a_class_are_literals() {
         let expected = CharSet::single('$').union(&CharSet::single('^'));
         assert_eq!(parse("[$^]"), Ok(class(expected)));
     }
 
     #[test]
-    fn test_posix_classes_are_rejected_rather_than_read_as_literals() {
+    fn posix_classes_are_rejected_rather_than_read_as_literals() {
         assert_eq!(parse("[[:alpha:]]"), Err(Kind::UnsupportedPosixClass.at(1)));
         assert_eq!(
             parse("a[[:digit:]]b"),
@@ -826,33 +826,33 @@ mod tests {
     }
 
     #[test]
-    fn test_group_modifiers_are_rejected() {
+    fn group_modifiers_are_rejected() {
         assert_eq!(parse("(?:ab)"), Err(Kind::UnsupportedGroup.at(0)));
         assert_eq!(parse("(?i)ab"), Err(Kind::UnsupportedGroup.at(0)));
         assert_eq!(parse("(?=ab)"), Err(Kind::UnsupportedGroup.at(0)));
     }
 
     #[test]
-    fn test_octal_escapes_are_rejected_rather_than_read_as_a_null_byte() {
+    fn octal_escapes_are_rejected_rather_than_read_as_a_null_byte() {
         assert_eq!(parse(r"\012"), Err(Kind::UnsupportedOctalEscape.at(0)));
         assert_eq!(parse(r"\0"), Err(Kind::UnsupportedOctalEscape.at(0)));
         assert_eq!(parse(r"a\07"), Err(Kind::UnsupportedOctalEscape.at(1)));
     }
 
     #[test]
-    fn test_a_null_character_is_written_as_a_hex_escape() {
+    fn a_null_character_is_written_as_a_hex_escape() {
         assert_eq!(parse(r"\x00"), Ok(single('\0')));
         assert_eq!(parse(r"\x{0}a"), Ok(single('\0').concat(single('a'))));
     }
 
     #[test]
-    fn test_backreferences_are_rejected() {
+    fn backreferences_are_rejected() {
         assert_eq!(parse(r"(a)\1"), Err(Kind::UnsupportedBackreference.at(3)));
         assert_eq!(parse(r"\9"), Err(Kind::UnsupportedBackreference.at(0)));
     }
 
     #[test]
-    fn test_unsupported_features_say_what_is_unsupported() {
+    fn unsupported_features_say_what_is_unsupported() {
         assert_eq!(message("^a"), "anchor '^' is not supported at position 0");
         assert_eq!(
             message("(?:a)"),
@@ -877,7 +877,7 @@ mod tests {
     }
 
     #[test]
-    fn test_quantifiers_apply_to_every_kind_of_atom() {
+    fn quantifiers_apply_to_every_kind_of_atom() {
         let dot = CharSet::single('\n').negate();
         assert_eq!(parse(".*"), Ok(class(dot).star()));
         assert_eq!(parse(r"\d+"), Ok(class(CharSet::digits()).plus()));
@@ -888,83 +888,83 @@ mod tests {
     }
 
     #[test]
-    fn test_alternation_inside_a_group_does_not_escape_it() {
+    fn alternation_inside_a_group_does_not_escape_it() {
         let expected = single('a').alternate(single('b')).concat(single('c'));
         assert_eq!(parse("(a|b)c"), Ok(expected));
     }
 
     #[test]
-    fn test_empty_group_disappears_from_a_concatenation() {
+    fn empty_group_disappears_from_a_concatenation() {
         assert_eq!(parse("()a"), Ok(single('a')));
         assert_eq!(parse("a()"), Ok(single('a')));
     }
 
     #[test]
-    fn test_quantified_empty_group_quantifies_epsilon() {
+    fn quantified_empty_group_quantifies_epsilon() {
         assert_eq!(parse("()*"), Ok(Node::Epsilon.star()));
     }
 
     #[test]
-    fn test_zero_repetition_is_allowed() {
+    fn zero_repetition_is_allowed() {
         let expected = single('a').repeated(Repetitions::Range(0, 0));
         assert_eq!(parse("a{0}"), Ok(expected));
     }
 
     #[test]
-    fn test_positions_count_characters_not_bytes() {
+    fn positions_count_characters_not_bytes() {
         assert_eq!(parse("é)"), Err(Kind::UnmatchedCloseParenthesis.at(1)));
         assert_eq!(parse("αβ("), Err(Kind::UnclosedGroup.at(2)));
         assert_eq!(parse(r"αβ\q"), Err(Kind::UnknownEscape('q').at(2)));
     }
 
     #[test]
-    fn test_non_ascii_characters_are_ordinary_literals() {
+    fn non_ascii_characters_are_ordinary_literals() {
         assert_eq!(parse("é"), Ok(single('é')));
         assert_eq!(parse("[α-ω]"), Ok(class(CharSet::range('α', 'ω'))));
     }
 
     #[test]
-    fn test_leading_dash_is_a_literal() {
+    fn leading_dash_is_a_literal() {
         assert_eq!(parse("[-a]"), Ok(class(set_of("-a"))));
         assert_eq!(parse("[^-a]"), Ok(class(set_of("-a").negate())));
     }
 
     #[test]
-    fn test_dash_between_two_ranges_is_a_literal() {
+    fn dash_between_two_ranges_is_a_literal() {
         let expected = CharSet::range('a', 'b').union(&set_of("-c"));
         assert_eq!(parse("[a-b-c]"), Ok(class(expected)));
     }
 
     #[test]
-    fn test_open_bracket_inside_a_class_is_a_literal() {
+    fn open_bracket_inside_a_class_is_a_literal() {
         assert_eq!(parse("[[]"), Ok(class(CharSet::single('['))));
         assert_eq!(parse("[[a]"), Ok(class(set_of("[a"))));
     }
 
     #[test]
-    fn test_metacharacters_inside_a_class_are_literals() {
+    fn metacharacters_inside_a_class_are_literals() {
         assert_eq!(parse(r"[.*+?{|()]"), Ok(class(set_of(".*+?{|()"))));
     }
 
     #[test]
-    fn test_escaped_close_bracket_inside_a_class_is_a_literal() {
+    fn escaped_close_bracket_inside_a_class_is_a_literal() {
         assert_eq!(parse(r"[\]]"), Ok(class(CharSet::single(']'))));
     }
 
     #[test]
-    fn test_class_escape_inside_a_class_expands_to_its_set() {
+    fn class_escape_inside_a_class_expands_to_its_set() {
         let expected = CharSet::digits().union(&CharSet::single('x'));
         assert_eq!(parse(r"[\dx]"), Ok(class(expected)));
     }
 
     #[test]
-    fn test_close_bracket_and_close_brace_outside_their_context_are_literals() {
+    fn close_bracket_and_close_brace_outside_their_context_are_literals() {
         assert_eq!(parse("a]"), Ok(literals("a]")));
         assert_eq!(parse("a}"), Ok(literals("a}")));
     }
 
     #[test]
-    fn test_deeply_nested_groups_are_rejected_instead_of_overflowing_the_stack() {
+    fn deeply_nested_groups_are_rejected_instead_of_overflowing_the_stack() {
         let nested = |depth: usize| format!("{}a{}", "(".repeat(depth), ")".repeat(depth));
         assert_eq!(parse(&nested(MAX_NESTING_DEPTH)), Ok(single('a')));
         assert_eq!(
@@ -978,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn test_no_pattern_makes_the_parser_panic_or_misreport_a_position() {
+    fn no_pattern_makes_the_parser_panic_or_misreport_a_position() {
         const ALPHABET: [char; 16] = [
             'a', '1', 'x', '\\', '[', ']', '(', ')', '-', '^', '*', '{', ',', '}', '|', '.',
         ];
@@ -1003,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn test_identifier_pattern() {
+    fn identifier_pattern() {
         let first = CharSet::range('A', 'Z')
             .union(&CharSet::range('a', 'z'))
             .union(&CharSet::single('_'));
@@ -1013,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn test_floating_point_pattern() {
+    fn floating_point_pattern() {
         let digits = CharSet::range('0', '9');
         let fraction = single('.').concat(class(digits.clone()).plus());
         let exponent = class(set_of("eE"))
@@ -1027,7 +1027,7 @@ mod tests {
     }
 
     #[test]
-    fn test_string_literal_pattern() {
+    fn string_literal_pattern() {
         let ordinary = set_of("\"\\").negate();
         let escaped = single('\\').concat(class(CharSet::single('\n').negate()));
         let expected = single('"')
@@ -1037,7 +1037,7 @@ mod tests {
     }
 
     #[test]
-    fn test_integer_literal_pattern() {
+    fn integer_literal_pattern() {
         let hexadecimal = CharSet::range('0', '9')
             .union(&CharSet::range('a', 'f'))
             .union(&CharSet::range('A', 'F'));
@@ -1052,7 +1052,7 @@ mod tests {
     }
 
     #[test]
-    fn test_date_pattern() {
+    fn date_pattern() {
         let digits = || class(CharSet::digits());
         let expected = digits()
             .repeated(Repetitions::Range(4, 4))
