@@ -103,6 +103,7 @@ impl Nfa {
 #[cfg(test)]
 mod tests {
     use super::super::builder::NfaBuilder;
+    use super::super::state::AcceptId;
     use super::*;
 
     fn stepped(nfa: &Nfa, states: &[StateId], byte: u8) -> Vec<StateId> {
@@ -114,7 +115,9 @@ mod tests {
     #[test]
     fn a_step_follows_a_range_that_contains_the_byte() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         let range = builder.push(State::Range {
             low: b'a',
             high: b'z',
@@ -128,7 +131,9 @@ mod tests {
     #[test]
     fn a_step_ignores_a_range_that_excludes_the_byte() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         let range = builder.push(State::Range {
             low: b'a',
             high: b'z',
@@ -142,8 +147,12 @@ mod tests {
     #[test]
     fn a_step_does_not_follow_epsilon_edges() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
-        let other = builder.push(State::Match { token: 1 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        let other = builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
         let split = builder.push(State::Split {
             first: accept,
             second: other,
@@ -156,7 +165,9 @@ mod tests {
     #[test]
     fn a_step_yields_a_shared_successor_once_per_range() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         let lower = builder.push(State::Range {
             low: b'a',
             high: b'z',
@@ -175,7 +186,9 @@ mod tests {
     #[test]
     fn stepping_into_a_buffer_replaces_what_it_held() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         let range = builder.push(State::Range {
             low: b'a',
             high: b'z',
@@ -208,8 +221,12 @@ mod tests {
     #[test]
     fn each_start_condition_names_its_own_entry_state() {
         let mut builder = NfaBuilder::new();
-        let code = builder.push(State::Match { token: 0 });
-        let string = builder.push(State::Match { token: 1 });
+        let code = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        let string = builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
         let nfa = builder.build(&[code, string]);
 
         assert_eq!(nfa.start_count(), 2);
@@ -225,8 +242,12 @@ mod tests {
     #[should_panic(expected = "start 2 is outside an automaton with 2 start conditions")]
     fn reading_a_start_outside_the_automaton_panics() {
         let mut builder = NfaBuilder::new();
-        let code = builder.push(State::Match { token: 0 });
-        let string = builder.push(State::Match { token: 1 });
+        let code = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        let string = builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
         let nfa = builder.build(&[code, string]);
 
         nfa.start_state(StartId::new(2));
@@ -236,8 +257,12 @@ mod tests {
     #[should_panic(expected = "state 9 is outside an arena of 2 states")]
     fn reading_a_state_outside_the_arena_panics() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
-        builder.push(State::Match { token: 1 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
         let nfa = builder.build(&[accept]);
 
         nfa.state(StateId::new(9));
