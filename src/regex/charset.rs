@@ -45,22 +45,6 @@ impl CharSet {
         }])
     }
 
-    /// Returns `true` if the set contains `c`.
-    pub fn contains(&self, c: char) -> bool {
-        let cp = c as u32;
-        self.ranges
-            .binary_search_by(|range| {
-                if cp < range.low {
-                    std::cmp::Ordering::Greater
-                } else if cp > range.high {
-                    std::cmp::Ordering::Less
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            })
-            .is_ok()
-    }
-
     /// Returns the ranges the set is made of, from lowest to highest.
     ///
     /// The ranges are disjoint and maximal: no two of them overlap, and each
@@ -198,6 +182,24 @@ impl CharSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl CharSet {
+        /// Returns `true` if the set contains `c`.
+        pub fn contains(&self, c: char) -> bool {
+            let cp = c as u32;
+            self.ranges
+                .binary_search_by(|range| {
+                    if cp < range.low {
+                        std::cmp::Ordering::Greater
+                    } else if cp > range.high {
+                        std::cmp::Ordering::Less
+                    } else {
+                        std::cmp::Ordering::Equal
+                    }
+                })
+                .is_ok()
+        }
+    }
 
     #[test]
     fn empty_charset_is_empty() {
