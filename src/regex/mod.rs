@@ -7,7 +7,8 @@ mod parser;
 
 pub use ast::{Node, Repetitions};
 pub use charset::CharSet;
-pub use error::{ParseError, ParseErrorKind};
+pub use error::ParseError;
+use std::str::FromStr;
 
 use parser::RegexParser;
 
@@ -17,6 +18,10 @@ use parser::RegexParser;
 ///
 /// Returns a [`ParseError`] naming the position at which `pattern` stopped
 /// being a valid regular expression.
-pub fn parse(pattern: &str) -> Result<Node, ParseError> {
-    RegexParser::new(pattern).parse()
+impl FromStr for Node {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        RegexParser::new(s).parse()
+    }
 }
