@@ -78,7 +78,7 @@ impl<'a> Simulator<'a> {
 #[cfg(test)]
 mod tests {
     use super::super::builder::NfaBuilder;
-    use super::super::state::State;
+    use super::super::state::{AcceptId, State};
     use super::*;
 
     fn closure(nfa: &Nfa, seeds: &[StateId]) -> Vec<StateId> {
@@ -94,7 +94,9 @@ mod tests {
     #[test]
     fn the_closure_of_a_terminal_state_is_just_itself() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         let nfa = builder.build(&[accept]);
 
         assert_eq!(closure(&nfa, &[accept]), vec![accept]);
@@ -103,8 +105,12 @@ mod tests {
     #[test]
     fn the_closure_follows_both_branches_of_a_split() {
         let mut builder = NfaBuilder::new();
-        let left = builder.push(State::Match { token: 0 });
-        let right = builder.push(State::Match { token: 1 });
+        let left = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        let right = builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
         let split = builder.push(State::Split {
             first: left,
             second: right,
@@ -117,7 +123,9 @@ mod tests {
     #[test]
     fn the_closure_stops_at_a_byte_transition() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         let range = builder.push(State::Range {
             low: b'a',
             high: b'a',
@@ -133,7 +141,9 @@ mod tests {
         let mut builder = NfaBuilder::new();
         let left = builder.reserve();
         let right = builder.reserve();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         builder.fill(
             left,
             State::Split {
@@ -156,8 +166,12 @@ mod tests {
     #[test]
     fn the_closure_is_sorted_and_deduplicated() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
-        let other = builder.push(State::Match { token: 1 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        let other = builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
         let left = builder.push(State::Split {
             first: accept,
             second: other,
@@ -178,8 +192,12 @@ mod tests {
     #[should_panic(expected = "state 9 is outside an arena of 2 states")]
     fn a_closure_over_a_seed_outside_the_arena_panics() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
-        builder.push(State::Match { token: 1 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
         let nfa = builder.build(&[accept]);
 
         closure(&nfa, &[StateId::new(9)]);
@@ -188,8 +206,12 @@ mod tests {
     #[test]
     fn a_reused_closure_buffer_does_not_leak_between_calls() {
         let mut builder = NfaBuilder::new();
-        let left = builder.push(State::Match { token: 0 });
-        let right = builder.push(State::Match { token: 1 });
+        let left = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        let right = builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
         let split = builder.push(State::Split {
             first: left,
             second: right,

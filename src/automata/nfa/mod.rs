@@ -12,5 +12,5 @@ pub use self::{
     automaton::{Nfa, StartId},
     builder::NfaBuilder,
     simulation::Simulator,
-    state::{State, StateId},
+    state::{AcceptId, State, StateId},
 };

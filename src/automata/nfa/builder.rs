@@ -107,13 +107,18 @@ impl NfaBuilder {
 
 #[cfg(test)]
 mod tests {
+    use super::super::state::AcceptId;
     use super::*;
 
     #[test]
     fn push_hands_back_sequential_ids() {
         let mut builder = NfaBuilder::new();
-        let first = builder.push(State::Match { token: 0 });
-        let second = builder.push(State::Match { token: 1 });
+        let first = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        let second = builder.push(State::Match {
+            accept: AcceptId::new(1),
+        });
 
         assert_eq!(first.index(), 0);
         assert_eq!(second.index(), 1);
@@ -122,12 +127,26 @@ mod tests {
     #[test]
     fn building_keeps_the_states_in_push_order() {
         let mut builder = NfaBuilder::new();
-        let first = builder.push(State::Match { token: 0 });
-        let accept = builder.push(State::Match { token: 9 });
+        let first = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(9),
+        });
         let nfa = builder.build(&[accept]);
 
-        assert_eq!(nfa.state(first), State::Match { token: 0 });
-        assert_eq!(nfa.state(accept), State::Match { token: 9 });
+        assert_eq!(
+            nfa.state(first),
+            State::Match {
+                accept: AcceptId::new(0)
+            }
+        );
+        assert_eq!(
+            nfa.state(accept),
+            State::Match {
+                accept: AcceptId::new(9)
+            }
+        );
         assert_eq!(nfa.state_count(), 2);
     }
 
@@ -135,7 +154,9 @@ mod tests {
     fn a_reserved_state_can_point_back_at_itself() {
         let mut builder = NfaBuilder::new();
         let split = builder.reserve();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         builder.fill(
             split,
             State::Split {
@@ -159,7 +180,9 @@ mod tests {
     fn building_with_an_unfilled_reservation_panics() {
         let mut builder = NfaBuilder::new();
         builder.reserve();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         builder.build(&[accept]);
     }
 
@@ -168,15 +191,30 @@ mod tests {
     fn filling_the_same_state_twice_panics() {
         let mut builder = NfaBuilder::new();
         let slot = builder.reserve();
-        builder.fill(slot, State::Match { token: 0 });
-        builder.fill(slot, State::Match { token: 1 });
+        builder.fill(
+            slot,
+            State::Match {
+                accept: AcceptId::new(0),
+            },
+        );
+        builder.fill(
+            slot,
+            State::Match {
+                accept: AcceptId::new(1),
+            },
+        );
     }
 
     #[test]
     #[should_panic(expected = "no such state")]
     fn filling_a_state_that_was_never_reserved_panics() {
         let mut builder = NfaBuilder::new();
-        builder.fill(StateId::new(3), State::Match { token: 0 });
+        builder.fill(
+            StateId::new(3),
+            State::Match {
+                accept: AcceptId::new(0),
+            },
+        );
     }
 
     #[test]
@@ -184,7 +222,9 @@ mod tests {
     fn building_with_a_first_split_branch_outside_the_arena_panics() {
         let mut builder = NfaBuilder::new();
         let split = builder.reserve();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         builder.fill(
             split,
             State::Split {
@@ -212,7 +252,9 @@ mod tests {
     fn building_with_a_second_split_branch_outside_the_arena_panics() {
         let mut builder = NfaBuilder::new();
         let split = builder.reserve();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         builder.fill(
             split,
             State::Split {
@@ -227,7 +269,9 @@ mod tests {
     #[should_panic(expected = "state 1 has an empty byte range 0x7a..=0x61")]
     fn building_with_an_inverted_range_panics() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         let range = builder.push(State::Range {
             low: b'z',
             high: b'a',
@@ -239,7 +283,9 @@ mod tests {
     #[test]
     fn a_range_bound_may_touch_itself() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         let range = builder.push(State::Range {
             low: b'a',
             high: b'a',
@@ -256,7 +302,9 @@ mod tests {
     #[should_panic(expected = "start 0 points at 9, outside")]
     fn building_with_a_start_outside_the_arena_panics() {
         let mut builder = NfaBuilder::new();
-        builder.push(State::Match { token: 0 });
+        builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         builder.build(&[StateId::new(9)]);
     }
 
@@ -264,7 +312,9 @@ mod tests {
     #[should_panic(expected = "start 1 points at 9, outside")]
     fn building_with_a_later_start_outside_the_arena_panics() {
         let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match { token: 0 });
+        let accept = builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         builder.build(&[accept, StateId::new(9)]);
     }
 
@@ -272,7 +322,9 @@ mod tests {
     #[should_panic(expected = "at least one start state")]
     fn building_without_a_start_panics() {
         let mut builder = NfaBuilder::new();
-        builder.push(State::Match { token: 0 });
+        builder.push(State::Match {
+            accept: AcceptId::new(0),
+        });
         builder.build(&[]);
     }
 }

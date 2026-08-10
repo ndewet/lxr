@@ -1,19 +1,21 @@
 use super::automaton::{Nfa, StartId};
 use super::builder::NfaBuilder;
 use super::simulation::Simulator;
-use super::state::{State, StateId};
+use super::state::{AcceptId, State, StateId};
 
 /// A match found by [`Nfa::longest_match`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Match {
-    /// The token that was accepted.
-    pub token: u32,
+    /// The accept that was reached.
+    pub accept: AcceptId,
     /// The number of bytes the match spans.
     pub length: usize,
 }
 
-pub(super) fn literal(builder: &mut NfaBuilder, bytes: &[u8], token: u32) -> StateId {
-    let accept = builder.push(State::Match { token });
+pub(super) fn literal(builder: &mut NfaBuilder, bytes: &[u8], accept: usize) -> StateId {
+    let accept = builder.push(State::Match {
+        accept: AcceptId::new(accept),
+    });
     bytes.iter().rev().fold(accept, |next, &byte| {
         builder.push(State::Range {
             low: byte,
@@ -23,8 +25,10 @@ pub(super) fn literal(builder: &mut NfaBuilder, bytes: &[u8], token: u32) -> Sta
     })
 }
 
-pub(super) fn star(builder: &mut NfaBuilder, byte: u8, token: u32) -> StateId {
-    let accept = builder.push(State::Match { token });
+pub(super) fn star(builder: &mut NfaBuilder, byte: u8, accept: usize) -> StateId {
+    let accept = builder.push(State::Match {
+        accept: AcceptId::new(accept),
+    });
     let split = builder.reserve();
     let body = builder.push(State::Range {
         low: byte,
@@ -41,21 +45,21 @@ pub(super) fn star(builder: &mut NfaBuilder, byte: u8, token: u32) -> StateId {
     split
 }
 
-fn accepted_token(nfa: &Nfa, states: &[StateId]) -> Option<u32> {
+fn accepted(nfa: &Nfa, states: &[StateId]) -> Option<AcceptId> {
     states
         .iter()
         .filter_map(|&id| match nfa.state(id) {
-            State::Match { token } => Some(token),
+            State::Match { accept } => Some(accept),
             _ => None,
         })
         .min()
 }
 
 impl Simulator<'_> {
-    /// Returns the longest match at the start of `input` under `start`, or `None` if no token is
-    /// accepted.
+    /// Returns the longest match at the start of `input` under `start`, or `None` if no accept is
+    /// reached.
     ///
-    /// Where several tokens are accepted at the same length, the lowest one wins.
+    /// Where several accepts are reached at the same length, the lowest one wins.
     ///
     /// Only the rules behind `start` are live. The other start conditions take no part in the
     /// scan, so a rule of theirs can neither match here nor make this scan nullable.
@@ -72,7 +76,7 @@ impl Simulator<'_> {
         let mut next = Vec::new();
 
         self.epsilon_closure(&[nfa.start_state(start)], &mut current);
-        let mut best = accepted_token(nfa, &current).map(|token| Match { token, length: 0 });
+        let mut best = accepted(nfa, &current).map(|accept| Match { accept, length: 0 });
 
         for (consumed, &byte) in input.iter().enumerate() {
             nfa.step(&current, byte, &mut next);
@@ -80,9 +84,9 @@ impl Simulator<'_> {
                 break;
             }
             self.epsilon_closure(&next, &mut current);
-            best = accepted_token(nfa, &current)
-                .map(|token| Match {
-                    token,
+            best = accepted(nfa, &current)
+                .map(|accept| Match {
+                    accept,
                     length: consumed + 1,
                 })
                 .or(best);
@@ -96,8 +100,11 @@ impl Simulator<'_> {
 mod tests {
     use super::*;
 
-    fn matched(token: u32, length: usize) -> Option<Match> {
-        Some(Match { token, length })
+    fn matched(accept: usize, length: usize) -> Option<Match> {
+        Some(Match {
+            accept: AcceptId::new(accept),
+            length,
+        })
     }
 
     fn scan(nfa: &Nfa, input: &[u8]) -> Option<Match> {
@@ -191,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lower_token_wins_a_tie() {
+    fn the_lower_accept_wins_a_tie() {
         let mut builder = NfaBuilder::new();
         let keyword = literal(&mut builder, b"if", 0);
         let identifier = literal(&mut builder, b"if", 1);
@@ -222,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn one_simulator_scans_a_sequence_of_tokens() {
+    fn one_simulator_scans_a_sequence_of_matches() {
         let mut builder = NfaBuilder::new();
         let keyword = literal(&mut builder, b"if", 0);
         let space = literal(&mut builder, b" ", 1);
@@ -234,14 +241,14 @@ mod tests {
 
         let mut simulator = Simulator::new(&nfa);
         let mut input: &[u8] = b"if if";
-        let mut tokens = Vec::new();
+        let mut accepts = Vec::new();
 
         while let Some(found) = simulator.longest_match(StartId::new(0), input) {
-            tokens.push(found.token);
+            accepts.push(found.accept.index());
             input = &input[found.length..];
         }
 
-        assert_eq!(tokens, vec![0, 1, 0]);
+        assert_eq!(accepts, vec![0, 1, 0]);
         assert_eq!(input, b"");
     }
 
@@ -272,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn a_lower_token_in_another_condition_does_not_win() {
+    fn a_lower_accept_in_another_condition_does_not_win() {
         let mut builder = NfaBuilder::new();
         let code = literal(&mut builder, b"if", 0);
         let string = literal(&mut builder, b"if", 1);
