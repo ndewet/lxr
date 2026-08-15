@@ -7,6 +7,10 @@ name: Writing standard
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    # The review reads only the Rust sources. A pull request that changes no
+    # other file starts no run, thus it costs nothing.
+    paths:
+      - "src/**/*.rs"
 
 # One review per pull request. A new push replaces the run in progress.
 concurrency:
@@ -18,6 +22,10 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   review:
@@ -31,9 +39,35 @@ jobs:
           # The review reads the diff against the base branch.
           fetch-depth: 0
 
+      # The `paths` filter above starts a run for each change to a Rust source.
+      # Most of those changes are code, and the review reads prose only. This
+      # step finds the prose, thus the model runs only when it has work.
+      #
+      # The patterns match more than the scope on purpose. A false match costs
+      # one review. A missed match loses one.
+      - name: Look for changed prose
+        id: gate
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --unified=0 "${BASE_SHA}...HEAD" -- ':(glob)src/**/*.rs' \
+            | grep -vE '^\+\+\+' \
+            | grep -qE '^\+.*(//|panic!|unreachable!|todo!|assert|expect\(|format!|write!)'
+          then
+            echo 'prose=true' >>"$GITHUB_OUTPUT"
+          else
+            echo 'prose=false' >>"$GITHUB_OUTPUT"
+            echo 'The pull request changes no prose. The review does not run.' \
+              >>"$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: anthropics/claude-code-action@v1
+        if: steps.gate.outputs.prose == 'true'
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Each inline comment carries `confirmed: true`, thus the action needs
+          # no second model to classify the comments before it posts them.
+          classify_inline_comments: false
           # track_progress stays off. It posts a tracking comment when the run
           # starts, thus a pull request with correct prose got a comment that
           # reported nothing. With it off, the action posts nothing and the
@@ -113,7 +147,14 @@ jobs:
             standard, and for a pull request that changes no file in scope.
             Post no comment to report that you found nothing. Report that in
             your final message instead, which stays in the workflow log.
+          # The review matches text against a written checklist. It needs no
+          # deep reasoning, thus a smaller model at low effort does the work.
+          #
+          # The turn cap holds a runaway loop. Each inline comment costs one
+          # turn, thus the cap must stay above the number of violations that
+          # one pull request can hold.
           claude_args: |
-            --model claude-opus-5
-            --max-turns 30
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Read,Glob,Grep"
+            --model claude-sonnet-5
+            --effort low
+            --max-turns 20
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Read"
