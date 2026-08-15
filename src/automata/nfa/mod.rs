@@ -1,18 +1,10 @@
-//! A nondeterministic finite automaton, its builder, and its simulator.
+//! A nondeterministic finite automaton, its builder, and its execution.
 
 mod automaton;
 mod builder;
-mod id;
+mod execution;
 #[cfg(test)]
 mod reference;
-mod simulation;
-mod transition;
 
 #[allow(unused_imports)]
-pub use self::{
-    automaton::Nfa,
-    builder::NfaBuilder,
-    id::{StartId, StateId},
-    simulation::Simulator,
-    transition::Transition,
-};
+pub use self::{automaton::Nfa, builder::NfaBuilder, execution::NfaExecution};

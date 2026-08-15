@@ -1,4 +1,4 @@
-/// An index into the state arena of an [`Nfa`](super::Nfa).
+/// An index into the state arena of an [`Automaton`](super::Automaton).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StateId(u32);
 
@@ -9,7 +9,7 @@ impl StateId {
     ///
     /// This function panics if `index` is above `u32::MAX`.
     pub fn new(index: usize) -> Self {
-        Self(u32::try_from(index).expect("an NFA holds at most u32::MAX + 1 states"))
+        Self(u32::try_from(index).expect("an automaton holds at most u32::MAX + 1 states"))
     }
 
     /// Returns the index into the state arena that this identifier refers to.
@@ -18,7 +18,7 @@ impl StateId {
     }
 }
 
-/// An index of a start state of an [`Nfa`](super::Nfa).
+/// An index of a start state of an [`Automaton`](super::Automaton).
 ///
 /// An automaton has one or more start states. A scan starts at one of them. The automaton does not
 /// know why the caller selects one start state. A lexer selects the start state of its start
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     #[cfg(target_pointer_width = "64")]
-    #[should_panic(expected = "at most u32::MAX + 1 states")]
+    #[should_panic(expected = "an automaton holds at most u32::MAX + 1 states")]
     fn a_state_id_past_the_last_index_panics() {
         StateId::new(u32::MAX as usize + 1);
     }

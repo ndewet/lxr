@@ -1,7 +1,7 @@
 use super::automaton::Nfa;
-use super::id::StateId;
-use super::transition::Transition;
 use crate::automata::arena_builder::ArenaBuilder;
+use crate::automata::id::StateId;
+use crate::automata::transition::Transition;
 
 /// An [`Nfa`] that is not complete.
 ///
@@ -122,8 +122,8 @@ impl<L, A> Default for NfaBuilder<L, A> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::reference::{Symbols, only};
     use super::*;
+    use crate::automata::reference::{Symbols, only};
 
     fn builder() -> NfaBuilder<Symbols, u32> {
         NfaBuilder::new()

@@ -6,8 +6,8 @@
 //!
 //! [`lower`] does that step. It makes an alternation of byte sequences from a
 //! [`CharSet`]. Construction reads each byte sequence as a chain of
-//! [`Transition`](crate::automata::nfa::Transition)s. A [`ByteRange`] is the
-//! label of one of them.
+//! [`Transition`](crate::automata::Transition)s. A [`ByteRange`] is the label
+//! of one of them.
 //!
 //! This module lowers before determinization, and not after it. Thus the
 //! remainder of the pipeline reads only bytes, and the matcher does no

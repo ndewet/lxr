@@ -1,7 +1,10 @@
-use super::id::{StartId, StateId};
-use super::transition::Transition;
+use super::execution::NfaExecution;
 use crate::automata::arena::Arena;
+use crate::automata::automaton::Automaton;
+use crate::automata::execution::Execution;
+use crate::automata::id::{StartId, StateId};
 use crate::automata::label::Label;
+use crate::automata::transition::Transition;
 
 /// A nondeterministic finite automaton.
 ///
@@ -121,9 +124,8 @@ impl<L, A> Nfa<L, A> {
 impl<L: Label, A> Nfa<L, A> {
     /// Reads `symbol` from each state in `states`, then writes the new states into `out`.
     ///
-    /// The function clears `out` first. It does not follow the epsilon transitions. To follow the
-    /// epsilon transitions, use
-    /// [`Simulator::epsilon_closure`](super::Simulator::epsilon_closure).
+    /// The function clears `out` first. It does not follow the epsilon transitions. To follow
+    /// them, seed an [`NfaExecution`] with the result.
     ///
     /// The result holds one state for each transition that matches, thus it can hold a duplicate.
     ///
@@ -143,11 +145,26 @@ impl<L: Label, A> Nfa<L, A> {
     }
 }
 
+impl<L: Label, A> Automaton for Nfa<L, A> {
+    type Symbol = L::Symbol;
+    type Accept = A;
+    type Execution<'a>
+        = NfaExecution<'a, L, A>
+    where
+        Self: 'a;
+
+    fn execute(&self, start: StartId) -> Self::Execution<'_> {
+        let mut execution = NfaExecution::new(self);
+        execution.restart(start);
+        execution
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::builder::NfaBuilder;
-    use super::super::reference::{Symbols, only, range};
     use super::*;
+    use crate::automata::reference::{Symbols, only, range};
 
     fn builder() -> NfaBuilder<Symbols, u32> {
         NfaBuilder::new()

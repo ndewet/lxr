@@ -1,46 +1,8 @@
-use super::automaton::Nfa;
 use super::builder::NfaBuilder;
-use super::id::{StartId, StateId};
-use super::simulation::Simulator;
-use crate::automata::label::Label;
+use crate::automata::id::StateId;
+use crate::automata::reference::{Symbols, only};
 
-/// The test alphabet. The automaton itself knows no alphabet, thus a test selects one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Symbols {
-    pub low: char,
-    pub high: char,
-}
-
-impl Label for Symbols {
-    type Symbol = char;
-
-    fn matches(&self, symbol: char) -> bool {
-        (self.low..=self.high).contains(&symbol)
-    }
-}
-
-/// A label that matches only `symbol`.
-pub(super) fn only(symbol: char) -> Symbols {
-    Symbols {
-        low: symbol,
-        high: symbol,
-    }
-}
-
-/// A label that matches each symbol from `low` to `high`.
-pub(super) fn range(low: char, high: char) -> Symbols {
-    Symbols { low, high }
-}
-
-/// A match that [`longest_match`] found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Match<A> {
-    /// The accept that the scan reached.
-    pub accept: A,
-    /// The number of the symbols in the match.
-    pub length: usize,
-}
-
+/// Adds the states that match `text`, then makes the last state accept.
 pub(super) fn literal(builder: &mut NfaBuilder<Symbols, u32>, text: &str, accept: u32) -> StateId {
     let start = builder.push();
     let end = text.chars().fold(start, |current, symbol| {
@@ -52,6 +14,7 @@ pub(super) fn literal(builder: &mut NfaBuilder<Symbols, u32>, text: &str, accept
     start
 }
 
+/// Adds one state that matches any number of `symbol`, and that accepts.
 pub(super) fn star(builder: &mut NfaBuilder<Symbols, u32>, symbol: char, accept: u32) -> StateId {
     let state = builder.push();
     builder.transition(state, only(symbol), state);
@@ -59,62 +22,13 @@ pub(super) fn star(builder: &mut NfaBuilder<Symbols, u32>, symbol: char, accept:
     state
 }
 
-fn accepted<L, A: Ord + Copy>(nfa: &Nfa<L, A>, states: &[StateId]) -> Option<A> {
-    states
-        .iter()
-        .filter_map(|&id| nfa.accept(id).copied())
-        .min()
-}
-
-/// Returns the longest match at the start of `input` under `start`.
-///
-/// The function returns `None` if the scan reaches no accept.
-///
-/// If the scan reaches more than one accept at the same length, the lowest accept is the result.
-/// Maximal munch and that tie-break are the rules of the caller. The automaton does not apply
-/// them.
-///
-/// Only the rules of `start` are applicable. The other start states take no part in the scan. Thus
-/// a rule of another start state cannot match here. It also cannot make this scan nullable.
-///
-/// The function scans one token. A scanner runs one simulator over the full input. Thus the
-/// scanner makes the scratch space for the closure one time, and not one time for each token.
-///
-/// # Panics
-///
-/// This function panics if `start` is not a start state of the automaton.
-pub(super) fn longest_match<L: Label, A: Ord + Copy>(
-    simulator: &mut Simulator<'_, L, A>,
-    start: StartId,
-    input: &[L::Symbol],
-) -> Option<Match<A>> {
-    let nfa = simulator.nfa();
-    let mut current = Vec::new();
-    let mut next = Vec::new();
-
-    simulator.epsilon_closure(&[nfa.start_state(start)], &mut current);
-    let mut best = accepted(nfa, &current).map(|accept| Match { accept, length: 0 });
-
-    for (consumed, &symbol) in input.iter().enumerate() {
-        nfa.step(&current, symbol, &mut next);
-        if next.is_empty() {
-            break;
-        }
-        simulator.epsilon_closure(&next, &mut current);
-        best = accepted(nfa, &current)
-            .map(|accept| Match {
-                accept,
-                length: consumed + 1,
-            })
-            .or(best);
-    }
-
-    best
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::automata::automaton::Automaton;
+    use crate::automata::id::StartId;
+    use crate::automata::nfa::Nfa;
+    use crate::automata::scan::{Match, longest_match};
 
     fn matched(accept: u32, length: usize) -> Option<Match<u32>> {
         Some(Match { accept, length })
@@ -125,8 +39,9 @@ mod tests {
     }
 
     fn scan_under(nfa: &Nfa<Symbols, u32>, start: usize, input: &str) -> Option<Match<u32>> {
+        let start = StartId::new(start);
         let symbols: Vec<char> = input.chars().collect();
-        longest_match(&mut Simulator::new(nfa), StartId::new(start), &symbols)
+        longest_match(&mut nfa.execute(start), start, &symbols)
     }
 
     #[test]
@@ -234,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn one_simulator_scans_a_sequence_of_matches() {
+    fn one_execution_scans_a_sequence_of_matches() {
         let mut builder = NfaBuilder::new();
         let keyword = literal(&mut builder, "if", 0);
         let space = literal(&mut builder, " ", 1);
@@ -243,12 +158,13 @@ mod tests {
         builder.epsilon(start, space);
         let nfa = builder.build(&[start]);
 
-        let mut simulator = Simulator::new(&nfa);
+        let start = StartId::new(0);
+        let mut execution = nfa.execute(start);
         let symbols: Vec<char> = "if if".chars().collect();
         let mut input = &symbols[..];
         let mut accepts = Vec::new();
 
-        while let Some(found) = longest_match(&mut simulator, StartId::new(0), input) {
+        while let Some(found) = longest_match(&mut execution, start, input) {
             accepts.push(found.accept);
             input = &input[found.length..];
         }
