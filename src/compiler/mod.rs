@@ -32,6 +32,6 @@ pub use self::{
     bytes::Bytes,
     compile::compile,
     fragment::Fragment,
-    lexicon::Lexicon,
+    lexicon::{Lexicon, MAX_PATTERN_SIZE},
     utf8::{ByteRange, ByteSequence},
 };

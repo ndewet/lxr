@@ -6,9 +6,12 @@ use crate::automata::{Nfa, NfaBuilder, StateId};
 /// Compiles the rules of a lexer into one NFA.
 ///
 /// The automaton has one start state for each start condition of `lexicon`.
-/// Start `i` is the condition that the `i` call to
-/// [`condition`](Lexicon::condition) gave. A scan under a start state reads
-/// only the rules of that condition.
+/// The start state of a condition is at the index of its
+/// [`StartId`](crate::automata::StartId). Give that identifier to
+/// [`start_state`](Nfa::start_state). Start 0 is
+/// [`initial`](Lexicon::initial), because a lexicon declares that condition
+/// before each other condition. A scan under a start state reads only the
+/// rules of that condition.
 ///
 /// The function owns the [`NfaBuilder`](crate::automata::NfaBuilder). It
 /// pushes one start state for each start condition. Then, for each rule, it
