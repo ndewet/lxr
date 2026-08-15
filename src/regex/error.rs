@@ -1,33 +1,84 @@
 use std::fmt::{Display, Formatter, Result};
 
+/// A failure to parse a regular expression.
+///
+/// The error gives the kind of the failure. It also gives the position in the
+/// pattern at which the parser stopped. The position is a byte offset from the
+/// start of the pattern.
+///
+/// # Examples
+///
+/// ```
+/// use lxr::regex::Node;
+///
+/// let error = "a(b".parse::<Node>().unwrap_err();
+/// assert_eq!(error.position, 1);
+/// assert_eq!(error.to_string(), "unclosed '(' at position 1");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
+    /// The byte offset in the pattern at which the parser stopped.
     pub position: usize,
+    /// The kind of the failure.
     pub kind: ParseErrorKind,
 }
 
+/// The kind of failure that a [`ParseError`] reports.
+///
+/// A variant with the name `Unsupported...` shows a construction that this
+/// parser does not accept. Each other variant shows a fault in the pattern.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseErrorKind {
+    /// The pattern stops before the expression is complete.
     UnexpectedEnd,
+    /// The pattern has a character that the parser cannot use at this
+    /// position.
     UnexpectedCharacter(char),
+    /// The parser needs one specific character. The pattern has a different
+    /// character, or the pattern stops.
     Expected { wanted: char, found: Option<char> },
+    /// A quantifier has no expression before it.
     NothingToRepeat(char),
+    /// A quantifier comes immediately after another quantifier.
     RepeatedQuantifier(char),
+    /// A range in a character class has a low end above its high end.
     InvertedRange { low: char, high: char },
+    /// A repetition has a minimum count above its maximum count.
     InvertedRepetition { minimum: usize, maximum: usize },
+    /// A repetition count is too large.
     RepetitionTooLarge,
+    /// A group starts with `(`, but the pattern has no `)` for it.
     UnclosedGroup,
+    /// The pattern has a `)` with no `(` before it.
     UnmatchedCloseParenthesis,
+    /// A character class starts with `[`, but the pattern has no `]` for it.
     UnclosedClass,
+    /// A character class holds no characters, thus it matches nothing.
     EmptyClass,
+    /// A class escape such as `\d` is an end of a range. An end of a range
+    /// must be one character.
     ClassEscapeInRange(char),
+    /// An escape sequence has a character that the parser does not know.
     UnknownEscape(char),
+    /// An escape gives a value that is not a character. A surrogate and a
+    /// value above `U+10FFFF` are not characters.
     InvalidCodePoint(u64),
+    /// The groups in the pattern nest deeper than the limit.
     NestingTooDeep(usize),
+    /// The pattern has an anchor, for example `^` or `$`. This parser does not
+    /// support anchors.
     UnsupportedAnchor(char),
+    /// The pattern has a `(?` group, for example a non-capturing group. This
+    /// parser does not support these groups.
     UnsupportedGroup,
+    /// The pattern has a POSIX character class, for example `[:alpha:]`. This
+    /// parser does not support POSIX character classes.
     UnsupportedPosixClass,
+    /// The pattern has an octal escape, for example `\101`. This parser does
+    /// not support octal escapes.
     UnsupportedOctalEscape,
+    /// The pattern has a backreference, for example `\1`. This parser does not
+    /// support backreferences.
     UnsupportedBackreference,
 }
 

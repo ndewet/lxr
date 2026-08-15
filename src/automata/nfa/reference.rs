@@ -3,12 +3,12 @@ use super::builder::NfaBuilder;
 use super::simulation::Simulator;
 use super::state::{AcceptId, State, StateId};
 
-/// A match found by [`Nfa::longest_match`].
+/// A match that [`Simulator::longest_match`] found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Match {
-    /// The accept that was reached.
+    /// The accept that the scan reached.
     pub accept: AcceptId,
-    /// The number of bytes the match spans.
+    /// The number of the bytes in the match.
     pub length: usize,
 }
 
@@ -56,20 +56,23 @@ fn accepted(nfa: &Nfa, states: &[StateId]) -> Option<AcceptId> {
 }
 
 impl Simulator<'_> {
-    /// Returns the longest match at the start of `input` under `start`, or `None` if no accept is
-    /// reached.
+    /// Returns the longest match at the start of `input` under `start`.
     ///
-    /// Where several accepts are reached at the same length, the lowest one wins.
+    /// The function returns `None` if the scan reaches no accept.
     ///
-    /// Only the rules behind `start` are live. The other start conditions take no part in the
-    /// scan, so a rule of theirs can neither match here nor make this scan nullable.
+    /// If the scan reaches more than one accept at the same length, the lowest accept is the
+    /// result.
     ///
-    /// This scans one token. A scanner runs one simulator over a whole input, so the closure
-    /// scratch is allocated once rather than once per token.
+    /// Only the rules of `start` are applicable. The other start conditions take no part in the
+    /// scan. Thus a rule of another start condition cannot match here. It also cannot make this
+    /// scan nullable.
+    ///
+    /// The function scans one token. A scanner runs one simulator over the full input. Thus the
+    /// scanner makes the scratch space for the closure one time, and not one time for each token.
     ///
     /// # Panics
     ///
-    /// Panics if `start` is not a start condition of the automaton.
+    /// This function panics if `start` is not a start condition of the automaton.
     pub fn longest_match(&mut self, start: StartId, input: &[u8]) -> Option<Match> {
         let nfa = self.nfa();
         let mut current = Vec::new();
