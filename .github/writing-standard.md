@@ -77,7 +77,9 @@ Use one term for one concept:
 | Use | Do not use |
 | --- | --- |
 | state arena | arena of states, the arena |
-| start condition | entry point, start |
+| start state (an automaton) | entry point, start |
+| start condition (a lexer) | mode |
+| label | edge condition, symbol set |
 | accept | acceptance, accepting state |
 | character set | charset, except as the type name `CharSet` |
 | byte sequence | byte string |

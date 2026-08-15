@@ -1,78 +1,82 @@
 use super::automaton::Nfa;
-use super::state::{State, StateId};
+use super::id::StateId;
+use super::transition::Transition;
+use crate::automata::arena_builder::ArenaBuilder;
 
-/// A state arena of [`State`]s that is not complete.
+/// An [`Nfa`] that is not complete.
 ///
-/// Add the states, then build an [`Nfa`] with [`build`](Self::build).
-#[derive(Debug, Default)]
-pub struct NfaBuilder {
-    states: Vec<Option<State>>,
+/// Add a state with [`push`](Self::push), then add its transitions, its epsilon transitions, and
+/// its accept. A transition can point at a state that comes later. Thus a loop needs no reserved
+/// slot.
+///
+/// Build the automaton with [`build`](Self::build).
+#[derive(Debug)]
+pub struct NfaBuilder<L, A> {
+    transitions: ArenaBuilder<Transition<L>>,
+    epsilons: ArenaBuilder<StateId>,
+    accepts: Vec<Option<A>>,
 }
 
-impl NfaBuilder {
-    /// Creates an `NfaBuilder` that holds no states.
+impl<L, A> NfaBuilder<L, A> {
+    /// Creates an `NfaBuilder` that holds no state.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds a state to the end of the state arena, then returns its identifier.
     ///
-    /// # Panics
-    ///
-    /// This function panics if the state arena already holds `u32::MAX + 1` states.
-    pub fn push(&mut self, state: State) -> StateId {
-        let id = StateId::new(self.states.len());
-        self.states.push(Some(state));
-        id
-    }
-
-    /// Adds an empty slot to the end of the state arena, then returns its identifier.
-    ///
-    /// A state that you add before you fill the slot can point at the slot.
-    ///
-    /// Fill each reserved slot with [`fill`](Self::fill) before you build the state arena.
+    /// The state has no transition, no epsilon transition, and no accept.
     ///
     /// # Panics
     ///
     /// This function panics if the state arena already holds `u32::MAX + 1` states.
-    pub fn reserve(&mut self) -> StateId {
-        let id = StateId::new(self.states.len());
-        self.states.push(None);
+    pub fn push(&mut self) -> StateId {
+        let id = StateId::new(self.accepts.len());
+        self.accepts.push(None);
         id
     }
 
-    /// Writes a state into the slot that `id` reserved.
+    /// Adds a transition from `from` to `to` for each symbol that `label` matches.
+    pub fn transition(&mut self, from: StateId, label: L, to: StateId) {
+        self.transitions
+            .push(from.index(), Transition { label, target: to });
+    }
+
+    /// Adds a transition from `from` to `to` that reads no symbol.
+    pub fn epsilon(&mut self, from: StateId, to: StateId) {
+        self.epsilons.push(from.index(), to);
+    }
+
+    /// Makes `state` accept, with `accept` as its accept.
     ///
     /// # Panics
     ///
-    /// This function panics if `id` is not in the state arena. It also panics if the slot is
-    /// already full.
-    pub fn fill(&mut self, id: StateId, state: State) {
+    /// This function panics if `state` is not in the state arena. It also panics if `state`
+    /// already has an accept.
+    pub fn accept(&mut self, state: StateId, accept: A) {
         let slot = self
-            .states
-            .get_mut(id.index())
-            .unwrap_or_else(|| panic!("cannot fill {}: no such state", id.index()));
+            .accepts
+            .get_mut(state.index())
+            .unwrap_or_else(|| panic!("cannot accept at {}: no such state", state.index()));
         assert!(
             slot.is_none(),
-            "cannot fill {}: already filled with {:?}",
-            id.index(),
-            slot
+            "state {} already has an accept",
+            state.index()
         );
-        *slot = Some(state);
+        *slot = Some(accept);
     }
 
-    /// Builds an [`Nfa`] that has one start condition for each state in `starts`.
+    /// Builds an [`Nfa`] that has one start state for each identifier in `starts`.
     ///
     /// # Panics
     ///
     /// This function panics for each of these conditions:
     ///
     /// - `starts` is empty.
-    /// - A reserved slot is empty.
-    /// - A start state or a successor is not in the state arena.
-    /// - A [`State::Range`] has a `low` bound above its `high` bound.
-    pub fn build(self, starts: &[StateId]) -> Nfa {
-        let count = self.states.len();
+    /// - A start state is not in the state arena.
+    /// - The target of a transition is not in the state arena.
+    pub fn build(self, starts: &[StateId]) -> Nfa<L, A> {
+        let count = self.accepts.len();
         assert!(!starts.is_empty(), "an NFA needs at least one start state");
         for (index, start) in starts.iter().enumerate() {
             assert!(
@@ -82,50 +86,54 @@ impl NfaBuilder {
             );
         }
 
-        let states: Vec<State> = self
-            .states
-            .into_iter()
-            .enumerate()
-            .map(|(index, state)| {
-                state.unwrap_or_else(|| panic!("state {index} was reserved but never filled"))
-            })
-            .collect();
+        let transitions = self.transitions.build(count);
+        let epsilons = self.epsilons.build(count);
 
-        for (index, state) in states.iter().enumerate() {
-            if let State::Range { low, high, .. } = *state {
+        for index in 0..count {
+            let targets = transitions
+                .get(index)
+                .into_iter()
+                .flatten()
+                .map(|transition| transition.target)
+                .chain(epsilons.get(index).into_iter().flatten().copied());
+            for target in targets {
                 assert!(
-                    low <= high,
-                    "state {index} has an empty byte range {low:#04x}..={high:#04x}"
-                );
-            }
-
-            for successor in state.successors() {
-                assert!(
-                    successor.index() < count,
+                    target.index() < count,
                     "state {index} points at {}, outside an arena of {count} states",
-                    successor.index()
+                    target.index()
                 );
             }
         }
 
-        Nfa::new(states, starts.to_vec())
+        Nfa::new(transitions, epsilons, self.accepts, starts.to_vec())
+    }
+}
+
+impl<L, A> Default for NfaBuilder<L, A> {
+    /// Creates an `NfaBuilder` that holds no state.
+    fn default() -> Self {
+        Self {
+            transitions: ArenaBuilder::new(),
+            epsilons: ArenaBuilder::new(),
+            accepts: Vec::new(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::state::AcceptId;
+    use super::super::reference::{Symbols, only};
     use super::*;
+
+    fn builder() -> NfaBuilder<Symbols, u32> {
+        NfaBuilder::new()
+    }
 
     #[test]
     fn push_hands_back_sequential_ids() {
-        let mut builder = NfaBuilder::new();
-        let first = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let second = builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
+        let mut builder = builder();
+        let first = builder.push();
+        let second = builder.push();
 
         assert_eq!(first.index(), 0);
         assert_eq!(second.index(), 1);
@@ -133,205 +141,96 @@ mod tests {
 
     #[test]
     fn building_keeps_the_states_in_push_order() {
-        let mut builder = NfaBuilder::new();
-        let first = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(9),
-        });
-        let nfa = builder.build(&[accept]);
+        let mut builder = builder();
+        let first = builder.push();
+        let second = builder.push();
+        builder.accept(first, 0);
+        builder.accept(second, 9);
+        let nfa = builder.build(&[second]);
 
-        assert_eq!(
-            nfa.state(first),
-            State::Match {
-                accept: AcceptId::new(0)
-            }
-        );
-        assert_eq!(
-            nfa.state(accept),
-            State::Match {
-                accept: AcceptId::new(9)
-            }
-        );
+        assert_eq!(nfa.accept(first), Some(&0));
+        assert_eq!(nfa.accept(second), Some(&9));
         assert_eq!(nfa.state_count(), 2);
     }
 
     #[test]
-    fn a_reserved_state_can_point_back_at_itself() {
-        let mut builder = NfaBuilder::new();
-        let split = builder.reserve();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        builder.fill(
-            split,
-            State::Split {
-                first: split,
-                second: accept,
-            },
-        );
-        let nfa = builder.build(&[split]);
+    fn a_state_can_point_back_at_itself() {
+        let mut builder = builder();
+        let loop_state = builder.push();
+        builder.transition(loop_state, only('a'), loop_state);
+        builder.epsilon(loop_state, loop_state);
+        let nfa = builder.build(&[loop_state]);
 
-        assert_eq!(
-            nfa.state(split),
-            State::Split {
-                first: split,
-                second: accept,
-            }
-        );
+        assert_eq!(nfa.transitions(loop_state)[0].target, loop_state);
+        assert_eq!(nfa.epsilons(loop_state), &[loop_state]);
     }
 
     #[test]
-    #[should_panic(expected = "state 0 was reserved but never filled")]
-    fn building_with_an_unfilled_reservation_panics() {
-        let mut builder = NfaBuilder::new();
-        builder.reserve();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        builder.build(&[accept]);
+    fn a_transition_can_point_at_a_state_that_comes_later() {
+        let mut builder = builder();
+        let start = builder.push();
+        let accept = StateId::new(1);
+        builder.transition(start, only('a'), accept);
+        builder.push();
+        let nfa = builder.build(&[start]);
+
+        assert_eq!(nfa.transitions(start)[0].target, accept);
     }
 
     #[test]
-    #[should_panic(expected = "already filled")]
-    fn filling_the_same_state_twice_panics() {
-        let mut builder = NfaBuilder::new();
-        let slot = builder.reserve();
-        builder.fill(
-            slot,
-            State::Match {
-                accept: AcceptId::new(0),
-            },
-        );
-        builder.fill(
-            slot,
-            State::Match {
-                accept: AcceptId::new(1),
-            },
-        );
+    #[should_panic(expected = "state 0 already has an accept")]
+    fn accepting_at_the_same_state_two_times_panics() {
+        let mut builder = builder();
+        let state = builder.push();
+        builder.accept(state, 0);
+        builder.accept(state, 1);
     }
 
     #[test]
-    #[should_panic(expected = "no such state")]
-    fn filling_a_state_that_was_never_reserved_panics() {
-        let mut builder = NfaBuilder::new();
-        builder.fill(
-            StateId::new(3),
-            State::Match {
-                accept: AcceptId::new(0),
-            },
-        );
+    #[should_panic(expected = "cannot accept at 3: no such state")]
+    fn accepting_at_a_state_that_was_never_pushed_panics() {
+        builder().accept(StateId::new(3), 0);
     }
 
     #[test]
     #[should_panic(expected = "state 0 points at 9")]
-    fn building_with_a_first_split_branch_outside_the_arena_panics() {
-        let mut builder = NfaBuilder::new();
-        let split = builder.reserve();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        builder.fill(
-            split,
-            State::Split {
-                first: StateId::new(9),
-                second: accept,
-            },
-        );
-        builder.build(&[split]);
+    fn building_with_a_transition_target_outside_the_arena_panics() {
+        let mut builder = builder();
+        let start = builder.push();
+        builder.transition(start, only('a'), StateId::new(9));
+        builder.build(&[start]);
     }
 
     #[test]
     #[should_panic(expected = "state 0 points at 9")]
-    fn building_with_a_range_successor_outside_the_arena_panics() {
-        let mut builder = NfaBuilder::new();
-        let range = builder.push(State::Range {
-            low: b'a',
-            high: b'z',
-            next: StateId::new(9),
-        });
-        builder.build(&[range]);
-    }
-
-    #[test]
-    #[should_panic(expected = "state 0 points at 9")]
-    fn building_with_a_second_split_branch_outside_the_arena_panics() {
-        let mut builder = NfaBuilder::new();
-        let split = builder.reserve();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        builder.fill(
-            split,
-            State::Split {
-                first: accept,
-                second: StateId::new(9),
-            },
-        );
-        builder.build(&[split]);
-    }
-
-    #[test]
-    #[should_panic(expected = "state 1 has an empty byte range 0x7a..=0x61")]
-    fn building_with_an_inverted_range_panics() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let range = builder.push(State::Range {
-            low: b'z',
-            high: b'a',
-            next: accept,
-        });
-        builder.build(&[range]);
-    }
-
-    #[test]
-    fn a_range_bound_may_touch_itself() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let range = builder.push(State::Range {
-            low: b'a',
-            high: b'a',
-            next: accept,
-        });
-        let nfa = builder.build(&[range]);
-
-        let mut out = Vec::new();
-        nfa.step(&[range], b'a', &mut out);
-        assert_eq!(out, vec![accept]);
+    fn building_with_an_epsilon_target_outside_the_arena_panics() {
+        let mut builder = builder();
+        let start = builder.push();
+        builder.epsilon(start, StateId::new(9));
+        builder.build(&[start]);
     }
 
     #[test]
     #[should_panic(expected = "start 0 points at 9, outside")]
     fn building_with_a_start_outside_the_arena_panics() {
-        let mut builder = NfaBuilder::new();
-        builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
+        let mut builder = builder();
+        builder.push();
         builder.build(&[StateId::new(9)]);
     }
 
     #[test]
     #[should_panic(expected = "start 1 points at 9, outside")]
     fn building_with_a_later_start_outside_the_arena_panics() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        builder.build(&[accept, StateId::new(9)]);
+        let mut builder = builder();
+        let start = builder.push();
+        builder.build(&[start, StateId::new(9)]);
     }
 
     #[test]
     #[should_panic(expected = "at least one start state")]
     fn building_without_a_start_panics() {
-        let mut builder = NfaBuilder::new();
-        builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
+        let mut builder = builder();
+        builder.push();
         builder.build(&[]);
     }
 }

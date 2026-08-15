@@ -1,61 +1,87 @@
-use super::state::{State, StateId};
+use super::id::{StartId, StateId};
+use super::transition::Transition;
+use crate::automata::arena::Arena;
+use crate::automata::label::Label;
 
-/// One start condition of an automaton. The automaton starts a scan at this point.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StartId(u32);
-
-impl StartId {
-    /// Creates a `StartId` from an index of a start condition.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if `index` is above `u32::MAX`.
-    pub fn new(index: usize) -> Self {
-        Self(u32::try_from(index).expect("an automaton has at most u32::MAX + 1 start conditions"))
-    }
-
-    /// Returns the index of the start condition that this identifier refers to.
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-/// A nondeterministic finite automaton that reads bytes.
+/// A nondeterministic finite automaton.
+///
+/// The automaton holds states, transitions with a label of type `L`, epsilon transitions, an
+/// accept of type `A` for each state that accepts, and one or more start states.
+///
+/// The automaton does not know the alphabet, and it does not know the meaning of an accept. The
+/// caller selects both. A lexer, for example, uses a byte range as the label and a token as the
+/// accept.
+///
+/// Two accepts are equal only if the values are equal. Thus determinization and minimization can
+/// divide the accept states correctly. They do not have to know the meaning of an accept.
 ///
 /// To make an `Nfa`, use an [`NfaBuilder`](super::NfaBuilder).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Nfa {
-    states: Vec<State>,
+pub struct Nfa<L, A> {
+    transitions: Arena<Transition<L>>,
+    epsilons: Arena<StateId>,
+    accepts: Vec<Option<A>>,
     starts: Vec<StateId>,
 }
 
-impl Nfa {
-    /// Creates an `Nfa` from a state arena and the start state of each start condition.
-    pub(super) fn new(states: Vec<State>, starts: Vec<StateId>) -> Self {
-        Self { states, starts }
+impl<L, A> Nfa<L, A> {
+    /// Creates an `Nfa` from the transitions, the epsilon transitions, the accepts, and the start
+    /// states.
+    pub(super) fn new(
+        transitions: Arena<Transition<L>>,
+        epsilons: Arena<StateId>,
+        accepts: Vec<Option<A>>,
+        starts: Vec<StateId>,
+    ) -> Self {
+        Self {
+            transitions,
+            epsilons,
+            accepts,
+            starts,
+        }
     }
 
-    /// Returns the state that `id` refers to.
+    /// Returns the transitions that leave the state that `id` refers to.
     ///
     /// # Panics
     ///
     /// This function panics if `id` is not in the state arena.
-    pub fn state(&self, id: StateId) -> State {
-        *self.states.get(id.index()).unwrap_or_else(|| {
-            panic!(
-                "state {} is outside an arena of {} states",
-                id.index(),
-                self.states.len()
-            )
-        })
+    pub fn transitions(&self, id: StateId) -> &[Transition<L>] {
+        self.transitions
+            .get(id.index())
+            .unwrap_or_else(|| self.outside(id))
+    }
+
+    /// Returns the states that the state that `id` refers to goes to without a symbol.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `id` is not in the state arena.
+    pub fn epsilons(&self, id: StateId) -> &[StateId] {
+        self.epsilons
+            .get(id.index())
+            .unwrap_or_else(|| self.outside(id))
+    }
+
+    /// Returns the accept of the state that `id` refers to, or `None` if the state does not
+    /// accept.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `id` is not in the state arena.
+    pub fn accept(&self, id: StateId) -> Option<&A> {
+        self.accepts
+            .get(id.index())
+            .unwrap_or_else(|| self.outside(id))
+            .as_ref()
     }
 
     /// Returns the number of the states in the state arena.
     pub fn state_count(&self) -> usize {
-        self.states.len()
+        self.accepts.len()
     }
 
-    /// Returns the number of the start conditions of the automaton.
+    /// Returns the number of the start states of the automaton.
     pub fn start_count(&self) -> usize {
         self.starts.len()
     }
@@ -64,18 +90,18 @@ impl Nfa {
     ///
     /// # Panics
     ///
-    /// This function panics if `start` is not a start condition of this automaton.
+    /// This function panics if `start` is not a start state of this automaton.
     pub fn start_state(&self, start: StartId) -> StateId {
         *self.starts.get(start.index()).unwrap_or_else(|| {
             panic!(
-                "start {} is outside an automaton with {} start conditions",
+                "start {} is outside an automaton with {} start states",
                 start.index(),
                 self.starts.len()
             )
         })
     }
 
-    /// Returns an iterator over the start conditions and their start states.
+    /// Returns an iterator over the start identifiers and their states.
     pub fn starts(&self) -> impl Iterator<Item = (StartId, StateId)> + '_ {
         self.starts
             .iter()
@@ -83,151 +109,176 @@ impl Nfa {
             .map(|(index, &state)| (StartId::new(index), state))
     }
 
-    /// Reads `byte` from each state in `states`, then writes the new states into `out`.
+    fn outside(&self, id: StateId) -> ! {
+        panic!(
+            "state {} is outside an arena of {} states",
+            id.index(),
+            self.state_count()
+        )
+    }
+}
+
+impl<L: Label, A> Nfa<L, A> {
+    /// Reads `symbol` from each state in `states`, then writes the new states into `out`.
     ///
-    /// The function clears `out` first. It does not follow the epsilon edges. To follow the
-    /// epsilon edges, use
+    /// The function clears `out` first. It does not follow the epsilon transitions. To follow the
+    /// epsilon transitions, use
     /// [`Simulator::epsilon_closure`](super::Simulator::epsilon_closure).
+    ///
+    /// The result holds one state for each transition that matches, thus it can hold a duplicate.
     ///
     /// # Panics
     ///
     /// This function panics if a state in `states` is not in the state arena.
-    pub fn step(&self, states: &[StateId], byte: u8, out: &mut Vec<StateId>) {
+    pub fn step(&self, states: &[StateId], symbol: L::Symbol, out: &mut Vec<StateId>) {
         out.clear();
-        out.extend(states.iter().filter_map(|&id| match self.state(id) {
-            State::Range { low, high, next } if (low..=high).contains(&byte) => Some(next),
-            _ => None,
-        }));
+        for &id in states {
+            out.extend(
+                self.transitions(id)
+                    .iter()
+                    .filter(|transition| transition.label.matches(symbol))
+                    .map(|transition| transition.target),
+            );
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::builder::NfaBuilder;
-    use super::super::state::AcceptId;
+    use super::super::reference::{Symbols, only, range};
     use super::*;
 
-    fn stepped(nfa: &Nfa, states: &[StateId], byte: u8) -> Vec<StateId> {
+    fn builder() -> NfaBuilder<Symbols, u32> {
+        NfaBuilder::new()
+    }
+
+    fn stepped(nfa: &Nfa<Symbols, u32>, states: &[StateId], symbol: char) -> Vec<StateId> {
         let mut out = Vec::new();
-        nfa.step(states, byte, &mut out);
+        nfa.step(states, symbol, &mut out);
         out
     }
 
     #[test]
-    fn a_step_follows_a_range_that_contains_the_byte() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let range = builder.push(State::Range {
-            low: b'a',
-            high: b'z',
-            next: accept,
-        });
-        let nfa = builder.build(&[range]);
+    fn a_step_follows_a_transition_that_matches_the_symbol() {
+        let mut builder = builder();
+        let start = builder.push();
+        let accept = builder.push();
+        builder.transition(start, range('a', 'z'), accept);
+        builder.accept(accept, 0);
+        let nfa = builder.build(&[start]);
 
-        assert_eq!(stepped(&nfa, &[range], b'm'), vec![accept]);
+        assert_eq!(stepped(&nfa, &[start], 'm'), vec![accept]);
     }
 
     #[test]
-    fn a_step_ignores_a_range_that_excludes_the_byte() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let range = builder.push(State::Range {
-            low: b'a',
-            high: b'z',
-            next: accept,
-        });
-        let nfa = builder.build(&[range]);
+    fn a_step_ignores_a_transition_that_excludes_the_symbol() {
+        let mut builder = builder();
+        let start = builder.push();
+        let accept = builder.push();
+        builder.transition(start, range('a', 'z'), accept);
+        let nfa = builder.build(&[start]);
 
-        assert_eq!(stepped(&nfa, &[range], b'A'), Vec::new());
+        assert_eq!(stepped(&nfa, &[start], 'A'), Vec::new());
     }
 
     #[test]
-    fn a_step_does_not_follow_epsilon_edges() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let other = builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
-        let split = builder.push(State::Split {
-            first: accept,
-            second: other,
-        });
-        let nfa = builder.build(&[split]);
+    fn a_step_does_not_follow_an_epsilon_transition() {
+        let mut builder = builder();
+        let start = builder.push();
+        let accept = builder.push();
+        builder.epsilon(start, accept);
+        let nfa = builder.build(&[start]);
 
-        assert_eq!(stepped(&nfa, &[split], b'a'), Vec::new());
+        assert_eq!(stepped(&nfa, &[start], 'a'), Vec::new());
     }
 
     #[test]
-    fn a_step_yields_a_shared_successor_once_per_range() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let lower = builder.push(State::Range {
-            low: b'a',
-            high: b'z',
-            next: accept,
-        });
-        let vowel = builder.push(State::Range {
-            low: b'e',
-            high: b'e',
-            next: accept,
-        });
-        let nfa = builder.build(&[lower, vowel]);
+    fn a_step_yields_a_shared_target_one_time_for_each_transition() {
+        let mut builder = builder();
+        let start = builder.push();
+        let accept = builder.push();
+        builder.transition(start, range('a', 'z'), accept);
+        builder.transition(start, only('e'), accept);
+        let nfa = builder.build(&[start]);
 
-        assert_eq!(stepped(&nfa, &[lower, vowel], b'e'), vec![accept, accept]);
+        assert_eq!(stepped(&nfa, &[start], 'e'), vec![accept, accept]);
     }
 
     #[test]
     fn stepping_into_a_buffer_replaces_what_it_held() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let range = builder.push(State::Range {
-            low: b'a',
-            high: b'z',
-            next: accept,
-        });
-        let nfa = builder.build(&[range]);
+        let mut builder = builder();
+        let start = builder.push();
+        let accept = builder.push();
+        builder.transition(start, only('a'), accept);
+        let nfa = builder.build(&[start]);
 
-        let mut out = vec![range, range, range];
-        nfa.step(&[range], b'm', &mut out);
+        let mut out = vec![start, start, start];
+        nfa.step(&[start], 'a', &mut out);
         assert_eq!(out, vec![accept]);
 
-        nfa.step(&[range], b'A', &mut out);
+        nfa.step(&[start], 'b', &mut out);
         assert_eq!(out, Vec::new());
     }
 
     #[test]
-    fn a_start_id_round_trips_through_its_index() {
-        assert_eq!(StartId::new(0).index(), 0);
-        let last = u32::MAX as usize;
-        assert_eq!(StartId::new(last).index(), last);
+    fn a_state_keeps_its_transitions_in_the_sequence_in_which_they_arrived() {
+        let mut builder = builder();
+        let start = builder.push();
+        let first = builder.push();
+        let second = builder.push();
+        builder.transition(start, only('b'), second);
+        builder.transition(start, only('a'), first);
+        let nfa = builder.build(&[start]);
+
+        assert_eq!(
+            nfa.transitions(start),
+            &[
+                Transition {
+                    label: only('b'),
+                    target: second
+                },
+                Transition {
+                    label: only('a'),
+                    target: first
+                },
+            ]
+        );
+        assert_eq!(nfa.transitions(first), &[]);
     }
 
     #[test]
-    #[cfg(target_pointer_width = "64")]
-    #[should_panic(expected = "at most u32::MAX + 1 start conditions")]
-    fn a_start_id_past_the_last_index_panics() {
-        StartId::new(u32::MAX as usize + 1);
+    fn a_state_keeps_its_epsilon_transitions() {
+        let mut builder = builder();
+        let start = builder.push();
+        let first = builder.push();
+        let second = builder.push();
+        builder.epsilon(start, second);
+        builder.epsilon(start, first);
+        let nfa = builder.build(&[start]);
+
+        assert_eq!(nfa.epsilons(start), &[second, first]);
+        assert_eq!(nfa.epsilons(first), &[]);
     }
 
     #[test]
-    fn each_start_condition_names_its_own_entry_state() {
-        let mut builder = NfaBuilder::new();
-        let code = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let string = builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
+    fn only_a_state_that_accepts_has_an_accept() {
+        let mut builder = builder();
+        let start = builder.push();
+        let accept = builder.push();
+        builder.accept(accept, 7);
+        let nfa = builder.build(&[start]);
+
+        assert_eq!(nfa.accept(start), None);
+        assert_eq!(nfa.accept(accept), Some(&7));
+        assert_eq!(nfa.state_count(), 2);
+    }
+
+    #[test]
+    fn each_start_names_its_own_state() {
+        let mut builder = builder();
+        let code = builder.push();
+        let string = builder.push();
         let nfa = builder.build(&[code, string]);
 
         assert_eq!(nfa.start_count(), 2);
@@ -240,15 +291,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "start 2 is outside an automaton with 2 start conditions")]
+    #[should_panic(expected = "start 2 is outside an automaton with 2 start states")]
     fn reading_a_start_outside_the_automaton_panics() {
-        let mut builder = NfaBuilder::new();
-        let code = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let string = builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
+        let mut builder = builder();
+        let code = builder.push();
+        let string = builder.push();
         let nfa = builder.build(&[code, string]);
 
         nfa.start_state(StartId::new(2));
@@ -256,16 +303,23 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "state 9 is outside an arena of 2 states")]
-    fn reading_a_state_outside_the_arena_panics() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
-        let nfa = builder.build(&[accept]);
+    fn reading_the_transitions_of_a_state_outside_the_arena_panics() {
+        let mut builder = builder();
+        let start = builder.push();
+        builder.push();
+        let nfa = builder.build(&[start]);
 
-        nfa.state(StateId::new(9));
+        nfa.transitions(StateId::new(9));
+    }
+
+    #[test]
+    #[should_panic(expected = "state 9 is outside an arena of 2 states")]
+    fn reading_the_accept_of_a_state_outside_the_arena_panics() {
+        let mut builder = builder();
+        let start = builder.push();
+        builder.push();
+        let nfa = builder.build(&[start]);
+
+        nfa.accept(StateId::new(9));
     }
 }

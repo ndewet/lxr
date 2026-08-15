@@ -1,16 +1,18 @@
-#![allow(dead_code)]
+//! A nondeterministic finite automaton, its builder, and its simulator.
 
 mod automaton;
 mod builder;
+mod id;
 #[cfg(test)]
 mod reference;
 mod simulation;
-mod state;
+mod transition;
 
 #[allow(unused_imports)]
 pub use self::{
-    automaton::{Nfa, StartId},
+    automaton::Nfa,
     builder::NfaBuilder,
+    id::{StartId, StateId},
     simulation::Simulator,
-    state::{AcceptId, State, StateId},
+    transition::Transition,
 };

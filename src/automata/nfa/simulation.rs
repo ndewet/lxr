@@ -1,20 +1,20 @@
 use super::automaton::Nfa;
-use super::state::StateId;
+use super::id::StateId;
 
 /// The scratch space that an epsilon closure over an [`Nfa`] uses.
 ///
 /// A simulator holds one allocation for each closure that it makes. Use the same simulator for
 /// each call. Thus the calls do not make a new allocation for each closure.
 #[derive(Debug)]
-pub struct Simulator<'a> {
-    nfa: &'a Nfa,
+pub struct Simulator<'a, L, A> {
+    nfa: &'a Nfa<L, A>,
     reached: Vec<bool>,
     pending: Vec<StateId>,
 }
 
-impl<'a> Simulator<'a> {
+impl<'a, L, A> Simulator<'a, L, A> {
     /// Creates a `Simulator` that runs over `nfa`.
-    pub fn new(nfa: &'a Nfa) -> Self {
+    pub fn new(nfa: &'a Nfa<L, A>) -> Self {
         Self {
             nfa,
             reached: vec![false; nfa.state_count()],
@@ -23,11 +23,11 @@ impl<'a> Simulator<'a> {
     }
 
     /// Returns the automaton that this simulator runs over.
-    pub fn nfa(&self) -> &'a Nfa {
+    pub fn nfa(&self) -> &'a Nfa<L, A> {
         self.nfa
     }
 
-    /// Finds each state that `seeds` goes to without a byte, then writes the states into `out`.
+    /// Finds each state that `seeds` goes to without a symbol, then writes the states into `out`.
     ///
     /// The function clears `out` first. The result holds the seeds. The result is in ascending
     /// sequence and holds no duplicate.
@@ -59,10 +59,10 @@ impl<'a> Simulator<'a> {
 
         while let Some(id) = self.pending.pop() {
             out.push(id);
-            for successor in nfa.state(id).epsilon_successors() {
-                if !self.reached[successor.index()] {
-                    self.reached[successor.index()] = true;
-                    self.pending.push(successor);
+            for &target in nfa.epsilons(id) {
+                if !self.reached[target.index()] {
+                    self.reached[target.index()] = true;
+                    self.pending.push(target);
                 }
             }
         }
@@ -78,10 +78,14 @@ impl<'a> Simulator<'a> {
 #[cfg(test)]
 mod tests {
     use super::super::builder::NfaBuilder;
-    use super::super::state::{AcceptId, State};
+    use super::super::reference::{Symbols, only};
     use super::*;
 
-    fn closure(nfa: &Nfa, seeds: &[StateId]) -> Vec<StateId> {
+    fn builder() -> NfaBuilder<Symbols, u32> {
+        NfaBuilder::new()
+    }
+
+    fn closure(nfa: &Nfa<Symbols, u32>, seeds: &[StateId]) -> Vec<StateId> {
         let mut out = Vec::new();
         Simulator::new(nfa).epsilon_closure(seeds, &mut out);
         out
@@ -92,72 +96,51 @@ mod tests {
     }
 
     #[test]
-    fn the_closure_of_a_terminal_state_is_just_itself() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
+    fn the_closure_of_a_state_without_an_epsilon_transition_is_just_itself() {
+        let mut builder = builder();
+        let accept = builder.push();
+        builder.accept(accept, 0);
         let nfa = builder.build(&[accept]);
 
         assert_eq!(closure(&nfa, &[accept]), vec![accept]);
     }
 
     #[test]
-    fn the_closure_follows_both_branches_of_a_split() {
-        let mut builder = NfaBuilder::new();
-        let left = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let right = builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
-        let split = builder.push(State::Split {
-            first: left,
-            second: right,
-        });
-        let nfa = builder.build(&[split]);
+    fn the_closure_follows_each_epsilon_transition_of_a_state() {
+        let mut builder = builder();
+        let start = builder.push();
+        let left = builder.push();
+        let middle = builder.push();
+        let right = builder.push();
+        builder.epsilon(start, left);
+        builder.epsilon(start, middle);
+        builder.epsilon(start, right);
+        let nfa = builder.build(&[start]);
 
-        assert_eq!(indices(&closure(&nfa, &[split])), vec![0, 1, 2]);
+        assert_eq!(indices(&closure(&nfa, &[start])), vec![0, 1, 2, 3]);
     }
 
     #[test]
-    fn the_closure_stops_at_a_byte_transition() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let range = builder.push(State::Range {
-            low: b'a',
-            high: b'a',
-            next: accept,
-        });
-        let nfa = builder.build(&[range]);
+    fn the_closure_stops_at_a_transition_with_a_label() {
+        let mut builder = builder();
+        let start = builder.push();
+        let accept = builder.push();
+        builder.transition(start, only('a'), accept);
+        let nfa = builder.build(&[start]);
 
-        assert_eq!(closure(&nfa, &[range]), vec![range]);
+        assert_eq!(closure(&nfa, &[start]), vec![start]);
     }
 
     #[test]
     fn the_closure_terminates_on_an_epsilon_cycle() {
-        let mut builder = NfaBuilder::new();
-        let left = builder.reserve();
-        let right = builder.reserve();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        builder.fill(
-            left,
-            State::Split {
-                first: right,
-                second: accept,
-            },
-        );
-        builder.fill(
-            right,
-            State::Split {
-                first: left,
-                second: accept,
-            },
-        );
+        let mut builder = builder();
+        let left = builder.push();
+        let right = builder.push();
+        let accept = builder.push();
+        builder.epsilon(left, right);
+        builder.epsilon(left, accept);
+        builder.epsilon(right, left);
+        builder.epsilon(right, accept);
         let nfa = builder.build(&[left]);
 
         assert_eq!(indices(&closure(&nfa, &[left])), vec![0, 1, 2]);
@@ -165,21 +148,15 @@ mod tests {
 
     #[test]
     fn the_closure_is_sorted_and_deduplicated() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let other = builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
-        let left = builder.push(State::Split {
-            first: accept,
-            second: other,
-        });
-        let right = builder.push(State::Split {
-            first: other,
-            second: accept,
-        });
+        let mut builder = builder();
+        let first = builder.push();
+        let second = builder.push();
+        let left = builder.push();
+        let right = builder.push();
+        builder.epsilon(left, first);
+        builder.epsilon(left, second);
+        builder.epsilon(right, second);
+        builder.epsilon(right, first);
         let nfa = builder.build(&[left]);
 
         assert_eq!(
@@ -191,31 +168,22 @@ mod tests {
     #[test]
     #[should_panic(expected = "state 9 is outside an arena of 2 states")]
     fn a_closure_over_a_seed_outside_the_arena_panics() {
-        let mut builder = NfaBuilder::new();
-        let accept = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
-        let nfa = builder.build(&[accept]);
+        let mut builder = builder();
+        let start = builder.push();
+        builder.push();
+        let nfa = builder.build(&[start]);
 
         closure(&nfa, &[StateId::new(9)]);
     }
 
     #[test]
     fn a_reused_closure_buffer_does_not_leak_between_calls() {
-        let mut builder = NfaBuilder::new();
-        let left = builder.push(State::Match {
-            accept: AcceptId::new(0),
-        });
-        let right = builder.push(State::Match {
-            accept: AcceptId::new(1),
-        });
-        let split = builder.push(State::Split {
-            first: left,
-            second: right,
-        });
+        let mut builder = builder();
+        let left = builder.push();
+        let right = builder.push();
+        let split = builder.push();
+        builder.epsilon(split, left);
+        builder.epsilon(split, right);
         let nfa = builder.build(&[split]);
 
         let mut simulator = Simulator::new(&nfa);

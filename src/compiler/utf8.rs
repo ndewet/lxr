@@ -1,13 +1,13 @@
 //! Lowers a character set to the bytes that encode its characters.
 //!
-//! An [`Nfa`](crate::automata::nfa::Nfa) reads bytes. A regular expression
-//! matches characters. Thus you must lower a
-//! [`Class`](crate::regex::Node::Class) leaf to its UTF-8 encodings before
-//! Thompson construction makes the states.
+//! The lexer reads bytes. A regular expression matches characters. Thus you
+//! must lower a [`Class`](crate::regex::Node::Class) leaf to its UTF-8
+//! encodings before Thompson construction makes the states.
 //!
 //! [`lower`] does that step. It makes an alternation of byte sequences from a
 //! [`CharSet`]. Construction reads each byte sequence as a chain of
-//! [`Range`](crate::automata::nfa::State::Range) states.
+//! [`Transition`](crate::automata::nfa::Transition)s. A [`ByteRange`] is the
+//! label of one of them.
 //!
 //! This module lowers before determinization, and not after it. Thus the
 //! remainder of the pipeline reads only bytes, and the matcher does no
@@ -16,6 +16,7 @@
 //! manner as all other incorrect input. It never holds a part of a decoded
 //! character.
 
+use crate::automata::Label;
 use crate::regex::CharSet;
 
 /// The maximum number of the bytes that a character encodes to.
@@ -36,6 +37,14 @@ pub struct ByteRange {
     pub low: u8,
     /// The highest byte in the range.
     pub high: u8,
+}
+
+impl Label for ByteRange {
+    type Symbol = u8;
+
+    fn matches(&self, byte: u8) -> bool {
+        (self.low..=self.high).contains(&byte)
+    }
 }
 
 /// The encodings of one range of characters, as one [`ByteRange`] for each
@@ -195,6 +204,32 @@ mod tests {
     /// The number of the characters. This is each codepoint but the
     /// surrogates.
     const CHARACTERS: u64 = 0x11_0000 - 0x800;
+
+    #[test]
+    fn a_byte_range_matches_the_bytes_from_its_low_bound_to_its_high_bound() {
+        let range = ByteRange {
+            low: b'a',
+            high: b'z',
+        };
+
+        assert!(range.matches(b'a'));
+        assert!(range.matches(b'm'));
+        assert!(range.matches(b'z'));
+        assert!(!range.matches(b'A'));
+        assert!(!range.matches(b'{'));
+    }
+
+    #[test]
+    fn a_byte_range_of_one_byte_matches_only_that_byte() {
+        let range = ByteRange {
+            low: 0x80,
+            high: 0x80,
+        };
+
+        assert!(range.matches(0x80));
+        assert!(!range.matches(0x7F));
+        assert!(!range.matches(0x81));
+    }
 
     fn sequence(ranges: &[(u8, u8)]) -> ByteSequence {
         let ranges: Vec<ByteRange> = ranges
