@@ -16,6 +16,10 @@ impl<T> Arena<T> {
     /// The offsets hold one more value than the number of the groups. The last value is the
     /// number of the items. The values ascend. [`ArenaBuilder`](super::ArenaBuilder) makes them.
     pub(super) fn new(offsets: Vec<u32>, items: Vec<T>) -> Self {
+        debug_assert!(
+            offsets.last() == Some(&(items.len() as u32)),
+            "the last offset is the number of the items"
+        );
         Self { offsets, items }
     }
 

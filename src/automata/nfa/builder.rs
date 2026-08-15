@@ -37,13 +37,35 @@ impl<L, A> NfaBuilder<L, A> {
     }
 
     /// Adds a transition from `from` to `to` for each symbol that `label` matches.
+    ///
+    /// `to` can be a state that you push later. [`build`](Self::build) checks each target.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `from` is not in the state arena.
     pub fn transition(&mut self, from: StateId, label: L, to: StateId) {
+        assert!(
+            from.index() < self.accepts.len(),
+            "cannot add a transition at {}: no such state",
+            from.index()
+        );
         self.transitions
             .push(from.index(), Transition { label, target: to });
     }
 
     /// Adds a transition from `from` to `to` that reads no symbol.
+    ///
+    /// `to` can be a state that you push later. [`build`](Self::build) checks each target.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `from` is not in the state arena.
     pub fn epsilon(&mut self, from: StateId, to: StateId) {
+        assert!(
+            from.index() < self.accepts.len(),
+            "cannot add an epsilon transition at {}: no such state",
+            from.index()
+        );
         self.epsilons.push(from.index(), to);
     }
 
@@ -75,6 +97,7 @@ impl<L, A> NfaBuilder<L, A> {
     /// - `starts` is empty.
     /// - A start state is not in the state arena.
     /// - The target of a transition is not in the state arena.
+    /// - The target of an epsilon transition is not in the state arena.
     pub fn build(self, starts: &[StateId]) -> Nfa<L, A> {
         let count = self.accepts.len();
         assert!(!starts.is_empty(), "an NFA needs at least one start state");
@@ -190,6 +213,22 @@ mod tests {
     #[should_panic(expected = "cannot accept at 3: no such state")]
     fn accepting_at_a_state_that_was_never_pushed_panics() {
         builder().accept(StateId::new(3), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot add a transition at 3: no such state")]
+    fn adding_a_transition_at_a_state_that_was_never_pushed_panics() {
+        let mut builder = builder();
+        let target = builder.push();
+        builder.transition(StateId::new(3), only('a'), target);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot add an epsilon transition at 3: no such state")]
+    fn adding_an_epsilon_transition_at_a_state_that_was_never_pushed_panics() {
+        let mut builder = builder();
+        let target = builder.push();
+        builder.epsilon(StateId::new(3), target);
     }
 
     #[test]

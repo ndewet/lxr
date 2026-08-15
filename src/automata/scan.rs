@@ -18,6 +18,10 @@ pub struct Match<A> {
 ///
 /// Only the rules of `start` are applicable. The other start states take no part in the scan.
 ///
+/// A start state that accepts before it reads a symbol gives a match of length 0. A scanner that
+/// moves forward by the length of the match then does not move. Thus reject a rule that matches
+/// no symbol, or move the scanner forward by one symbol.
+///
 /// The function scans one token. Give the same execution for each token of the input. Thus the
 /// scanner makes the buffers one time, and not one time for each token.
 ///
