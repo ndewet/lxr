@@ -35,8 +35,14 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # track_progress stays off. It posts a tracking comment when the run
-          # starts, thus a clean pull request would get a comment for nothing.
-          # With it off, the action posts nothing and the prompt decides.
+          # starts, thus a pull request with correct prose got a comment that
+          # reported nothing. With it off, the action posts nothing and the
+          # prompt decides.
+          #
+          # The cost is the mode. The action reads this as agent mode, and
+          # agent mode runs only when this file matches the copy on the default
+          # branch. Thus the check skips a pull request that changes this file,
+          # and it reports the skip in the log.
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
@@ -110,4 +116,4 @@ jobs:
           claude_args: |
             --model claude-opus-5
             --max-turns 30
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Read,Glob,Grep"
