@@ -1,304 +1,222 @@
-use super::automaton::{Nfa, StartId};
 use super::builder::NfaBuilder;
-use super::simulation::Simulator;
-use super::state::{AcceptId, State, StateId};
+use crate::automata::id::StateId;
+use crate::automata::reference::{Symbols, only};
 
-/// A match that [`Simulator::longest_match`] found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Match {
-    /// The accept that the scan reached.
-    pub accept: AcceptId,
-    /// The number of the bytes in the match.
-    pub length: usize,
-}
-
-pub(super) fn literal(builder: &mut NfaBuilder, bytes: &[u8], accept: usize) -> StateId {
-    let accept = builder.push(State::Match {
-        accept: AcceptId::new(accept),
+/// Adds the states that match `text`, then makes the last state accept.
+pub(super) fn literal(builder: &mut NfaBuilder<Symbols, u32>, text: &str, accept: u32) -> StateId {
+    let start = builder.push();
+    let end = text.chars().fold(start, |current, symbol| {
+        let next = builder.push();
+        builder.transition(current, only(symbol), next);
+        next
     });
-    bytes.iter().rev().fold(accept, |next, &byte| {
-        builder.push(State::Range {
-            low: byte,
-            high: byte,
-            next,
-        })
-    })
+    builder.accept(end, accept);
+    start
 }
 
-pub(super) fn star(builder: &mut NfaBuilder, byte: u8, accept: usize) -> StateId {
-    let accept = builder.push(State::Match {
-        accept: AcceptId::new(accept),
-    });
-    let split = builder.reserve();
-    let body = builder.push(State::Range {
-        low: byte,
-        high: byte,
-        next: split,
-    });
-    builder.fill(
-        split,
-        State::Split {
-            first: body,
-            second: accept,
-        },
-    );
-    split
-}
-
-fn accepted(nfa: &Nfa, states: &[StateId]) -> Option<AcceptId> {
-    states
-        .iter()
-        .filter_map(|&id| match nfa.state(id) {
-            State::Match { accept } => Some(accept),
-            _ => None,
-        })
-        .min()
-}
-
-impl Simulator<'_> {
-    /// Returns the longest match at the start of `input` under `start`.
-    ///
-    /// The function returns `None` if the scan reaches no accept.
-    ///
-    /// If the scan reaches more than one accept at the same length, the lowest accept is the
-    /// result.
-    ///
-    /// Only the rules of `start` are applicable. The other start conditions take no part in the
-    /// scan. Thus a rule of another start condition cannot match here. It also cannot make this
-    /// scan nullable.
-    ///
-    /// The function scans one token. A scanner runs one simulator over the full input. Thus the
-    /// scanner makes the scratch space for the closure one time, and not one time for each token.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if `start` is not a start condition of the automaton.
-    pub fn longest_match(&mut self, start: StartId, input: &[u8]) -> Option<Match> {
-        let nfa = self.nfa();
-        let mut current = Vec::new();
-        let mut next = Vec::new();
-
-        self.epsilon_closure(&[nfa.start_state(start)], &mut current);
-        let mut best = accepted(nfa, &current).map(|accept| Match { accept, length: 0 });
-
-        for (consumed, &byte) in input.iter().enumerate() {
-            nfa.step(&current, byte, &mut next);
-            if next.is_empty() {
-                break;
-            }
-            self.epsilon_closure(&next, &mut current);
-            best = accepted(nfa, &current)
-                .map(|accept| Match {
-                    accept,
-                    length: consumed + 1,
-                })
-                .or(best);
-        }
-
-        best
-    }
+/// Adds one state that matches any number of `symbol`, and that accepts.
+pub(super) fn star(builder: &mut NfaBuilder<Symbols, u32>, symbol: char, accept: u32) -> StateId {
+    let state = builder.push();
+    builder.transition(state, only(symbol), state);
+    builder.accept(state, accept);
+    state
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::automata::automaton::Automaton;
+    use crate::automata::id::StartId;
+    use crate::automata::nfa::Nfa;
+    use crate::automata::scan::{Match, longest_match};
 
-    fn matched(accept: usize, length: usize) -> Option<Match> {
-        Some(Match {
-            accept: AcceptId::new(accept),
-            length,
-        })
+    fn matched(accept: u32, length: usize) -> Option<Match<u32>> {
+        Some(Match { accept, length })
     }
 
-    fn scan(nfa: &Nfa, input: &[u8]) -> Option<Match> {
+    fn scan(nfa: &Nfa<Symbols, u32>, input: &str) -> Option<Match<u32>> {
         scan_under(nfa, 0, input)
     }
 
-    fn scan_under(nfa: &Nfa, start: usize, input: &[u8]) -> Option<Match> {
-        Simulator::new(nfa).longest_match(StartId::new(start), input)
+    fn scan_under(nfa: &Nfa<Symbols, u32>, start: usize, input: &str) -> Option<Match<u32>> {
+        let start = StartId::new(start);
+        let symbols: Vec<char> = input.chars().collect();
+        longest_match(&mut nfa.execute(start), start, &symbols)
     }
 
     #[test]
-    fn a_one_byte_pattern_matches_that_byte() {
+    fn a_one_symbol_pattern_matches_that_symbol() {
         let mut builder = NfaBuilder::new();
-        let start = literal(&mut builder, b"a", 0);
+        let start = literal(&mut builder, "a", 0);
         let nfa = builder.build(&[start]);
 
-        assert_eq!(scan(&nfa, b"a"), matched(0, 1));
+        assert_eq!(scan(&nfa, "a"), matched(0, 1));
     }
 
     #[test]
-    fn a_one_byte_pattern_rejects_another_byte() {
+    fn a_one_symbol_pattern_rejects_another_symbol() {
         let mut builder = NfaBuilder::new();
-        let start = literal(&mut builder, b"a", 0);
+        let start = literal(&mut builder, "a", 0);
         let nfa = builder.build(&[start]);
 
-        assert_eq!(scan(&nfa, b"b"), None);
-        assert_eq!(scan(&nfa, b""), None);
+        assert_eq!(scan(&nfa, "b"), None);
+        assert_eq!(scan(&nfa, ""), None);
     }
 
     #[test]
-    fn a_chain_matches_a_multi_byte_character() {
+    fn a_chain_matches_each_symbol_in_sequence() {
         let mut builder = NfaBuilder::new();
-        let start = literal(&mut builder, "é".as_bytes(), 0);
+        let start = literal(&mut builder, "ab", 0);
         let nfa = builder.build(&[start]);
 
-        assert_eq!(scan(&nfa, "é".as_bytes()), matched(0, 2));
-        assert_eq!(scan(&nfa, &[0xC3]), None);
-        assert_eq!(scan(&nfa, &[0xC3, 0xA8]), None);
+        assert_eq!(scan(&nfa, "ab"), matched(0, 2));
+        assert_eq!(scan(&nfa, "a"), None);
+        assert_eq!(scan(&nfa, "ac"), None);
     }
 
     #[test]
     fn an_alternation_matches_either_branch() {
         let mut builder = NfaBuilder::new();
-        let left = literal(&mut builder, b"ab", 0);
-        let right = literal(&mut builder, b"cd", 1);
-        let start = builder.push(State::Split {
-            first: left,
-            second: right,
-        });
+        let left = literal(&mut builder, "ab", 0);
+        let right = literal(&mut builder, "cd", 1);
+        let start = builder.push();
+        builder.epsilon(start, left);
+        builder.epsilon(start, right);
         let nfa = builder.build(&[start]);
 
-        assert_eq!(scan(&nfa, b"ab"), matched(0, 2));
-        assert_eq!(scan(&nfa, b"cd"), matched(1, 2));
-        assert_eq!(scan(&nfa, b"ac"), None);
+        assert_eq!(scan(&nfa, "ab"), matched(0, 2));
+        assert_eq!(scan(&nfa, "cd"), matched(1, 2));
+        assert_eq!(scan(&nfa, "ac"), None);
     }
 
     #[test]
     fn a_star_matches_any_number_of_repetitions() {
         let mut builder = NfaBuilder::new();
-        let start = star(&mut builder, b'a', 0);
+        let start = star(&mut builder, 'a', 0);
         let nfa = builder.build(&[start]);
 
-        assert_eq!(scan(&nfa, b""), matched(0, 0));
-        assert_eq!(scan(&nfa, b"zzz"), matched(0, 0));
-        assert_eq!(scan(&nfa, b"a"), matched(0, 1));
-        assert_eq!(scan(&nfa, b"aaaa"), matched(0, 4));
+        assert_eq!(scan(&nfa, ""), matched(0, 0));
+        assert_eq!(scan(&nfa, "zzz"), matched(0, 0));
+        assert_eq!(scan(&nfa, "a"), matched(0, 1));
+        assert_eq!(scan(&nfa, "aaaa"), matched(0, 4));
     }
 
     #[test]
     fn the_longer_match_wins() {
         let mut builder = NfaBuilder::new();
-        let short = literal(&mut builder, b"a", 0);
-        let long = literal(&mut builder, b"ab", 1);
-        let start = builder.push(State::Split {
-            first: short,
-            second: long,
-        });
+        let short = literal(&mut builder, "a", 0);
+        let long = literal(&mut builder, "ab", 1);
+        let start = builder.push();
+        builder.epsilon(start, short);
+        builder.epsilon(start, long);
         let nfa = builder.build(&[start]);
 
-        assert_eq!(scan(&nfa, b"ab"), matched(1, 2));
-        assert_eq!(scan(&nfa, b"ac"), matched(0, 1));
+        assert_eq!(scan(&nfa, "ab"), matched(1, 2));
+        assert_eq!(scan(&nfa, "ac"), matched(0, 1));
     }
 
     #[test]
     fn trailing_input_is_left_for_the_next_call() {
         let mut builder = NfaBuilder::new();
-        let start = literal(&mut builder, b"ab", 0);
+        let start = literal(&mut builder, "ab", 0);
         let nfa = builder.build(&[start]);
 
-        assert_eq!(scan(&nfa, b"abcdef"), matched(0, 2));
+        assert_eq!(scan(&nfa, "abcdef"), matched(0, 2));
     }
 
     #[test]
     fn the_lower_accept_wins_a_tie() {
         let mut builder = NfaBuilder::new();
-        let keyword = literal(&mut builder, b"if", 0);
-        let identifier = literal(&mut builder, b"if", 1);
-        let start = builder.push(State::Split {
-            first: identifier,
-            second: keyword,
-        });
+        let keyword = literal(&mut builder, "if", 0);
+        let identifier = literal(&mut builder, "if", 1);
+        let start = builder.push();
+        builder.epsilon(start, identifier);
+        builder.epsilon(start, keyword);
         let nfa = builder.build(&[start]);
 
-        assert_eq!(scan(&nfa, b"if"), matched(0, 2));
+        assert_eq!(scan(&nfa, "if"), matched(0, 2));
     }
 
     #[test]
-    fn a_start_with_no_reachable_match_accepts_nothing() {
-        let mut builder = NfaBuilder::new();
-        let stuck = builder.reserve();
-        builder.fill(
-            stuck,
-            State::Split {
-                first: stuck,
-                second: stuck,
-            },
-        );
+    fn a_start_with_no_reachable_accept_accepts_nothing() {
+        let mut builder = NfaBuilder::<Symbols, u32>::new();
+        let stuck = builder.push();
+        builder.epsilon(stuck, stuck);
         let nfa = builder.build(&[stuck]);
 
-        assert_eq!(scan(&nfa, b""), None);
-        assert_eq!(scan(&nfa, b"anything"), None);
+        assert_eq!(scan(&nfa, ""), None);
+        assert_eq!(scan(&nfa, "anything"), None);
     }
 
     #[test]
-    fn one_simulator_scans_a_sequence_of_matches() {
+    fn one_execution_scans_a_sequence_of_matches() {
         let mut builder = NfaBuilder::new();
-        let keyword = literal(&mut builder, b"if", 0);
-        let space = literal(&mut builder, b" ", 1);
-        let start = builder.push(State::Split {
-            first: keyword,
-            second: space,
-        });
+        let keyword = literal(&mut builder, "if", 0);
+        let space = literal(&mut builder, " ", 1);
+        let start = builder.push();
+        builder.epsilon(start, keyword);
+        builder.epsilon(start, space);
         let nfa = builder.build(&[start]);
 
-        let mut simulator = Simulator::new(&nfa);
-        let mut input: &[u8] = b"if if";
+        let start = StartId::new(0);
+        let mut execution = nfa.execute(start);
+        let symbols: Vec<char> = "if if".chars().collect();
+        let mut input = &symbols[..];
         let mut accepts = Vec::new();
 
-        while let Some(found) = simulator.longest_match(StartId::new(0), input) {
-            accepts.push(found.accept.index());
+        while let Some(found) = longest_match(&mut execution, start, input) {
+            accepts.push(found.accept);
             input = &input[found.length..];
         }
 
         assert_eq!(accepts, vec![0, 1, 0]);
-        assert_eq!(input, b"");
+        assert_eq!(input, []);
     }
 
     #[test]
-    fn each_entry_point_scans_only_its_own_rules() {
+    fn each_start_scans_only_its_own_rules() {
         let mut builder = NfaBuilder::new();
-        let code = literal(&mut builder, b"a", 0);
-        let string = literal(&mut builder, b"b", 1);
+        let code = literal(&mut builder, "a", 0);
+        let string = literal(&mut builder, "b", 1);
         let nfa = builder.build(&[code, string]);
 
-        assert_eq!(scan_under(&nfa, 0, b"a"), matched(0, 1));
-        assert_eq!(scan_under(&nfa, 0, b"b"), None);
+        assert_eq!(scan_under(&nfa, 0, "a"), matched(0, 1));
+        assert_eq!(scan_under(&nfa, 0, "b"), None);
 
-        assert_eq!(scan_under(&nfa, 1, b"b"), matched(1, 1));
-        assert_eq!(scan_under(&nfa, 1, b"a"), None);
+        assert_eq!(scan_under(&nfa, 1, "b"), matched(1, 1));
+        assert_eq!(scan_under(&nfa, 1, "a"), None);
     }
 
     #[test]
-    fn a_nullable_entry_point_does_not_make_another_nullable() {
+    fn a_nullable_start_does_not_make_another_start_nullable() {
         let mut builder = NfaBuilder::new();
-        let literal_start = literal(&mut builder, b"ab", 0);
-        let star_start = star(&mut builder, b'a', 1);
+        let literal_start = literal(&mut builder, "ab", 0);
+        let star_start = star(&mut builder, 'a', 1);
         let nfa = builder.build(&[literal_start, star_start]);
 
-        assert_eq!(scan_under(&nfa, 1, b"zz"), matched(1, 0));
-        assert_eq!(scan_under(&nfa, 0, b"zz"), None);
-        assert_eq!(scan_under(&nfa, 0, b"ab"), matched(0, 2));
+        assert_eq!(scan_under(&nfa, 1, "zz"), matched(1, 0));
+        assert_eq!(scan_under(&nfa, 0, "zz"), None);
+        assert_eq!(scan_under(&nfa, 0, "ab"), matched(0, 2));
     }
 
     #[test]
-    fn a_lower_accept_in_another_condition_does_not_win() {
+    fn a_lower_accept_under_another_start_does_not_win() {
         let mut builder = NfaBuilder::new();
-        let code = literal(&mut builder, b"if", 0);
-        let string = literal(&mut builder, b"if", 1);
+        let code = literal(&mut builder, "if", 0);
+        let string = literal(&mut builder, "if", 1);
         let nfa = builder.build(&[code, string]);
 
-        assert_eq!(scan_under(&nfa, 1, b"if"), matched(1, 2));
+        assert_eq!(scan_under(&nfa, 1, "if"), matched(1, 2));
     }
 
     #[test]
-    #[should_panic(expected = "start 2 is outside an automaton with 2 start conditions")]
+    #[should_panic(expected = "start 2 is outside an automaton with 2 start states")]
     fn scanning_under_a_start_the_automaton_does_not_have_panics() {
         let mut builder = NfaBuilder::new();
-        let code = literal(&mut builder, b"a", 0);
-        let string = literal(&mut builder, b"b", 1);
+        let code = literal(&mut builder, "a", 0);
+        let string = literal(&mut builder, "b", 1);
         let nfa = builder.build(&[code, string]);
 
-        scan_under(&nfa, 2, b"a");
+        scan_under(&nfa, 2, "a");
     }
 }
