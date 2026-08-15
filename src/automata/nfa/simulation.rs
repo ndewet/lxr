@@ -1,10 +1,10 @@
 use super::automaton::Nfa;
 use super::state::StateId;
 
-/// Scratch space for taking epsilon closures over an [`Nfa`].
+/// The scratch space that an epsilon closure over an [`Nfa`] uses.
 ///
-/// A simulator holds one allocation per closure it takes, so reusing it across calls avoids
-/// reallocating for every closure.
+/// A simulator holds one allocation for each closure that it makes. Use the same simulator for
+/// each call. Thus the calls do not make a new allocation for each closure.
 #[derive(Debug)]
 pub struct Simulator<'a> {
     nfa: &'a Nfa,
@@ -13,7 +13,7 @@ pub struct Simulator<'a> {
 }
 
 impl<'a> Simulator<'a> {
-    /// Creates a `Simulator` over `nfa`.
+    /// Creates a `Simulator` that runs over `nfa`.
     pub fn new(nfa: &'a Nfa) -> Self {
         Self {
             nfa,
@@ -22,19 +22,19 @@ impl<'a> Simulator<'a> {
         }
     }
 
-    /// Returns the automaton this simulator runs over.
+    /// Returns the automaton that this simulator runs over.
     pub fn nfa(&self) -> &'a Nfa {
         self.nfa
     }
 
-    /// Writes the states reached from `seeds` without consuming a byte into `out`, clearing it
-    /// first.
+    /// Finds each state that `seeds` goes to without a byte, then writes the states into `out`.
     ///
-    /// The seeds themselves are included. The result is sorted and holds no duplicates.
+    /// The function clears `out` first. The result holds the seeds. The result is in ascending
+    /// sequence and holds no duplicate.
     ///
     /// # Panics
     ///
-    /// Panics if any of `seeds` is outside the arena.
+    /// This function panics if a state in `seeds` is not in the state arena.
     pub fn epsilon_closure(&mut self, seeds: &[StateId], out: &mut Vec<StateId>) {
         let nfa = self.nfa;
 
