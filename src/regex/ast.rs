@@ -1,26 +1,73 @@
 use crate::regex::charset::CharSet;
 
+/// A node of the syntax tree of a regular expression.
+///
+/// Each node matches a set of strings. A leaf is an [`Epsilon`](Node::Epsilon)
+/// or a [`Class`](Node::Class). Each other variant holds the nodes that its
+/// operator applies to.
+///
+/// To make a tree from a pattern, use [`FromStr`](std::str::FromStr). To make
+/// a tree by hand, use the methods on this type.
+///
+/// # Examples
+///
+/// ```
+/// use lxr::regex::{CharSet, Node};
+///
+/// let node: Node = "ab".parse().unwrap();
+/// assert_eq!(
+///     node,
+///     Node::Concatenation(vec![
+///         Node::Class(CharSet::single('a')),
+///         Node::Class(CharSet::single('b')),
+///     ]),
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
-    // Sequences and alternations hold their children in a list rather than
-    // nesting pairwise, so a pattern's tree depth is its group nesting rather
-    // than its length. Both sides are flattened, which keeps a folded chain
-    // equal to the same pattern grouped any other way.
+    // A concatenation and an alternation hold their children in a list. They
+    // do not nest in pairs. Thus the depth of a tree is the depth of the
+    // groups in the pattern, and not the length of the pattern. The methods
+    // flatten both sides. Thus a folded chain is equal to the same pattern
+    // with any other grouping.
+    /// Matches the empty string.
     Epsilon,
+    /// Matches one character from the set.
     Class(CharSet),
+    /// Matches each part in sequence.
     Concatenation(Vec<Node>),
+    /// Matches one of the branches.
     Alternation(Vec<Node>),
+    /// Matches the expression as many times as the repetition permits.
     Repetition(Box<Node>, Repetitions),
+    /// Matches the expression zero or more times.
     Star(Box<Node>),
+    /// Matches the expression one or more times.
     Plus(Box<Node>),
+    /// Matches the expression zero times or one time.
     Optional(Box<Node>),
 }
 
 impl Node {
-    /// Returns a node matching `self` followed by `other`.
+    /// Returns a node that matches `self` and then `other`.
     ///
-    /// Concatenations are flattened into a single node, and
-    /// [`Epsilon`](Node::Epsilon) operands are dropped.
+    /// The method flattens a concatenation into one node. It also removes an
+    /// [`Epsilon`](Node::Epsilon) operand.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::{CharSet, Node};
+    ///
+    /// let a = Node::Class(CharSet::single('a'));
+    /// let b = Node::Class(CharSet::single('b'));
+    ///
+    /// assert_eq!(
+    ///     a.clone().concat(b.clone()),
+    ///     Node::Concatenation(vec![a.clone(), b]),
+    /// );
+    /// assert_eq!(a.clone().concat(Node::Epsilon), a);
+    /// ```
     pub fn concat(self, other: Self) -> Self {
         match (self, other) {
             (Self::Epsilon, node) | (node, Self::Epsilon) => node,
@@ -32,9 +79,23 @@ impl Node {
         }
     }
 
-    /// Returns a node matching either `self` or `other`.
+    /// Returns a node that matches `self` or `other`.
     ///
-    /// Alternations are flattened into a single node.
+    /// The method flattens an alternation into one node.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::{CharSet, Node};
+    ///
+    /// let a = Node::Class(CharSet::single('a'));
+    /// let b = Node::Class(CharSet::single('b'));
+    ///
+    /// assert_eq!(
+    ///     a.clone().alternate(b.clone()),
+    ///     Node::Alternation(vec![a, b]),
+    /// );
+    /// ```
     pub fn alternate(self, other: Self) -> Self {
         let mut branches = self.into_alternation_branches();
         branches.extend(other.into_alternation_branches());
@@ -55,31 +116,77 @@ impl Node {
         }
     }
 
-    /// Returns a node matching `self` repeated zero or more times.
+    /// Returns a node that matches `self` zero or more times.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::{CharSet, Node};
+    ///
+    /// let a = Node::Class(CharSet::single('a'));
+    /// assert_eq!(a.clone().star(), Node::Star(Box::new(a)));
+    /// ```
     pub fn star(self) -> Self {
         Self::Star(Box::new(self))
     }
 
-    /// Returns a node matching `self` repeated one or more times.
+    /// Returns a node that matches `self` one or more times.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::{CharSet, Node};
+    ///
+    /// let a = Node::Class(CharSet::single('a'));
+    /// assert_eq!(a.clone().plus(), Node::Plus(Box::new(a)));
+    /// ```
     pub fn plus(self) -> Self {
         Self::Plus(Box::new(self))
     }
 
-    /// Returns a node matching `self` zero or one times.
+    /// Returns a node that matches `self` zero times or one time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::{CharSet, Node};
+    ///
+    /// let a = Node::Class(CharSet::single('a'));
+    /// assert_eq!(a.clone().optional(), Node::Optional(Box::new(a)));
+    /// ```
     pub fn optional(self) -> Self {
         Self::Optional(Box::new(self))
     }
 
-    /// Returns a node matching `self` repeated as many times as `repetitions`
-    /// allows.
+    /// Returns a node that matches `self` as many times as `repetitions`
+    /// permits.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::{CharSet, Node, Repetitions};
+    ///
+    /// let a = Node::Class(CharSet::single('a'));
+    /// let counts = Repetitions::Range(2, 4);
+    ///
+    /// assert_eq!(
+    ///     a.clone().repeated(counts),
+    ///     Node::Repetition(Box::new(a), counts),
+    /// );
+    /// ```
     pub fn repeated(self, repetitions: Repetitions) -> Self {
         Self::Repetition(Box::new(self), repetitions)
     }
 }
 
+/// The number of times that a [`Repetition`](Node::Repetition) matches its
+/// expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Repetitions {
+    /// Matches a minimum of the first count of times, and a maximum of the
+    /// second count of times.
     Range(usize, usize),
+    /// Matches a minimum of this count of times. There is no maximum.
     AtLeast(usize),
 }
 

@@ -1,28 +1,28 @@
 use super::state::{State, StateId};
 
-/// An entry point of an automaton — one start condition.
+/// One start condition of an automaton. The automaton starts a scan at this point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StartId(u32);
 
 impl StartId {
-    /// Creates a `StartId` from a start condition index.
+    /// Creates a `StartId` from an index of a start condition.
     ///
     /// # Panics
     ///
-    /// Panics if `index` is greater than `u32::MAX`.
+    /// This function panics if `index` is above `u32::MAX`.
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("an automaton has at most u32::MAX + 1 start conditions"))
     }
 
-    /// Returns the start condition this identifier refers to.
+    /// Returns the index of the start condition that this identifier refers to.
     pub fn index(self) -> usize {
         self.0 as usize
     }
 }
 
-/// A nondeterministic finite automaton over bytes.
+/// A nondeterministic finite automaton that reads bytes.
 ///
-/// Built with [`NfaBuilder`](super::NfaBuilder).
+/// To make an `Nfa`, use an [`NfaBuilder`](super::NfaBuilder).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Nfa {
     states: Vec<State>,
@@ -30,16 +30,16 @@ pub struct Nfa {
 }
 
 impl Nfa {
-    /// Creates an `Nfa` from an arena of states and the states it is entered at.
+    /// Creates an `Nfa` from a state arena and the start state of each start condition.
     pub(super) fn new(states: Vec<State>, starts: Vec<StateId>) -> Self {
         Self { states, starts }
     }
 
-    /// Returns the state `id` refers to.
+    /// Returns the state that `id` refers to.
     ///
     /// # Panics
     ///
-    /// Panics if `id` is outside the arena.
+    /// This function panics if `id` is not in the state arena.
     pub fn state(&self, id: StateId) -> State {
         *self.states.get(id.index()).unwrap_or_else(|| {
             panic!(
@@ -50,21 +50,21 @@ impl Nfa {
         })
     }
 
-    /// Returns the number of states in the arena.
+    /// Returns the number of the states in the state arena.
     pub fn state_count(&self) -> usize {
         self.states.len()
     }
 
-    /// Returns the number of start conditions the automaton has.
+    /// Returns the number of the start conditions of the automaton.
     pub fn start_count(&self) -> usize {
         self.starts.len()
     }
 
-    /// Returns the state the automaton is entered at under `start`.
+    /// Returns the state at which the automaton starts a scan under `start`.
     ///
     /// # Panics
     ///
-    /// Panics if `start` is not a start condition of this automaton.
+    /// This function panics if `start` is not a start condition of this automaton.
     pub fn start_state(&self, start: StartId) -> StateId {
         *self.starts.get(start.index()).unwrap_or_else(|| {
             panic!(
@@ -75,7 +75,7 @@ impl Nfa {
         })
     }
 
-    /// Returns an iterator over the start conditions and the states they are entered at.
+    /// Returns an iterator over the start conditions and their start states.
     pub fn starts(&self) -> impl Iterator<Item = (StartId, StateId)> + '_ {
         self.starts
             .iter()
@@ -83,14 +83,15 @@ impl Nfa {
             .map(|(index, &state)| (StartId::new(index), state))
     }
 
-    /// Writes the states reached from `states` by consuming `byte` into `out`, clearing it first.
+    /// Reads `byte` from each state in `states`, then writes the new states into `out`.
     ///
-    /// Epsilon edges are not followed; see
+    /// The function clears `out` first. It does not follow the epsilon edges. To follow the
+    /// epsilon edges, use
     /// [`Simulator::epsilon_closure`](super::Simulator::epsilon_closure).
     ///
     /// # Panics
     ///
-    /// Panics if any of `states` is outside the arena.
+    /// This function panics if a state in `states` is not in the state arena.
     pub fn step(&self, states: &[StateId], byte: u8, out: &mut Vec<StateId>) {
         out.clear();
         out.extend(states.iter().filter_map(|&id| match self.state(id) {

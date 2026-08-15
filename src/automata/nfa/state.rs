@@ -3,44 +3,46 @@
 pub struct StateId(u32);
 
 impl StateId {
-    /// Creates a `StateId` from an arena index.
+    /// Creates a `StateId` from an index into the state arena.
     ///
     /// # Panics
     ///
-    /// Panics if `index` is greater than `u32::MAX`.
+    /// This function panics if `index` is above `u32::MAX`.
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("an NFA holds at most u32::MAX + 1 states"))
     }
 
-    /// Returns the arena index this identifier refers to.
+    /// Returns the index into the state arena that this identifier refers to.
     pub fn index(self) -> usize {
         self.0 as usize
     }
 }
 
-/// An accept of an [`Nfa`](super::Nfa) — one of the things a scan does when a match completes.
+/// An accept of an [`Nfa`](super::Nfa). A scan does an accept when a match is complete.
 ///
-/// What an accept means is no business of the automaton: it holds only the identifier, and
-/// whatever built it holds the table that identifier names. Two accepts are the same accept only
-/// if they are the same identifier, so anything that partitions accept states — determinization,
-/// minimization — splits on the whole meaning without ever having to know what it is.
+/// The automaton does not know the meaning of an accept. It holds only the identifier. The
+/// component that builds the automaton holds the table for that identifier.
 ///
-/// Lower identifiers take precedence. Where a scan reaches several accepts at the same length, the
-/// lowest of them wins, so identifiers are handed out in precedence order.
+/// Two accepts are equal only if their identifiers are equal. Thus determinization and
+/// minimization can divide the accept states correctly. They do not have to know the meaning of
+/// an accept.
+///
+/// A low identifier has precedence. If a scan reaches more than one accept at the same length,
+/// the lowest identifier is the result. Thus give the identifiers in the sequence of precedence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AcceptId(u32);
 
 impl AcceptId {
-    /// Creates an `AcceptId` from an accept index.
+    /// Creates an `AcceptId` from an index of an accept.
     ///
     /// # Panics
     ///
-    /// Panics if `index` is greater than `u32::MAX`.
+    /// This function panics if `index` is above `u32::MAX`.
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("an automaton has at most u32::MAX + 1 accepts"))
     }
 
-    /// Returns the accept this identifier refers to.
+    /// Returns the index of the accept that this identifier refers to.
     pub fn index(self) -> usize {
         self.0 as usize
     }
@@ -49,16 +51,16 @@ impl AcceptId {
 /// A state of an [`Nfa`](super::Nfa).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
-    /// Consumes one byte in `low..=high` and moves to `next`.
+    /// Reads one byte from `low` to `high`, then goes to `next`.
     Range { low: u8, high: u8, next: StateId },
-    /// Moves to both `first` and `second` without consuming a byte.
+    /// Goes to `first` and to `second`. It reads no byte.
     Split { first: StateId, second: StateId },
-    /// Accepts `accept` and leads nowhere.
+    /// Does the accept `accept`. It goes to no other state.
     Match { accept: AcceptId },
 }
 
 impl State {
-    /// Returns an iterator over the states this state leads to.
+    /// Returns an iterator over the states that this state goes to.
     pub fn successors(self) -> impl Iterator<Item = StateId> {
         let (first, second) = match self {
             Self::Range { next, .. } => (Some(next), None),
@@ -68,7 +70,7 @@ impl State {
         first.into_iter().chain(second)
     }
 
-    /// Returns an iterator over the states this state leads to without consuming a byte.
+    /// Returns an iterator over the states that this state goes to without a byte.
     pub fn epsilon_successors(self) -> impl Iterator<Item = StateId> {
         match self {
             Self::Range { .. } => None,

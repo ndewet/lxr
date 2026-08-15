@@ -1,48 +1,52 @@
 use super::automaton::Nfa;
 use super::state::{State, StateId};
 
-/// An arena of [`State`]s under construction.
+/// A state arena of [`State`]s that is not complete.
+///
+/// Add the states, then build an [`Nfa`] with [`build`](Self::build).
 #[derive(Debug, Default)]
 pub struct NfaBuilder {
     states: Vec<Option<State>>,
 }
 
 impl NfaBuilder {
-    /// Creates an empty `NfaBuilder`.
+    /// Creates an `NfaBuilder` that holds no states.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Appends a state to the arena and returns its identifier.
+    /// Adds a state to the end of the state arena, then returns its identifier.
     ///
     /// # Panics
     ///
-    /// Panics if the arena already holds `u32::MAX + 1` states.
+    /// This function panics if the state arena already holds `u32::MAX + 1` states.
     pub fn push(&mut self, state: State) -> StateId {
         let id = StateId::new(self.states.len());
         self.states.push(Some(state));
         id
     }
 
-    /// Appends an empty slot to the arena and returns its identifier.
+    /// Adds an empty slot to the end of the state arena, then returns its identifier.
     ///
-    /// States pushed before the slot is filled may point at it. Every reserved slot must be filled
-    /// with [`fill`](Self::fill) before the arena is built.
+    /// A state that you add before you fill the slot can point at the slot.
+    ///
+    /// Fill each reserved slot with [`fill`](Self::fill) before you build the state arena.
     ///
     /// # Panics
     ///
-    /// Panics if the arena already holds `u32::MAX + 1` states.
+    /// This function panics if the state arena already holds `u32::MAX + 1` states.
     pub fn reserve(&mut self) -> StateId {
         let id = StateId::new(self.states.len());
         self.states.push(None);
         id
     }
 
-    /// Writes a state into the slot reserved for `id`.
+    /// Writes a state into the slot that `id` reserved.
     ///
     /// # Panics
     ///
-    /// Panics if `id` is outside the arena, or if its slot is already filled.
+    /// This function panics if `id` is not in the state arena. It also panics if the slot is
+    /// already full.
     pub fn fill(&mut self, id: StateId, state: State) {
         let slot = self
             .states
@@ -57,13 +61,16 @@ impl NfaBuilder {
         *slot = Some(state);
     }
 
-    /// Builds an [`Nfa`] that is entered at `starts`.
+    /// Builds an [`Nfa`] that has one start condition for each state in `starts`.
     ///
     /// # Panics
     ///
-    /// Panics if `starts` is empty, if a reserved slot was never filled, if a start state or a
-    /// successor points outside the arena, or if a [`State::Range`] has a `low` bound greater than
-    /// its `high` bound.
+    /// This function panics for each of these conditions:
+    ///
+    /// - `starts` is empty.
+    /// - A reserved slot is empty.
+    /// - A start state or a successor is not in the state arena.
+    /// - A [`State::Range`] has a `low` bound above its `high` bound.
     pub fn build(self, starts: &[StateId]) -> Nfa {
         let count = self.states.len();
         assert!(!starts.is_empty(), "an NFA needs at least one start state");
