@@ -29,6 +29,7 @@ pub use self::{
     execution::Execution,
     id::{StartId, StateId},
     label::Label,
+    nfa::{Nfa, NfaBuilder, NfaExecution},
     scan::{Match, longest_match},
     transition::Transition,
 };
