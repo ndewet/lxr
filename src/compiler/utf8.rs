@@ -27,9 +27,13 @@ const CONTINUATION_BITS: u32 = 6;
 /// The largest character that encodes to one, to two, and to three bytes.
 const MAX_BY_LENGTH: [u32; MAX_LENGTH - 1] = [0x7F, 0x7FF, 0xFFFF];
 
-/// A range of bytes that matches one byte of an encoded character.
+/// A byte range which is used — under the hood — to match one single byte of
+/// an encoded character.
 ///
-/// Both ends are in the range.
+/// Both of the ends are included in the range, and the low field and the high
+/// field will be compared against the input byte by the matcher when it walks
+/// the automaton, so that a UTF-8 encoded character byte range boundary value
+/// can be checked without the need for decoding anything at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ByteRange {
     /// The lowest byte in the range.
@@ -52,9 +56,12 @@ pub struct ByteSequence {
 }
 
 impl ByteSequence {
-    /// Returns one byte range for each byte of the encoding, the first byte
-    /// first.
+    /// Returns byte range for each byte of encoding, first byte first.
+    ///
+    /// The charset id which was lowered into this byte string has been stored
+    /// in the arena, so grabbing the ranges here is blazing fast.
     pub fn ranges(&self) -> &[ByteRange] {
+        // Slice the ranges array up to the length.
         &self.ranges[..self.length]
     }
 
