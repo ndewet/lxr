@@ -112,6 +112,10 @@ impl CharSet {
 
     /// Returns the set of the characters that are in `self` or in `other`.
     ///
+    /// The ranges are merged when they touch or overlap, and the character
+    /// range merge order follows the low bound of each range, so that the
+    /// result always holds ranges that are sorted and never adjacent.
+    ///
     /// # Examples
     ///
     /// ```
@@ -125,12 +129,15 @@ impl CharSet {
     /// ```
     pub fn union(&self, other: &Self) -> Self {
         let mut all = self.ranges.clone();
+        // Could be faster if the two lists were merged instead of sorted.
         all.extend_from_slice(&other.ranges);
         Self::from_ranges(all)
     }
 
     /// Returns the set of the characters that are in `self` and not in
     /// `other`.
+    ///
+    /// The other charset will not be changed.
     ///
     /// # Examples
     ///
