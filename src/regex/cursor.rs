@@ -21,6 +21,9 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// Returns the byte offset of the next character.
+    ///
+    /// The offset counts bytes, thus a caller can slice the pattern with it.
     pub(crate) fn position(&self) -> usize {
         self.position
     }
@@ -37,7 +40,7 @@ impl<'a> Cursor<'a> {
         let character = self.current?;
         self.current = self.next;
         self.next = self.characters.next();
-        self.position += 1;
+        self.position += character.len_utf8();
         Some(character)
     }
 

@@ -1,25 +1,30 @@
 use std::fmt::{Display, Formatter, Result};
+use std::ops::Range;
 
 /// A failure to parse a regular expression.
 ///
-/// The error gives the kind of the failure. It also gives the position in the
-/// pattern at which the parser stopped. The position is a byte offset from the
-/// start of the pattern.
+/// The error gives the kind of the failure, and the part of the pattern at
+/// fault. [`ParseErrorKind::help`] gives the correction.
 ///
 /// # Examples
 ///
 /// ```
 /// use lxr::regex::Node;
 ///
-/// let error = "a(b".parse::<Node>().unwrap_err();
-/// assert_eq!(error.position, 1);
-/// assert_eq!(error.to_string(), "unclosed '(' at position 1");
+/// let pattern = "[z-a]";
+/// let error = pattern.parse::<Node>().unwrap_err();
+///
+/// assert_eq!(&pattern[error.span.clone()], "z-a");
+/// assert_eq!(error.to_string(), "invalid range 'z-a' at position 1");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ParseError {
-    /// The byte offset in the pattern at which the parser stopped.
-    pub position: usize,
+    /// The bytes of the pattern at fault.
+    ///
+    /// The range counts bytes, thus a caller can slice the pattern with it. A
+    /// failure at the end of the pattern gives an empty range.
+    pub span: Range<usize>,
     /// The kind of the failure.
     pub kind: ParseErrorKind,
 }
@@ -101,17 +106,81 @@ pub enum ParseErrorKind {
 }
 
 impl ParseErrorKind {
+    /// Joins this kind to the bytes at fault, then gives the error.
+    pub(crate) fn spanning(self, span: Range<usize>) -> ParseError {
+        ParseError { span, kind: self }
+    }
+
+    /// Returns the error whose span starts and stops at `position`.
+    ///
+    /// The tests of the parser compare against an error of this shape, because
+    /// their `parse` helper keeps only the start of a span.
+    #[cfg(test)]
     pub(crate) fn at(self, position: usize) -> ParseError {
-        ParseError {
-            position,
-            kind: self,
-        }
+        self.spanning(position..position)
+    }
+
+    /// Returns the correction for this kind of failure.
+    ///
+    /// A caller shows the text under the message, in the manner of a note from
+    /// the compiler. A kind that has no correction to give returns `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::Node;
+    ///
+    /// let error = "a{5,2}".parse::<Node>().unwrap_err();
+    /// assert_eq!(
+    ///     error.kind.help(),
+    ///     Some("Write the minimum first, for example `{2,5}`."),
+    /// );
+    /// ```
+    pub fn help(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::UnexpectedEnd | Self::UnexpectedCharacter(_) | Self::Expected { .. } => {
+                return None;
+            }
+            Self::NothingToRepeat(_) => "Put an expression before the quantifier.",
+            Self::RepeatedQuantifier(_) => "Put the expression in a group, for example `(a*)?`.",
+            Self::InvertedRange { .. } => "Write the low end first, for example `a-z`.",
+            Self::InvertedRepetition { .. } => "Write the minimum first, for example `{2,5}`.",
+            Self::RepetitionTooLarge => "Write a count of 65535 or below.",
+            Self::UnclosedGroup => "Add a `)`.",
+            Self::UnmatchedCloseParenthesis => {
+                "Add a `(`, or write `\\)` for a literal parenthesis."
+            }
+            Self::UnclosedClass => "Add a `]`.",
+            Self::EmptyClass => "The class matches no character, thus no input matches the rule.",
+            Self::ClassEscapeInRange(_) => "Write one character at each end of the range.",
+            Self::UnknownEscape(_) => "Write `\\\\` for a literal backslash.",
+            Self::InvalidCodePoint(_) => {
+                "Write a value from 0 to 10FFFF, and not a value from D800 to DFFF."
+            }
+            Self::NestingTooDeep(_) => "Make the pattern flat, or divide the rule.",
+            Self::UnsupportedAnchor(_) => {
+                "A lexer matches at the position of the scan, thus an anchor is not needed."
+            }
+            Self::UnsupportedGroup => {
+                "Write a plain group `(...)`. A group of this parser captures nothing."
+            }
+            Self::UnsupportedPosixClass => {
+                "Write the characters, for example `[a-zA-Z]`, or write `\\w`."
+            }
+            Self::UnsupportedOctalEscape => {
+                "Write a hexadecimal escape, for example `\\x41` or `\\x{41}`."
+            }
+            Self::UnsupportedBackreference => {
+                "A lexer reads a regular language, thus it holds no backreference. \
+                 For the character 65, write `\\x41`."
+            }
+        })
     }
 }
 
 impl Display for ParseError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result {
-        write!(formatter, "{} at position {}", self.kind, self.position)
+        write!(formatter, "{} at position {}", self.kind, self.span.start)
     }
 }
 

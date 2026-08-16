@@ -70,9 +70,9 @@ epsilon closure checks each seed that way.
 ### The shape of an error type
 
 Give one error type to one operation. The type is a struct that holds the
-context that the caller needs to point at the fault. `ParseError` gives a
-position in the pattern, and `BuildError` gives the index of a rule. The struct
-holds a kind enum if the operation has more than one cause.
+context that the caller needs to point at the fault. `ParseError` gives the
+bytes of the pattern at fault, and `BuildError` gives the index of a rule. The
+struct holds a kind enum if the operation has more than one cause.
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,11 +88,27 @@ pub struct BuildError {
   `std::error::Error` by hand. The crate keeps no dependencies.
 - Embed the fields of a cause. Do not box a cause, and do not hold the error
   type of another crate.
+- Give the span of the input at fault as a byte range, and not as one offset.
+  A caller slices the input with the range, thus it can mark the whole
+  construction. A character offset does not slice a pattern that holds a
+  character of more than one byte.
+- Give the kind a `help` method. It tells the author how to correct the input.
 
 ### The text of a message
 
 A `Display` of an error is a lowercase fragment with no full stop, because the
 caller puts it in a larger message. A panic message is a full sentence.
+
+A `help` is one or two full sentences, and it gives the correction as a
+command. Name a construction that the author wrote, and not a part of lxr. The
+author knows patterns and rules, and not nodes, arenas, or fragments.
+
+```
+error: invalid range 'z-a' at position 1
+ --> [z-a]
+      ^^^
+ help: Write the low end first, for example `a-z`.
+```
 
 ### The documentation duties
 
@@ -118,7 +134,7 @@ lint disagrees with Tier 2.
 
 1. Each check on a rule gives a `BuildError` that names the rule. Thus the
    macro places its `compile_error!` at the span of that rule.
-2. `ParseError` gives a byte offset into the pattern. Thus the macro places it
-   inside the string of the attribute.
+2. `ParseError` gives a byte range of the pattern. Thus the macro marks the
+   construction at fault inside the string of the attribute.
 3. An error is `Clone` and holds no borrow. Thus the macro collects each error,
    then it reports them together.

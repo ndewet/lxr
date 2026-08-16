@@ -73,6 +73,27 @@ impl BuildErrorKind {
             kind: self,
         }
     }
+
+    /// Returns the correction for this kind of failure.
+    ///
+    /// A caller shows the text under the message, in the manner of a note from
+    /// the compiler.
+    pub fn help(&self) -> &'static str {
+        match self {
+            Self::NoCondition => "Give the rule at least one start condition.",
+            Self::UnknownCondition { .. } => "Declare the start condition in this lexicon.",
+            Self::MatchesEmpty => {
+                "Each part of the pattern can match nothing. Write `+` in \
+                 place of `*`, or remove a `?`."
+            }
+            Self::PatternTooLarge { .. } => {
+                "Lower a repetition count. The construction makes one copy of \
+                 the expression for each repetition."
+            }
+            Self::InvertedRepetition { .. } => "Write the minimum first, for example `{2,5}`.",
+            Self::TooLarge { .. } => "Divide the lexer, or lower a repetition count.",
+        }
+    }
 }
 
 impl From<Overflow> for BuildErrorKind {
@@ -87,7 +108,7 @@ impl From<Overflow> for BuildErrorKind {
 impl Display for BuildError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result {
         match self.rule {
-            Some(rule) => write!(formatter, "{} in rule {rule}", self.kind),
+            Some(rule) => write!(formatter, "rule {rule}: {}", self.kind),
             None => write!(formatter, "{}", self.kind),
         }
     }
@@ -99,34 +120,28 @@ impl Display for BuildErrorKind {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result {
         match self {
             Self::NoCondition => {
-                write!(formatter, "a rule needs at least one start condition")
+                write!(formatter, "the rule is applicable under no start condition")
             }
-            Self::UnknownCondition {
-                condition,
-                declared,
-            } => write!(
-                formatter,
-                "start condition {condition} is outside a lexicon of \
-                 {declared} start conditions"
-            ),
-            Self::MatchesEmpty => write!(
-                formatter,
-                "a rule needs a pattern that reads at least one character"
-            ),
+            Self::UnknownCondition { condition, .. } => {
+                write!(formatter, "start condition {condition} is not declared")
+            }
+            Self::MatchesEmpty => {
+                write!(formatter, "the pattern matches the empty string")
+            }
             Self::PatternTooLarge { size, maximum } => write!(
                 formatter,
-                "the repetitions expand a pattern to {size} nodes, above the \
-                 maximum of {maximum} nodes"
+                "the repetitions make {size} copies of the pattern, above the \
+                 limit of {maximum}"
             ),
             Self::InvertedRepetition { minimum, maximum } => write!(
                 formatter,
-                "a repetition of {minimum} to {maximum} times has no maximum \
-                 at or above its minimum"
+                "the repetition {{{minimum},{maximum}}} has a maximum below \
+                 its minimum"
             ),
             Self::TooLarge { part, maximum } => write!(
                 formatter,
-                "the rules need more than the {maximum} {part} of one \
-                 automaton"
+                "the lexer needs more than the {maximum} {part} that one \
+                 automaton holds"
             ),
         }
     }
@@ -143,7 +158,11 @@ mod tests {
         assert_eq!(error.rule, Some(3));
         assert_eq!(
             error.to_string(),
-            "a rule needs at least one start condition in rule 3"
+            "rule 3: the rule is applicable under no start condition"
+        );
+        assert_eq!(
+            error.kind.help(),
+            "Give the rule at least one start condition."
         );
     }
 
@@ -158,7 +177,7 @@ mod tests {
         assert_eq!(error.rule, None);
         assert_eq!(
             error.to_string(),
-            "the rules need more than the 8 states of one automaton"
+            "the lexer needs more than the 8 states that one automaton holds"
         );
     }
 
@@ -199,6 +218,25 @@ mod tests {
 
         for kind in kinds {
             assert!(!kind.to_string().is_empty());
+            assert!(kind.help().ends_with('.'));
         }
+    }
+
+    #[test]
+    fn a_message_names_the_construction_that_the_author_wrote() {
+        let inverted = BuildErrorKind::InvertedRepetition {
+            minimum: 5,
+            maximum: 2,
+        };
+        let condition = BuildErrorKind::UnknownCondition {
+            condition: 2,
+            declared: 1,
+        };
+
+        assert_eq!(
+            inverted.to_string(),
+            "the repetition {5,2} has a maximum below its minimum"
+        );
+        assert_eq!(condition.to_string(), "start condition 2 is not declared");
     }
 }
