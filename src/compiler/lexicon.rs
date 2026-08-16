@@ -2,15 +2,28 @@ use super::rule::Rule;
 use crate::automata::StartId;
 use crate::regex::Node;
 
+/// The maximum size of the pattern of a rule.
+///
+/// The construction has no counter. Thus it makes one copy of the expression
+/// for each permitted repetition, and a nested repetition multiplies the count
+/// of the copies. A pattern of 17 characters can ask for more states than the
+/// memory holds.
+///
+/// [`Lexicon::rule`] rejects a pattern of an
+/// [`expanded_size`](Node::expanded_size) above this maximum. One node costs
+/// at most 20 states, thus the pattern of a rule costs at most about two
+/// million states. A pattern that a person writes stays far below the maximum.
+pub const MAX_PATTERN_SIZE: usize = 100_000;
+
 /// The rules of a lexer, and the start conditions that they belong to.
 ///
 /// A start condition is a start state of the automaton. The lexer scans each
 /// token under one condition, thus only the rules of that condition can match.
 /// A string and a comment each need their own condition.
 ///
-/// A lexicon hands out each [`StartId`]. It is the only source of one, thus a
-/// rule cannot name a condition that does not exist. [`compile`](super::compile)
-/// needs no count, and it needs no check.
+/// A lexicon hands out each [`StartId`]. [`rule`](Self::rule) rejects an
+/// identifier that this lexicon did not declare, thus
+/// [`compile`](super::compile) needs no check.
 ///
 /// Declare the conditions with [`condition`](Self::condition), add the rules
 /// with [`rule`](Self::rule), then give the lexicon to
@@ -55,10 +68,38 @@ impl<R> Lexicon<R> {
     ///
     /// This function panics if `conditions` is empty, because no scan can
     /// reach such a rule.
+    ///
+    /// This function panics if `conditions` holds an identifier that this
+    /// lexicon did not declare.
+    ///
+    /// This function panics if `pattern` matches the empty string. Such a rule
+    /// gives a match of no length, thus a driver that advances by the length
+    /// of the match makes no progress.
+    ///
+    /// This function panics if the [`expanded_size`](Node::expanded_size) of
+    /// `pattern` is above [`MAX_PATTERN_SIZE`].
     pub fn rule(&mut self, pattern: Node, accept: R, conditions: &[StartId]) {
         assert!(
             !conditions.is_empty(),
             "a rule needs at least one start condition"
+        );
+        for condition in conditions {
+            assert!(
+                condition.index() < self.conditions,
+                "start condition {} is outside this lexicon. The count of the start conditions is {}",
+                condition.index(),
+                self.conditions
+            );
+        }
+        assert!(
+            !pattern.matches_empty(),
+            "a rule needs a pattern that reads at least one character"
+        );
+        let size = pattern.expanded_size();
+        assert!(
+            size <= MAX_PATTERN_SIZE,
+            "the repetitions of a pattern expand it to {size} nodes. \
+             The maximum is {MAX_PATTERN_SIZE} nodes"
         );
         self.rules
             .push(Rule::new(pattern, accept, conditions.to_vec()));
@@ -142,5 +183,41 @@ mod tests {
     #[should_panic(expected = "a rule needs at least one start condition")]
     fn a_rule_with_no_start_condition_panics() {
         lexicon().rule(class('a'), 0, &[]);
+    }
+
+    #[test]
+    #[should_panic(expected = "start condition 1 is outside this lexicon")]
+    fn a_rule_with_a_start_condition_of_another_lexicon_panics() {
+        let mut other = lexicon();
+        let string = other.condition();
+
+        let mut lexicon = lexicon();
+        let code = lexicon.initial();
+        lexicon.rule(class('a'), 0, &[code, string]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a rule needs a pattern that reads at least one character")]
+    fn a_rule_with_a_pattern_that_matches_the_empty_string_panics() {
+        let mut lexicon = lexicon();
+        let code = lexicon.initial();
+        lexicon.rule("a*".parse().unwrap(), 0, &[code]);
+    }
+
+    #[test]
+    #[should_panic(expected = "The maximum is 100000 nodes")]
+    fn a_rule_with_a_pattern_of_nested_repetitions_panics() {
+        let mut lexicon = lexicon();
+        let code = lexicon.initial();
+        lexicon.rule("(a{65535}){65535}".parse().unwrap(), 0, &[code]);
+    }
+
+    #[test]
+    fn a_rule_with_a_pattern_below_the_maximum_size_is_accepted() {
+        let mut lexicon = lexicon();
+        let code = lexicon.initial();
+        lexicon.rule("(a{1000}){99}".parse().unwrap(), 0, &[code]);
+
+        assert_eq!(lexicon.into_parts().0.len(), 1);
     }
 }

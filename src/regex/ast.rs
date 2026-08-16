@@ -177,6 +177,78 @@ impl Node {
     pub fn repeated(self, repetitions: Repetitions) -> Self {
         Self::Repetition(Box::new(self), repetitions)
     }
+
+    /// Returns `true` if the node matches the empty string.
+    ///
+    /// A rule of a lexer needs a pattern that reads at least one character. A
+    /// pattern that matches the empty string gives a match of no length, thus
+    /// the lexer makes no progress.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::Node;
+    ///
+    /// assert!("a*".parse::<Node>().unwrap().matches_empty());
+    /// assert!(!"a+".parse::<Node>().unwrap().matches_empty());
+    /// ```
+    pub fn matches_empty(&self) -> bool {
+        match self {
+            Self::Epsilon | Self::Star(_) | Self::Optional(_) => true,
+            Self::Class(_) => false,
+            Self::Concatenation(parts) => parts.iter().all(Self::matches_empty),
+            Self::Alternation(branches) => branches.iter().any(Self::matches_empty),
+            Self::Plus(inner) => inner.matches_empty(),
+            Self::Repetition(
+                inner,
+                Repetitions::Range(minimum, _) | Repetitions::AtLeast(minimum),
+            ) => *minimum == 0 || inner.matches_empty(),
+        }
+    }
+
+    /// Returns the number of the nodes of the tree, after each repetition
+    /// expands into one copy for each permitted repetition.
+    ///
+    /// A construction that has no counter makes those copies. The count thus
+    /// gives the size of the pattern that such a construction reads. A nested
+    /// repetition multiplies the count. Therefore a short pattern can give a
+    /// very large count.
+    ///
+    /// The count saturates at [`usize::MAX`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::Node;
+    ///
+    /// let one: Node = "a".parse().unwrap();
+    /// let many: Node = "(a{100}){100}".parse().unwrap();
+    ///
+    /// assert_eq!(one.expanded_size(), 1);
+    /// assert!(many.expanded_size() > 10_000);
+    /// ```
+    pub fn expanded_size(&self) -> usize {
+        match self {
+            Self::Epsilon | Self::Class(_) => 1,
+            Self::Concatenation(parts) | Self::Alternation(parts) => parts
+                .iter()
+                .fold(1, |total, part| total.saturating_add(part.expanded_size())),
+            Self::Star(inner) | Self::Plus(inner) | Self::Optional(inner) => {
+                inner.expanded_size().saturating_add(1)
+            }
+            Self::Repetition(inner, repetitions) => {
+                let (minimum, maximum) = match *repetitions {
+                    Repetitions::Range(minimum, maximum) => (minimum, maximum),
+                    Repetitions::AtLeast(minimum) => (minimum, minimum.saturating_add(1)),
+                };
+                inner
+                    .expanded_size()
+                    .saturating_mul(maximum)
+                    .saturating_add(maximum.saturating_sub(minimum))
+                    .saturating_add(1)
+            }
+        }
+    }
 }
 
 /// The number of times that a [`Repetition`](Node::Repetition) matches its
@@ -261,6 +333,48 @@ mod tests {
     #[test]
     fn a_long_concatenation_drops_without_overflowing_the_stack() {
         drop(folded(100_000));
+    }
+
+    #[test]
+    fn a_node_that_reads_at_least_one_character_does_not_match_the_empty_string() {
+        for pattern in ["a", "ab", "a|b", "a+", "a{1,3}", "(a|b)+c", "(a*b)+"] {
+            let node: Node = pattern.parse().unwrap();
+            assert!(!node.matches_empty(), "{pattern} matches the empty string");
+        }
+    }
+
+    #[test]
+    fn a_node_that_reads_no_character_matches_the_empty_string() {
+        for pattern in ["a*", "a?", "a{0,3}", "(a|)", "a*b*", "(a*)+", "(a?){2}"] {
+            let node: Node = pattern.parse().unwrap();
+            assert!(node.matches_empty(), "{pattern} reads a character");
+        }
+        assert!(Node::Epsilon.matches_empty());
+    }
+
+    #[test]
+    fn the_expanded_size_counts_one_copy_for_each_permitted_repetition() {
+        let single: Node = "a".parse().unwrap();
+        let three: Node = "a{3}".parse().unwrap();
+        let range: Node = "a{1,3}".parse().unwrap();
+        let at_least: Node = "a{2,}".parse().unwrap();
+
+        assert_eq!(single.expanded_size(), 1);
+        assert_eq!(three.expanded_size(), 4);
+        assert_eq!(range.expanded_size(), 6);
+        assert_eq!(at_least.expanded_size(), 5);
+    }
+
+    #[test]
+    fn a_nested_repetition_multiplies_the_expanded_size() {
+        let node: Node = "(a{100}){100}".parse().unwrap();
+        assert_eq!(node.expanded_size(), 10_101);
+    }
+
+    #[test]
+    fn the_expanded_size_saturates_rather_than_overflows() {
+        let node = class('a').repeated(Repetitions::Range(0, usize::MAX));
+        assert_eq!(node.expanded_size(), usize::MAX);
     }
 
     #[test]
