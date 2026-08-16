@@ -85,7 +85,7 @@ pub struct BuildError {
 
 - Give `#[non_exhaustive]` to the struct and to the enum.
 - Derive `Debug`, `Clone`, `PartialEq`, and `Eq`. Implement `Display` and
-  `std::error::Error` by hand. The crate keeps no dependencies.
+  `std::error::Error` by hand. See the rule on the dependencies below.
 - Embed the fields of a cause. Do not box a cause, and do not hold the error
   type of another crate.
 - Give the span of the input at fault as a byte range, and not as one offset.
@@ -121,10 +121,23 @@ error: invalid range 'z-a' at position 1
 - Give no reason that the code already shows. State a tier one time, at the
   module, and not again at each function.
 
+### The dependencies
+
+`lxr` keeps no dependency. A user crate compiles it, thus each dependency
+there costs each user a compile.
+
+`lxr-codegen` and the derive crate build for the host at compile time. They
+may hold `proc-macro2`, `quote`, and `syn`. Add no other dependency without a
+reason.
+
+An error type holds no error type of another crate, whichever crate declares
+it. Embed the fields of a cause.
+
 ### The lints
 
-`Cargo.toml` holds the lints that check this standard. Add an `#[allow]` only
-with a `reason`, and only at the item that needs it.
+The root `Cargo.toml` holds the lints that check this standard, in
+`[workspace.lints]`. Each crate inherits them with `[lints] workspace = true`.
+Add an `#[allow]` only with a `reason`, and only at the item that needs it.
 
 `clippy::panic_in_result_fn` stays off on purpose. A function that gives a
 `Result` for a fault in the input still panics for a defect in lxr, thus the

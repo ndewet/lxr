@@ -12,7 +12,7 @@ use crate::regex::charset::CharSet;
 /// # Examples
 ///
 /// ```
-/// use lxr::regex::{CharSet, Node};
+/// use lxr_codegen::regex::{CharSet, Node};
 ///
 /// let node: Node = "ab".parse().unwrap();
 /// assert_eq!(
@@ -57,7 +57,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::{CharSet, Node};
+    /// use lxr_codegen::regex::{CharSet, Node};
     ///
     /// let a = Node::Class(CharSet::single('a'));
     /// let b = Node::Class(CharSet::single('b'));
@@ -86,7 +86,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::{CharSet, Node};
+    /// use lxr_codegen::regex::{CharSet, Node};
     ///
     /// let a = Node::Class(CharSet::single('a'));
     /// let b = Node::Class(CharSet::single('b'));
@@ -121,7 +121,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::{CharSet, Node};
+    /// use lxr_codegen::regex::{CharSet, Node};
     ///
     /// let a = Node::Class(CharSet::single('a'));
     /// assert_eq!(a.clone().star(), Node::Star(Box::new(a)));
@@ -135,7 +135,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::{CharSet, Node};
+    /// use lxr_codegen::regex::{CharSet, Node};
     ///
     /// let a = Node::Class(CharSet::single('a'));
     /// assert_eq!(a.clone().plus(), Node::Plus(Box::new(a)));
@@ -149,7 +149,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::{CharSet, Node};
+    /// use lxr_codegen::regex::{CharSet, Node};
     ///
     /// let a = Node::Class(CharSet::single('a'));
     /// assert_eq!(a.clone().optional(), Node::Optional(Box::new(a)));
@@ -164,7 +164,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::{CharSet, Node, Repetitions};
+    /// use lxr_codegen::regex::{CharSet, Node, Repetitions};
     ///
     /// let a = Node::Class(CharSet::single('a'));
     /// let counts = Repetitions::Range(2, 4);
@@ -187,7 +187,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::Node;
+    /// use lxr_codegen::regex::Node;
     ///
     /// assert!("a*".parse::<Node>().unwrap().matches_empty());
     /// assert!(!"a+".parse::<Node>().unwrap().matches_empty());
@@ -215,7 +215,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::{CharSet, Node, Repetitions};
+    /// use lxr_codegen::regex::{CharSet, Node, Repetitions};
     ///
     /// let a = Node::Class(CharSet::single('a'));
     /// let inverted = Repetitions::Range(5, 2);
@@ -258,7 +258,7 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::Node;
+    /// use lxr_codegen::regex::Node;
     ///
     /// let one: Node = "a".parse().unwrap();
     /// let many: Node = "(a{100}){100}".parse().unwrap();

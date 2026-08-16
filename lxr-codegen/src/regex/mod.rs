@@ -31,7 +31,7 @@ impl FromStr for Node {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::{CharSet, Node};
+    /// use lxr_codegen::regex::{CharSet, Node};
     ///
     /// let node: Node = "a".parse().unwrap();
     /// assert_eq!(node, Node::Class(CharSet::single('a')));

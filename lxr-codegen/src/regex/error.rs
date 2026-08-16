@@ -9,7 +9,7 @@ use std::ops::Range;
 /// # Examples
 ///
 /// ```
-/// use lxr::regex::Node;
+/// use lxr_codegen::regex::Node;
 ///
 /// let pattern = "[z-a]";
 /// let error = pattern.parse::<Node>().unwrap_err();
@@ -128,7 +128,7 @@ impl ParseErrorKind {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::Node;
+    /// use lxr_codegen::regex::Node;
     ///
     /// let error = "a{5,2}".parse::<Node>().unwrap_err();
     /// assert_eq!(

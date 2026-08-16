@@ -12,7 +12,7 @@ const SURROGATE_HIGH: u32 = 0xDFFF;
 /// # Examples
 ///
 /// ```
-/// use lxr::regex::CharSet;
+/// use lxr_codegen::regex::CharSet;
 ///
 /// let letters = CharSet::range('a', 'z');
 /// let vowels = CharSet::single('a').union(&CharSet::single('e'));
@@ -37,7 +37,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// assert!(CharSet::empty().is_empty());
     /// ```
@@ -50,7 +50,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// let set = CharSet::single('x');
     /// assert_eq!(set.ranges().collect::<Vec<_>>(), vec![('x', 'x')]);
@@ -78,7 +78,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// let digits = CharSet::range('0', '9');
     /// assert_eq!(digits.ranges().collect::<Vec<_>>(), vec![('0', '9')]);
@@ -104,7 +104,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// let set = CharSet::single('a').union(&CharSet::single('b'));
     /// assert_eq!(set.ranges().collect::<Vec<_>>(), vec![('a', 'b')]);
@@ -126,7 +126,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// let set = CharSet::range('a', 'c').union(&CharSet::range('x', 'z'));
     /// assert_eq!(
@@ -146,7 +146,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// let set = CharSet::range('a', 'e').subtract(&CharSet::single('c'));
     /// assert_eq!(
@@ -188,7 +188,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// let set = CharSet::any().negate();
     /// assert!(set.is_empty());
@@ -204,7 +204,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// assert_eq!(CharSet::any().ranges().count(), 2);
     /// ```
@@ -230,7 +230,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// assert_eq!(CharSet::digits().ranges().collect::<Vec<_>>(), vec![('0', '9')]);
     /// ```
@@ -246,7 +246,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// assert_eq!(
     ///     CharSet::word().ranges().collect::<Vec<_>>(),
@@ -268,7 +268,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// assert_eq!(
     ///     CharSet::whitespace().ranges().collect::<Vec<_>>(),
@@ -284,7 +284,7 @@ impl CharSet {
     /// # Examples
     ///
     /// ```
-    /// use lxr::regex::CharSet;
+    /// use lxr_codegen::regex::CharSet;
     ///
     /// assert!(CharSet::empty().is_empty());
     /// assert!(!CharSet::single('a').is_empty());
