@@ -574,10 +574,10 @@ mod tests {
         let lexer = build(2, &[("[a-c]", &[0]), ("[x-z]", &[1])]);
         let tables = &lexer.tables;
 
-        for byte in [b'a', b'b', b'c', b'x', b'y', b'z'] {
+        for byte in *b"abcxyz" {
             assert_ne!(tables.classes()[usize::from(byte)], 0, "byte {byte:#04X}");
         }
-        for byte in [b'd', b'w', b'0'] {
+        for byte in *b"dw0" {
             assert_eq!(tables.classes()[usize::from(byte)], 0, "byte {byte:#04X}");
         }
     }
