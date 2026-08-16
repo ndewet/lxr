@@ -32,7 +32,10 @@ impl Display for Overflow {
 
 impl std::error::Error for Overflow {}
 
-/// The part of an automaton that an [`Overflow`] reports.
+/// The part that an [`Overflow`] reports.
+///
+/// A part belongs to an automaton, or to the table that an emitted lexer reads. The two hold the
+/// same states, and the table numbers them in a narrower type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Part {
@@ -40,6 +43,8 @@ pub enum Part {
     States,
     /// The items of one [`Arena`](super::Arena), for example the transitions.
     Items,
+    /// The rules that the table of a lexer numbers.
+    Rules,
 }
 
 impl Display for Part {
@@ -47,6 +52,7 @@ impl Display for Part {
         match self {
             Self::States => write!(formatter, "states"),
             Self::Items => write!(formatter, "items"),
+            Self::Rules => write!(formatter, "rules"),
         }
     }
 }

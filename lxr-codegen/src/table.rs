@@ -15,6 +15,8 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashSet;
+
 use crate::automata::{
     Automaton, DeterministicFiniteAutomaton, Label, Overflow, Part, Range, StateId,
 };
@@ -22,8 +24,9 @@ use crate::compiler::{Accepts, ByteRange};
 
 /// The maximum number of the states of an automaton that a table holds.
 ///
-/// A table numbers its states in a `u16`, and it keeps the value 0 for the dead state. Thus the
-/// highest state of the automaton is [`u16::MAX`].
+/// A table numbers the state `n` of the automaton as `n + 1`, and it keeps the number 0 for the
+/// dead state. Thus the highest number is [`u16::MAX`], and the automaton holds at most
+/// [`u16::MAX`] states.
 ///
 /// [`MAX_STATES`](crate::automata::MAX_STATES) is the limit of determinization. This limit is the
 /// limit of the emitted source, thus it belongs here and not there.
@@ -31,7 +34,9 @@ pub const MAX_STATES: usize = u16::MAX as usize;
 
 /// The maximum number of the rules of a lexer that a table holds.
 ///
-/// A table numbers its rules in a `u16`, and it keeps the value 0 for a state that does not accept.
+/// A table numbers the rule `n` as `n + 1`, and it keeps the number 0 for a state that does not
+/// accept. Thus the highest number is [`u16::MAX`], and the lexer holds at most [`u16::MAX`]
+/// rules.
 pub const MAX_RULES: usize = u16::MAX as usize;
 
 /// The transitions of a lexer, the accepts, and the start states, as tables.
@@ -66,15 +71,37 @@ impl Tables {
     ///
     /// # Errors
     ///
-    /// This function returns an [`Overflow`] if `dfa` holds more than [`MAX_STATES`] states.
+    /// This function returns an [`Overflow`] if `dfa` holds more than [`MAX_STATES`] states, or if
+    /// an accept of `accepts` names a rule at or above [`MAX_RULES`].
     ///
     /// # Panics
     ///
-    /// This function panics if `accepts` does not hold one accept for each state of `dfa`, or if an
-    /// accept of `accepts` is at or above [`MAX_RULES`].
+    /// This function panics if `accepts` does not hold one accept for each state of `dfa`.
     pub fn new(
         dfa: &DeterministicFiniteAutomaton<ByteRange>,
         accepts: &Accepts<u16>,
+    ) -> Result<Self, Overflow> {
+        Self::within(dfa, accepts, MAX_STATES, MAX_RULES)
+    }
+
+    /// Builds the tables of `dfa` inside `states` states and `rules` rules.
+    ///
+    /// [`new`](Self::new) gives [`MAX_STATES`] and [`MAX_RULES`]. A test gives a lower limit to
+    /// reach the [`Overflow`].
+    ///
+    /// # Errors
+    ///
+    /// This function returns an [`Overflow`] if `dfa` holds more than `states` states, or if an
+    /// accept of `accepts` names a rule at or above `rules`.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `accepts` does not hold one accept for each state of `dfa`.
+    fn within(
+        dfa: &DeterministicFiniteAutomaton<ByteRange>,
+        accepts: &Accepts<u16>,
+        states: usize,
+        rules: usize,
     ) -> Result<Self, Overflow> {
         let count = dfa.state_count();
         assert_eq!(
@@ -83,8 +110,8 @@ impl Tables {
             "an automaton of {count} states needs one accept for each of them, and not {}",
             accepts.state_count()
         );
-        if count > MAX_STATES {
-            return Err(Overflow::new(Part::States, MAX_STATES));
+        if count > states {
+            return Err(Overflow::new(Part::States, states));
         }
 
         let (classes, representatives) = divide(dfa);
@@ -92,7 +119,7 @@ impl Tables {
 
         Ok(Self {
             next: transitions(dfa, &representatives, width),
-            accept: marks(dfa, accepts),
+            accept: marks(dfa, accepts, rules)?,
             start: starts(dfa),
             classes,
             representatives,
@@ -145,10 +172,15 @@ impl Tables {
 ///
 /// [`Range::classes`] divides the labels. It reads each label of each state, thus one class serves
 /// each state and the table needs one column for it.
+///
+/// A byte range holds two bytes, thus the automaton carries at most 65536 distinct labels however
+/// many states it holds. The function keeps one copy of each, and a duplicate changes no class.
 fn divide(dfa: &DeterministicFiniteAutomaton<ByteRange>) -> ([u16; 256], Vec<u8>) {
+    let mut held = HashSet::new();
     let labels: Vec<ByteRange> = (0..dfa.state_count())
         .flat_map(|index| dfa.transitions(StateId::new(index)))
         .map(|transition| transition.label)
+        .filter(|label| held.insert((label.low, label.high)))
         .collect();
 
     let mut classes = [0; 256];
@@ -168,11 +200,19 @@ fn divide(dfa: &DeterministicFiniteAutomaton<ByteRange>) -> ([u16; 256], Vec<u8>
 ///
 /// A label matches each byte of a class or no byte of it, thus one byte of the class gives the
 /// answer for the whole class. [`Range::classes`] gives that byte in `representatives`.
+///
+/// A label matches one range of the bytes, and the representatives ascend. Thus the classes of one
+/// label are next to each other, and a binary search finds the first of them. The fill then reads
+/// only the classes that the label covers, and not each class of the alphabet.
 fn transitions(
     dfa: &DeterministicFiniteAutomaton<ByteRange>,
     representatives: &[u8],
     width: usize,
 ) -> Vec<u16> {
+    debug_assert!(
+        representatives.windows(2).all(|pair| pair[0] < pair[1]),
+        "the classes of the alphabet are not in ascending sequence"
+    );
     let mut next = vec![0; (dfa.state_count() + 1) * width];
 
     for index in 0..dfa.state_count() {
@@ -180,11 +220,13 @@ fn transitions(
         for transition in dfa.transitions(StateId::new(index)) {
             let target =
                 u16::try_from(transition.target.index() + 1).expect("the count is below the limit");
-            for (class, &symbol) in representatives.iter().enumerate() {
+            let first = representatives.partition_point(|&symbol| symbol < transition.label.low);
+
+            for (offset, &symbol) in representatives[first..].iter().enumerate() {
                 if !transition.label.matches(symbol) {
-                    continue;
+                    break;
                 }
-                let slot = &mut next[row + class + 1];
+                let slot = &mut next[row + first + offset + 1];
                 debug_assert!(
                     *slot == 0,
                     "state {index} reads the byte {symbol:#04X} into two states"
@@ -198,21 +240,31 @@ fn transitions(
 }
 
 /// Returns the accept of each state of `dfa`, plus one, the dead state first.
-fn marks(dfa: &DeterministicFiniteAutomaton<ByteRange>, accepts: &Accepts<u16>) -> Vec<u16> {
+///
+/// The number of the rules comes from what a lexer author wrote, thus a lexer above the limit
+/// gives an [`Overflow`] and not a panic. A panic inside a derive macro reports no span.
+///
+/// # Errors
+///
+/// This function returns an [`Overflow`] if an accept names a rule at or above `rules`.
+fn marks(
+    dfa: &DeterministicFiniteAutomaton<ByteRange>,
+    accepts: &Accepts<u16>,
+    rules: usize,
+) -> Result<Vec<u16>, Overflow> {
     let mut marks = vec![0; dfa.state_count() + 1];
 
     for index in 0..dfa.state_count() {
         let Some(&rule) = accepts.get(StateId::new(index)) else {
             continue;
         };
-        assert!(
-            usize::from(rule) < MAX_RULES,
-            "a lexer holds at most {MAX_RULES} rules, thus rule {rule} has no number"
-        );
+        if usize::from(rule) >= rules {
+            return Err(Overflow::new(Part::Rules, rules));
+        }
         marks[index + 1] = rule + 1;
     }
 
-    marks
+    Ok(marks)
 }
 
 /// Returns the state of each start condition of `dfa`.
@@ -474,5 +526,59 @@ mod tests {
         let other = build(1, &[("[ab]", &[0])]);
 
         let _ = Tables::new(&lexer.dfa, &other.accepts);
+    }
+
+    #[test]
+    fn an_automaton_above_the_limit_of_the_states_reports_an_overflow() {
+        let lexer = build(1, &[("abc", &[0])]);
+        let states = lexer.dfa.state_count();
+
+        assert_eq!(
+            Tables::within(&lexer.dfa, &lexer.accepts, states - 1, MAX_RULES),
+            Err(Overflow::new(Part::States, states - 1))
+        );
+        assert!(Tables::within(&lexer.dfa, &lexer.accepts, states, MAX_RULES).is_ok());
+    }
+
+    #[test]
+    fn a_lexer_above_the_limit_of_the_rules_reports_an_overflow() {
+        let lexer = build(1, &[("a", &[0]), ("b", &[0]), ("c", &[0])]);
+
+        assert_eq!(
+            Tables::within(&lexer.dfa, &lexer.accepts, MAX_STATES, 2),
+            Err(Overflow::new(Part::Rules, 2))
+        );
+        assert!(Tables::within(&lexer.dfa, &lexer.accepts, MAX_STATES, 3).is_ok());
+    }
+
+    #[test]
+    fn an_overflow_of_the_rules_names_the_rules() {
+        let overflow = Overflow::new(Part::Rules, 8);
+
+        assert_eq!(overflow.to_string(), "an automaton holds at most 8 rules");
+    }
+
+    #[test]
+    fn the_representatives_of_the_classes_are_in_ascending_sequence() {
+        for lexer in [lexer(), build(1, &[("[a-z]|[0-9]|[^\"]", &[0])])] {
+            let representatives = lexer.tables.representatives();
+            assert!(
+                representatives.windows(2).all(|pair| pair[0] < pair[1]),
+                "the classes are not ascending: {representatives:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_label_that_covers_no_class_of_the_alphabet_fills_no_column() {
+        let lexer = build(2, &[("[a-c]", &[0]), ("[x-z]", &[1])]);
+        let tables = &lexer.tables;
+
+        for byte in [b'a', b'b', b'c', b'x', b'y', b'z'] {
+            assert_ne!(tables.classes()[usize::from(byte)], 0, "byte {byte:#04X}");
+        }
+        for byte in [b'd', b'w', b'0'] {
+            assert_eq!(tables.classes()[usize::from(byte)], 0, "byte {byte:#04X}");
+        }
     }
 }
