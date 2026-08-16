@@ -1,5 +1,5 @@
 [workspace]
-members = ["lxr", "lxr-codegen"]
+members = ["lxr", "lxr-codegen", "lxr-derive"]
 resolver = "3"
 
 [workspace.package]
@@ -8,6 +8,7 @@ edition = "2024"
 
 [workspace.dependencies]
 lxr-codegen = { version = "0.1.1", path = "lxr-codegen" }
+lxr-derive = { version = "0.1.1", path = "lxr-derive" }
 
 # The lints mechanise the error handling standard in CONTRIBUTING.md.
 [workspace.lints.rust]

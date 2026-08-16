@@ -19,3 +19,56 @@ mod scan;
 mod tables;
 
 pub use self::{action::Action, error::ScanError, lexer::Lexer, scan::Scan, tables::Tables};
+
+/// Derives a lexer from an enum of tokens.
+///
+/// The macro reads one `#[lxr(...)]` attribute for each rule, and it implements [`Lexer`]. The
+/// `derive` feature holds it, and that feature is on by default.
+///
+/// A rule holds one pattern. `token` matches a literal, `regex` matches a regular expression, and
+/// `skip` reads the match and gives no token. Write `skip` on the enum.
+///
+/// `in` gives the start conditions of a rule, and `go` changes the condition after the match.
+/// Write `condition` on the enum to name the condition at which the scan begins. The type of the
+/// conditions is that path without its last segment.
+///
+/// The longest match wins, and the earliest rule wins a tie.
+///
+/// # Examples
+///
+/// ```
+/// use lxr::Lexer;
+///
+/// #[derive(Clone, Copy, Debug, PartialEq)]
+/// enum Context {
+///     Code,
+///     Text,
+/// }
+///
+/// #[derive(Debug, PartialEq, Lexer)]
+/// #[lxr(condition = Context::Code)]
+/// #[lxr(skip = "[ \t\n]+")]
+/// enum Token {
+///     #[lxr(token = "let")]
+///     Let,
+///     #[lxr(regex = "[a-z][a-z0-9]*")]
+///     Word,
+///     #[lxr(token = "\"", go = Context::Text)]
+///     Quote,
+///     #[lxr(regex = "[^\"]+", in = [Context::Text])]
+///     Text,
+///     #[lxr(token = "\"", in = [Context::Text], go = Context::Code)]
+///     End,
+/// }
+///
+/// let tokens: Vec<_> = Token::scan("let a \"one two\"")
+///     .map(|found| found.expect("each character belongs to a token"))
+///     .collect();
+///
+/// assert_eq!(
+///     tokens,
+///     vec![Token::Let, Token::Word, Token::Quote, Token::Text, Token::End]
+/// );
+/// ```
+#[cfg(feature = "derive")]
+pub use lxr_derive::Lexer;
