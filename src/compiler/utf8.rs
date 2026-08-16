@@ -46,6 +46,10 @@ impl Label for ByteRange {
         (self.low..=self.high).contains(&byte)
     }
 
+    fn below(&self, byte: u8) -> bool {
+        self.high < byte
+    }
+
     fn divide(labels: &[Self]) -> Vec<(Self, u8)> {
         Self::classes(labels)
     }

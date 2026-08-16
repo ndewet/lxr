@@ -4,7 +4,7 @@ use crate::automata::automaton::Transition;
 use crate::automata::id::StateId;
 use crate::automata::overflow::{Overflow, Part};
 
-/// An [`NondeterministicFiniteAutomaton`] that is not complete.
+/// A [`NondeterministicFiniteAutomaton`] that is not complete.
 ///
 /// Add a state with [`push`](Self::push), then add its transitions, its epsilon transitions, and
 /// its accept. A transition can point at a state that comes later. Thus a loop needs no reserved
@@ -115,7 +115,8 @@ impl<L> NfaBuilder<L> {
         *slot = true;
     }
 
-    /// Builds an [`NondeterministicFiniteAutomaton`] that has one start state for each identifier in `starts`.
+    /// Builds a [`NondeterministicFiniteAutomaton`] that has one start state for each identifier
+    /// in `starts`.
     ///
     /// # Errors
     ///

@@ -4,15 +4,17 @@
 //! the condition on a transition, and the caller selects that type.
 //!
 //! An automaton knows which states accept. It does not know what an accept means. A lexer holds
-//! the token of each state that accepts, and [`longest_match`] asks the caller for that meaning.
-//! Thus no rule of precedence lives here.
+//! the token of each state that accepts, and [`Execution::longest_match`] asks the caller for that
+//! meaning. Thus no rule of precedence lives here.
 //!
-//! Each automaton implements [`Automaton`]. Thus [`longest_match`] scans a nondeterministic
-//! automaton and a deterministic automaton with the same code.
+//! Each automaton implements [`Automaton`], which gives the structure, and [`Scanner`], which
+//! starts a scan. Thus [`Execution::longest_match`] scans a nondeterministic automaton and a
+//! deterministic automaton with the same code.
 //!
-//! [`NondeterministicFiniteAutomaton::determinize`] joins the two. It gives the [`DeterministicFiniteAutomaton`] that accepts the same input, and the
-//! set of states behind each of its states. It divides the labels with [`Label::divide`], thus it
-//! needs no alphabet of its own.
+//! [`NondeterministicFiniteAutomaton::determinize`] joins the two. It gives the
+//! [`DeterministicFiniteAutomaton`] that accepts the same input, and the set of states behind each
+//! of its states. It divides the labels with [`Label::divide`], thus it needs no alphabet of its
+//! own.
 //!
 //! Each identifier comes from lxr, and not from a lexer author. Thus a function panics for an
 //! identifier that its automaton does not hold. A full automaton gives an [`Overflow`].
@@ -38,7 +40,7 @@ mod testing;
 pub use self::{
     arena::{Arena, ArenaBuilder},
     automaton::{Automaton, Transition},
-    determinize::Determinization,
+    determinize::{Determinization, MAX_STATES},
     dfa::{DeterministicExecution, DeterministicFiniteAutomaton},
     execution::{Execution, Match},
     id::StateId,

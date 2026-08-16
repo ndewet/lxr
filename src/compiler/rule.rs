@@ -9,7 +9,7 @@ use crate::regex::Node;
 /// way to make one, thus each start condition of a rule is a condition that
 /// the lexicon declared.
 ///
-/// [`compile`](super::compile) builds the states of the pattern one time. A
+/// [`compile`](super::compile()) builds the states of the pattern one time. A
 /// rule that is applicable in more than one start condition thus costs no more
 /// states than a rule that is applicable in one.
 #[derive(Debug, Clone, PartialEq, Eq)]

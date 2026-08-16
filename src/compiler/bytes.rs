@@ -81,7 +81,7 @@ mod tests {
     fn matched(set: &CharSet, input: &[u8]) -> Option<usize> {
         let (nfa, _) = lowered(set);
         let start = 0;
-        let mut execution = nfa.execute(start);
+        let mut execution = nfa.execute();
         execution
             .longest_match(start, input, |_| ())
             .map(|found| found.length)

@@ -9,8 +9,9 @@ use super::id::StateId;
 /// automaton holds one of these and nothing else. Thus the two automata share their storage, their
 /// bounds checks, and the text of each panic.
 ///
-/// The table does not know if the labels of one state are disjoint. Only a deterministic automaton
-/// obeys that condition, and only [`Dfa::step`](super::DeterministicFiniteAutomaton::step) reads it.
+/// The table does not know if the labels of one state are disjoint and in ascending sequence. Only
+/// a deterministic automaton obeys that condition, and only
+/// [`step`](super::DeterministicFiniteAutomaton::step) reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateTable<L> {
     transitions: Arena<Transition<L>>,
@@ -19,7 +20,7 @@ pub struct StateTable<L> {
 }
 
 impl<L> StateTable<L> {
-    /// Creates a `Table` from the transitions, the accepts, and the start states.
+    /// Creates a `StateTable` from the transitions, the accepts, and the start states.
     ///
     /// # Panics
     ///
@@ -77,7 +78,7 @@ impl<L> StateTable<L> {
     pub fn transitions(&self, id: StateId) -> &[Transition<L>] {
         self.transitions
             .get(id.index())
-            .unwrap_or_else(|| self.outside(id))
+            .unwrap_or_else(|| id.outside(self.state_count()))
     }
 
     /// Returns `true` if the state that `id` refers to accepts.
@@ -89,7 +90,7 @@ impl<L> StateTable<L> {
         *self
             .accepts
             .get(id.index())
-            .unwrap_or_else(|| self.outside(id))
+            .unwrap_or_else(|| id.outside(self.state_count()))
     }
 
     /// Returns the state at which each start begins a scan, the first start first.
@@ -112,16 +113,5 @@ impl<L> StateTable<L> {
             target.index(),
             self.state_count()
         );
-    }
-
-    /// Panics for a state that the state arena does not hold.
-    ///
-    /// Each automaton reports a state outside its arena with the same message.
-    pub(super) fn outside(&self, id: StateId) -> ! {
-        panic!(
-            "state {} is outside an arena of {} states",
-            id.index(),
-            self.state_count()
-        )
     }
 }

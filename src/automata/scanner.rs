@@ -22,14 +22,14 @@ pub trait Scanner: Automaton {
     where
         Self: 'a;
 
-    /// Starts an execution at the start state that `start` refers to.
+    /// Starts an execution of this automaton, in no state.
     ///
     /// One execution scans a sequence of tokens. Make it one time, then call
     /// [`longest_match`](Execution::longest_match) on it for each token. Thus the scan makes the
     /// buffers one time, and not one time for each token.
     ///
-    /// # Panics
-    ///
-    /// This function panics if `start` is not a start state of this automaton.
-    fn execute(&self, start: usize) -> Self::Execution<'_>;
+    /// `longest_match` takes the start condition of each token, and it puts the execution at that
+    /// start state. To move the execution one symbol at a time, put it at a start state with
+    /// [`restart`](Execution::restart) first.
+    fn execute(&self) -> Self::Execution<'_>;
 }

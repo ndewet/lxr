@@ -4,13 +4,14 @@ use crate::automata::execution::Execution;
 use crate::automata::id::StateId;
 use crate::automata::label::Label;
 
-/// One scan of an [`NondeterministicFiniteAutomaton`], in progress.
+/// One scan of a [`NondeterministicFiniteAutomaton`], in progress.
 ///
 /// The execution holds the set of the states that the scan is in, and the scratch space of the
 /// epsilon closure. Thus a step makes no allocation. Use the same execution for each token of the
 /// input.
 ///
-/// To make an `NfaExecution`, use [`Automaton::execute`](crate::automata::Automaton::execute).
+/// To make a `NondeterministicExecution`, use
+/// [`Scanner::execute`](crate::automata::Scanner::execute).
 #[derive(Debug)]
 pub struct NondeterministicExecution<'a, L> {
     nfa: &'a NondeterministicFiniteAutomaton<L>,
@@ -23,6 +24,7 @@ pub struct NondeterministicExecution<'a, L> {
 impl<'a, L: Label> NondeterministicExecution<'a, L> {
     /// Creates an execution of `nfa` that is in no state.
     ///
+    /// A scan puts the execution at a start state with [`restart`](Execution::restart).
     /// Determinization makes one execution, then it seeds that execution for each set of states.
     pub(in crate::automata) fn new(nfa: &'a NondeterministicFiniteAutomaton<L>) -> Self {
         Self {
@@ -51,6 +53,46 @@ impl<'a, L: Label> NondeterministicExecution<'a, L> {
         } = self;
         closure(nfa, reached, pending, states, current);
     }
+
+    /// Reads `symbol` at each state in `states`, then moves the execution to the states that the
+    /// automaton reaches.
+    ///
+    /// Returns `false` if `states` reaches no state. The execution then holds no state.
+    ///
+    /// Determinization reads the transitions of one subset one time for each class of that subset.
+    /// It steps from the subset with this function, thus it makes the epsilon closure of the
+    /// subset one time and not one time for each class.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if a state in `states` is not in the state arena.
+    pub(in crate::automata) fn step_from(&mut self, states: &[StateId], symbol: L::Symbol) -> bool {
+        let Self { nfa, next, .. } = self;
+        next.clear();
+        next.extend(nfa.step(states, symbol));
+        self.close()
+    }
+
+    /// Puts the execution in the epsilon closure of the states that the last step reached.
+    ///
+    /// Returns `false` if that step reached no state.
+    fn close(&mut self) -> bool {
+        let Self {
+            nfa,
+            current,
+            next,
+            reached,
+            pending,
+        } = self;
+
+        if next.is_empty() {
+            current.clear();
+            return false;
+        }
+
+        closure(nfa, reached, pending, next, current);
+        true
+    }
 }
 
 impl<L: Label> Execution for NondeterministicExecution<'_, L> {
@@ -62,22 +104,11 @@ impl<L: Label> Execution for NondeterministicExecution<'_, L> {
 
     fn step(&mut self, symbol: Self::Symbol) -> bool {
         let Self {
-            nfa,
-            current,
-            next,
-            reached,
-            pending,
+            nfa, current, next, ..
         } = self;
-
         next.clear();
         next.extend(nfa.step(current, symbol));
-        if next.is_empty() {
-            current.clear();
-            return false;
-        }
-
-        closure(nfa, reached, pending, next, current);
-        true
+        self.close()
     }
 
     fn states(&self) -> &[StateId] {
@@ -157,10 +188,13 @@ mod tests {
         execution.states().iter().map(|id| id.index()).collect()
     }
 
+    /// Returns an execution of `nfa` at its first start state.
     fn execute(
         nfa: &NondeterministicFiniteAutomaton<Symbols>,
     ) -> NondeterministicExecution<'_, Symbols> {
-        nfa.execute(0)
+        let mut execution = nfa.execute();
+        execution.restart(0);
+        execution
     }
 
     #[test]
@@ -341,9 +375,50 @@ mod tests {
         let nfa = builder
             .build(&[code, string])
             .expect("the builder is below its capacity");
+        let mut execution = nfa.execute();
 
-        assert!(!nfa.execute(0).accepts());
-        assert!(nfa.execute(1).accepts());
+        execution.restart(0);
+        assert!(!execution.accepts());
+
+        execution.restart(1);
+        assert!(execution.accepts());
+    }
+
+    #[test]
+    fn a_new_execution_is_in_no_state() {
+        let mut builder = builder();
+        let start = builder.push();
+        builder.accept(start);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
+
+        let execution = nfa.execute();
+
+        assert_eq!(execution.states(), &[]);
+        assert!(!execution.accepts());
+    }
+
+    #[test]
+    fn a_step_from_a_set_reads_that_set_and_not_the_execution() {
+        let mut builder = builder();
+        let start = builder.push();
+        let left = builder.push();
+        let right = builder.push();
+        builder.transition(start, only('a'), left);
+        builder.transition(left, only('a'), right);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
+
+        let mut execution = execute(&nfa);
+
+        assert!(execution.step_from(&[start], 'a'));
+        assert_eq!(execution.states(), &[left]);
+        assert!(execution.step_from(&[start], 'a'));
+        assert_eq!(execution.states(), &[left]);
+        assert!(!execution.step_from(&[right], 'a'));
+        assert_eq!(execution.states(), &[]);
     }
 
     #[test]
@@ -356,6 +431,6 @@ mod tests {
             .build(&[code.entry, string.entry])
             .expect("the builder is below its capacity");
 
-        nfa.execute(2);
+        nfa.execute().restart(2);
     }
 }

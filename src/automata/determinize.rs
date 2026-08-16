@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::arena::{Arena, ArenaBuilder};
 use super::automaton::{Automaton, Transition};
@@ -8,6 +9,17 @@ use super::id::StateId;
 use super::label::Label;
 use super::nfa::{NondeterministicExecution, NondeterministicFiniteAutomaton};
 use super::overflow::{Overflow, Part};
+
+/// The number of the states that determinization makes.
+///
+/// One state of the result is one set of the states of the nondeterministic automaton, thus the
+/// number of the states can grow fast. A determinization that asks for more states than this
+/// maximum stops and gives an [`Overflow`]. Thus a pattern that expands fast reports a limit, and
+/// it does not exhaust the memory.
+///
+/// The lexer of a language stays far below this maximum. A lexer of 200 rules holds a few thousand
+/// states.
+pub const MAX_STATES: usize = 1 << 16;
 
 /// The automaton that determinization made, and the set behind each of its states.
 ///
@@ -39,16 +51,18 @@ impl<L: Label> NondeterministicFiniteAutomaton<L> {
     ///
     /// A state of the result accepts if a state of its set accepts.
     ///
-    /// The result holds no dead state. A set that reads a symbol and reaches no state gives no
-    /// transition.
+    /// The result holds only the states that a scan reaches. A set that reads a symbol and reaches
+    /// no state gives no transition, thus the result needs no trap state. A state from which the
+    /// result reaches no accept stays in the result.
+    ///
+    /// The transitions of one state of the result are in ascending sequence, because
+    /// [`Label::divide`] gives the classes in that sequence.
     ///
     /// # Errors
     ///
-    /// This function returns an [`Overflow`] if the result needs more states than one automaton
-    /// holds. One state of the result is one set of the states of this automaton, thus the number
-    /// of the states can grow fast.
+    /// This function returns an [`Overflow`] if the result needs more than [`MAX_STATES`] states.
     pub fn determinize(&self) -> Result<Determinization<L>, Overflow> {
-        subset_construction(self, StateId::CAPACITY)
+        subset_construction(self, MAX_STATES)
     }
 }
 
@@ -57,8 +71,8 @@ impl<L: Label> NondeterministicFiniteAutomaton<L> {
 /// One state of the result is one set of the states of `nfa`. The function reads the transitions
 /// of each set one time, and it stops because the number of the sets is finite.
 ///
-/// [`determinize`](NondeterministicFiniteAutomaton::determinize) gives the capacity of one
-/// automaton. A test gives a lower capacity to reach the [`Overflow`].
+/// [`determinize`](NondeterministicFiniteAutomaton::determinize) gives [`MAX_STATES`]. A test
+/// gives a lower capacity to reach the [`Overflow`].
 ///
 /// # Errors
 ///
@@ -77,10 +91,11 @@ fn subset_construction<L: Label>(
         starts.push(state_of(&mut subsets, capacity, execution.states())?);
     }
 
+    let mut labels = Vec::new();
     while let Some((subset, state)) = subsets.next() {
-        for (class, symbol) in L::divide(&labels(nfa, &subset)) {
-            execution.seed(&subset);
-            if !execution.step(symbol) {
+        collect_labels(nfa, &subset, &mut labels);
+        for (class, symbol) in L::divide(&labels) {
+            if !execution.step_from(&subset, symbol) {
                 continue;
             }
             let target = state_of(&mut subsets, capacity, execution.states())?;
@@ -103,7 +118,7 @@ fn subset_construction<L: Label>(
 
     let mut groups = ArenaBuilder::new();
     for (index, subset) in sets.iter().enumerate() {
-        for &id in subset {
+        for &id in subset.iter() {
             groups.push(index, id);
         }
     }
@@ -145,10 +160,13 @@ fn state_of(
 ///
 /// The table also queues each new set. Determinization reads the transitions of a set one time,
 /// and it reads them after the set has its state.
+///
+/// The table holds each set one time. The queue and the map share it, because the number of the
+/// sets decides the memory of the whole pass.
 #[derive(Debug)]
 struct Subsets {
-    states: HashMap<Vec<StateId>, StateId>,
-    pending: Vec<(Vec<StateId>, StateId)>,
+    states: HashMap<Rc<[StateId]>, StateId>,
+    pending: Vec<(Rc<[StateId]>, StateId)>,
 }
 
 impl Subsets {
@@ -162,8 +180,8 @@ impl Subsets {
 
     /// Returns the state of `subset`, or `None` if the table does not hold that set.
     ///
-    /// The states of `subset` are in ascending sequence, and the set holds no duplicate. An
-    /// [`NfaExecution`](super::NondeterministicExecution) gives its states in that form.
+    /// The states of `subset` are in ascending sequence, and the set holds no duplicate. A
+    /// [`NondeterministicExecution`] gives its states in that form.
     fn get(&self, subset: &[StateId]) -> Option<StateId> {
         self.states.get(subset).copied()
     }
@@ -179,8 +197,8 @@ impl Subsets {
     ///
     /// This function panics if the table already holds `subset`.
     fn add(&mut self, subset: &[StateId], state: StateId) {
-        let subset = subset.to_vec();
-        let held = self.states.insert(subset.clone(), state);
+        let subset: Rc<[StateId]> = Rc::from(subset);
+        let held = self.states.insert(Rc::clone(&subset), state);
         assert!(held.is_none(), "the table already holds the set");
         self.pending.push((subset, state));
     }
@@ -188,7 +206,7 @@ impl Subsets {
     /// Returns a set whose transitions determinization did not read, with its state.
     ///
     /// The result is `None` if determinization read the transitions of each set.
-    fn next(&mut self) -> Option<(Vec<StateId>, StateId)> {
+    fn next(&mut self) -> Option<(Rc<[StateId]>, StateId)> {
         self.pending.pop()
     }
 
@@ -196,9 +214,10 @@ impl Subsets {
     ///
     /// [`state_of`] numbers the states from 0, one for each set. Thus each state of the table is
     /// below the number of the sets.
-    fn into_sets(self) -> Vec<Vec<StateId>> {
+    fn into_sets(self) -> Vec<Rc<[StateId]>> {
+        let empty: Rc<[StateId]> = Rc::from([]);
         let count = self.states.len();
-        let mut sets = vec![Vec::new(); count];
+        let mut sets = vec![empty; count];
         for (subset, state) in self.states {
             let slot = sets
                 .get_mut(state.index())
@@ -209,16 +228,25 @@ impl Subsets {
     }
 }
 
-/// Returns the label of each transition that leaves a state of `subset`.
+/// Writes the label of each transition that leaves a state of `subset` into `out`.
+///
+/// The function clears `out` first. Determinization gives the same vector for each set, thus the
+/// pass makes one buffer and not one buffer for each set.
 ///
 /// The result holds a duplicate if two states carry the same label. [`Label::divide`] removes
 /// the duplicate.
-fn labels<L: Label>(nfa: &NondeterministicFiniteAutomaton<L>, subset: &[StateId]) -> Vec<L> {
-    subset
-        .iter()
-        .flat_map(|&id| nfa.transitions(id))
-        .map(|transition| transition.label.clone())
-        .collect()
+fn collect_labels<L: Label>(
+    nfa: &NondeterministicFiniteAutomaton<L>,
+    subset: &[StateId],
+    out: &mut Vec<L>,
+) {
+    out.clear();
+    out.extend(
+        subset
+            .iter()
+            .flat_map(|&id| nfa.transitions(id))
+            .map(|transition| transition.label.clone()),
+    );
 }
 
 #[cfg(test)]
@@ -228,7 +256,12 @@ mod tests {
 
     use crate::automata::nfa::NfaBuilder;
     use crate::automata::overflow::Part;
-    use crate::automata::testing::{Symbols, literal, only, range, scan, state};
+    use crate::automata::testing::{Symbols, literal, only, range, scan, star, state};
+
+    /// Returns the set of each state of `subsets`, as a vector for a comparison.
+    fn sets(subsets: Vec<Rc<[StateId]>>) -> Vec<Vec<StateId>> {
+        subsets.into_iter().map(|subset| subset.to_vec()).collect()
+    }
 
     /// Builds an NFA. `build` adds the states, then it returns the start states.
     fn nfa(
@@ -475,6 +508,19 @@ mod tests {
     }
 
     #[test]
+    fn a_loop_gives_one_state_that_reads_each_repetition() {
+        let nfa = nfa(|builder| vec![star(builder, 'a')]);
+        let dfa = determinized(&nfa);
+
+        assert_eq!(dfa.state_count(), 1);
+        assert!(dfa.accepts(dfa.start_state(first())));
+        assert_eq!(scan(&dfa, first(), ""), Some(0));
+        assert_eq!(scan(&dfa, first(), "a"), Some(1));
+        assert_eq!(scan(&dfa, first(), "aaaa"), Some(4));
+        assert_eq!(scan(&dfa, first(), "zzz"), Some(0));
+    }
+
+    #[test]
     fn an_epsilon_cycle_stops() {
         let nfa = nfa(|builder| {
             let start = builder.push();
@@ -538,6 +584,7 @@ mod tests {
         same_matches(&overlapping(), &inputs);
         same_matches(&two_accepts(), &inputs);
         same_matches(&lexer(), &inputs);
+        same_matches(&nfa(|builder| vec![star(builder, 'a')]), &inputs);
     }
 
     #[test]
@@ -572,10 +619,13 @@ mod tests {
         subsets.add(&[state(0)], state(0));
         subsets.add(&[state(1)], state(1));
 
-        let mut queued = vec![
+        let mut queued: Vec<(Vec<StateId>, StateId)> = vec![
             subsets.next().expect("the table queued two sets"),
             subsets.next().expect("the table queued two sets"),
-        ];
+        ]
+        .into_iter()
+        .map(|(subset, state)| (subset.to_vec(), state))
+        .collect();
         queued.sort();
 
         assert_eq!(
@@ -592,14 +642,14 @@ mod tests {
         subsets.add(&[state(0)], state(0));
 
         assert_eq!(
-            subsets.into_sets(),
+            sets(subsets.into_sets()),
             vec![vec![state(0)], vec![state(1), state(2)]]
         );
     }
 
     #[test]
     fn a_new_table_gives_no_set() {
-        assert_eq!(Subsets::new().into_sets(), Vec::<Vec<StateId>>::new());
+        assert_eq!(sets(Subsets::new().into_sets()), Vec::<Vec<StateId>>::new());
     }
 
     #[test]
@@ -613,12 +663,15 @@ mod tests {
     #[test]
     fn the_labels_of_a_set_hold_the_label_of_each_transition() {
         let nfa = overlapping();
+        let mut out = Vec::new();
 
-        assert_eq!(
-            labels(&nfa, &[state(0)]),
-            vec![range('a', 'f'), range('d', 'z')]
-        );
-        assert_eq!(labels(&nfa, &[state(1), state(2)]), Vec::new());
-        assert_eq!(labels(&nfa, &[]), Vec::new());
+        collect_labels(&nfa, &[state(0)], &mut out);
+        assert_eq!(out, vec![range('a', 'f'), range('d', 'z')]);
+
+        collect_labels(&nfa, &[state(1), state(2)], &mut out);
+        assert_eq!(out, Vec::new());
+
+        collect_labels(&nfa, &[], &mut out);
+        assert_eq!(out, Vec::new());
     }
 }

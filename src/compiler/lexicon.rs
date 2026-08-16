@@ -23,11 +23,11 @@ pub const MAX_PATTERN_SIZE: usize = 100_000;
 ///
 /// A lexicon hands out the index of each condition. [`rule`](Self::rule)
 /// rejects an index that this lexicon did not declare, thus
-/// [`compile`](super::compile) needs no check.
+/// [`compile`](super::compile()) needs no check.
 ///
 /// Declare the conditions with [`condition`](Self::condition), add the rules
 /// with [`rule`](Self::rule), then give the lexicon to
-/// [`compile`](super::compile).
+/// [`compile`](super::compile()).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lexicon<R> {
     rules: Vec<Rule<R>>,
@@ -60,9 +60,9 @@ impl<R> Lexicon<R> {
     /// states of the pattern are built one time, whatever the number of the
     /// conditions.
     ///
-    /// [`longest_match`](crate::automata::longest_match) selects the lowest
-    /// accept of the accepts that it reaches at the longest length. Thus give
-    /// the accepts in the sequence of precedence.
+    /// [`longest_match`](crate::automata::Execution::longest_match) selects the
+    /// lowest accept of the accepts that it reaches at the longest length. Thus
+    /// give the accepts in the sequence of precedence.
     ///
     /// A rule that fails a check changes nothing.
     ///

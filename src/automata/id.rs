@@ -19,6 +19,22 @@ impl StateId {
     pub fn index(self) -> usize {
         self.0 as usize
     }
+
+    /// Reports this identifier as outside a table of `count` states.
+    ///
+    /// Each table that one state arena numbers reports the fault with the same message. The
+    /// automaton, the accepts of a lexer, and each later pass thus give one text.
+    ///
+    /// # Panics
+    ///
+    /// This function panics each time. Call it only for an identifier that the table does not
+    /// hold.
+    pub fn outside(self, count: usize) -> ! {
+        panic!(
+            "state {} is outside an arena of {count} states",
+            self.index()
+        )
+    }
 }
 
 #[cfg(test)]

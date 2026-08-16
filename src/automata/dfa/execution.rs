@@ -9,7 +9,7 @@ use crate::automata::label::Label;
 /// The execution is in one state, or in no state. Thus a step makes no allocation and reads no
 /// buffer. Use the same execution for each token of the input.
 ///
-/// To make a `DfaExecution`, use [`Automaton::execute`](crate::automata::Automaton::execute).
+/// To make a `DeterministicExecution`, use [`Scanner::execute`](crate::automata::Scanner::execute).
 #[derive(Debug)]
 pub struct DeterministicExecution<'a, L> {
     dfa: &'a DeterministicFiniteAutomaton<L>,
@@ -59,8 +59,20 @@ mod tests {
         )
     }
 
+    /// Returns an execution of `dfa` at its first start state.
     fn execute(dfa: &DeterministicFiniteAutomaton<Symbols>) -> DeterministicExecution<'_, Symbols> {
-        dfa.execute(0)
+        let mut execution = dfa.execute();
+        execution.restart(0);
+        execution
+    }
+
+    #[test]
+    fn a_new_execution_is_in_no_state() {
+        let dfa = chain();
+        let execution = dfa.execute();
+
+        assert_eq!(execution.states(), &[]);
+        assert!(!execution.accepts());
     }
 
     #[test]
@@ -110,14 +122,18 @@ mod tests {
     #[test]
     fn each_start_gives_its_own_execution() {
         let dfa = two_starts();
+        let mut execution = dfa.execute();
 
-        assert_eq!(dfa.execute(0).states(), &[StateId::new(0)][..]);
-        assert_eq!(dfa.execute(1).states(), &[StateId::new(1)][..]);
+        execution.restart(0);
+        assert_eq!(execution.states(), &[StateId::new(0)][..]);
+
+        execution.restart(1);
+        assert_eq!(execution.states(), &[StateId::new(1)][..]);
     }
 
     #[test]
     #[should_panic(expected = "start 2 is outside an automaton with 2 start states")]
     fn an_execution_under_a_start_the_automaton_does_not_have_panics() {
-        two_starts().execute(2);
+        two_starts().execute().restart(2);
     }
 }

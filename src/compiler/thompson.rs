@@ -9,7 +9,7 @@
 //! [`Class`](Node::Class) leaf to an [`Alphabet`].
 //!
 //! The construction makes no start state and no accept.
-//! [`compile`](super::compile) owns the builder. It joins each pattern to the
+//! [`compile`](super::compile()) owns the builder. It joins each pattern to the
 //! start states of the rule.
 
 use super::alphabet::Alphabet;
@@ -196,7 +196,7 @@ mod tests {
     fn matched(node: &Node, input: &[u8]) -> Option<usize> {
         let (nfa, _) = built(node);
         let start = 0;
-        let mut execution = nfa.execute(start);
+        let mut execution = nfa.execute();
         execution
             .longest_match(start, input, |_| ())
             .map(|found| found.length)

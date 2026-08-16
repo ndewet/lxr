@@ -5,9 +5,9 @@ use super::label::Label;
 /// An alphabet of an ordered and countable symbol gives a label of this shape. A byte range and a
 /// character range are both one. The two ends are in the range.
 ///
-/// The trait supplies [`divide`], thus each range label divides in the same manner. Only the walk
-/// from one symbol to the next belongs to the alphabet. A character alphabet steps across the gap
-/// at the values of the surrogates, and a byte alphabet steps by one.
+/// The trait supplies [`Label::divide`], thus each range label divides in the same manner. Only
+/// the walk from one symbol to the next belongs to the alphabet. A character alphabet steps across
+/// the gap at the values of the surrogates, and a byte alphabet steps by one.
 pub trait Range: Label<Symbol: Ord> {
     /// The highest symbol of the alphabet.
     const LAST: Self::Symbol;
@@ -128,6 +128,23 @@ mod tests {
             divided(&[range(BELOW_GAP, ABOVE_GAP), only(ABOVE_GAP)]),
             vec![only(BELOW_GAP), only(ABOVE_GAP)]
         );
+    }
+
+    #[test]
+    fn each_class_is_below_the_symbol_of_the_class_after_it() {
+        let labels = [
+            range('d', 'z'),
+            only('b'),
+            range('a', 'f'),
+            range(BELOW_GAP, ABOVE_GAP),
+        ];
+        let classes = Symbols::classes(&labels);
+
+        for pair in classes.windows(2) {
+            let (class, _) = pair[0];
+            let (_, next) = pair[1];
+            assert!(class.below(next), "{class:?} is not below {next:?}");
+        }
     }
 
     #[test]

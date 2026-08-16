@@ -108,7 +108,7 @@ mod tests {
     use crate::automata::automaton::Automaton;
     use crate::automata::nfa::{NfaBuilder, NondeterministicFiniteAutomaton};
     use crate::automata::scanner::Scanner;
-    use crate::automata::testing::{Symbols, builder, literal};
+    use crate::automata::testing::{Symbols, builder, literal, star};
 
     /// The accept of each state, in the manner of a lexer table.
     ///
@@ -122,15 +122,51 @@ mod tests {
         table
     }
 
-    /// Returns the longest match at the start of `input`, with the lowest accept of the table.
+    /// Returns the longest match at the start of `input` under the first start, with the lowest
+    /// accept of the table.
     fn scan(
         nfa: &NondeterministicFiniteAutomaton<Symbols>,
         table: &[Option<u32>],
         input: &str,
     ) -> Option<Match<u32>> {
+        scan_under(nfa, table, 0, input)
+    }
+
+    /// Returns the longest match at the start of `input` under `start`, with the lowest accept of
+    /// the table.
+    fn scan_under(
+        nfa: &NondeterministicFiniteAutomaton<Symbols>,
+        table: &[Option<u32>],
+        start: usize,
+        input: &str,
+    ) -> Option<Match<u32>> {
         let symbols: Vec<char> = input.chars().collect();
-        nfa.execute(0)
-            .longest_match(0, &symbols, |states| lowest(table, states))
+        nfa.execute()
+            .longest_match(start, &symbols, |states| lowest(table, states))
+    }
+
+    /// Builds an automaton of one rule for each word, and the table of their accepts.
+    ///
+    /// Each word gets its own start state, at the index of the word. The rule of a word accepts
+    /// that index. Thus a scan under one start reads only the word of that start.
+    fn conditions(words: &[&str]) -> (NondeterministicFiniteAutomaton<Symbols>, Vec<Option<u32>>) {
+        let mut builder = builder();
+        let paths: Vec<_> = words
+            .iter()
+            .map(|word| literal(&mut builder, word))
+            .collect();
+        let starts: Vec<StateId> = paths.iter().map(|path| path.entry).collect();
+        let nfa = builder
+            .build(&starts)
+            .expect("a test stays below the capacity");
+
+        let marks: Vec<(StateId, u32)> = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| (path.exit, index as u32))
+            .collect();
+        let table = accepts(nfa.state_count(), &marks);
+        (nfa, table)
     }
 
     /// Returns the lowest accept of the states in `states`.
@@ -213,9 +249,79 @@ mod tests {
     }
 
     #[test]
+    fn a_star_matches_any_number_of_repetitions() {
+        let mut builder = builder();
+        let repeat = star(&mut builder, 'a');
+        let nfa = builder
+            .build(&[repeat])
+            .expect("a test stays below the capacity");
+        let table = accepts(nfa.state_count(), &[(repeat, 0)]);
+
+        assert_eq!(scan(&nfa, &table, ""), matched(0, 0));
+        assert_eq!(scan(&nfa, &table, "zzz"), matched(0, 0));
+        assert_eq!(scan(&nfa, &table, "a"), matched(0, 1));
+        assert_eq!(scan(&nfa, &table, "aaaa"), matched(0, 4));
+    }
+
+    #[test]
+    fn a_start_with_no_reachable_accept_accepts_nothing() {
+        let mut builder = builder();
+        let stuck = builder.push();
+        builder.epsilon(stuck, stuck);
+        let nfa = builder
+            .build(&[stuck])
+            .expect("a test stays below the capacity");
+        let table = accepts(nfa.state_count(), &[]);
+
+        assert_eq!(scan(&nfa, &table, ""), None);
+        assert_eq!(scan(&nfa, &table, "anything"), None);
+    }
+
+    #[test]
+    fn each_start_scans_only_its_own_rules() {
+        let (nfa, table) = conditions(&["a", "b"]);
+
+        assert_eq!(scan_under(&nfa, &table, 0, "a"), matched(0, 1));
+        assert_eq!(scan_under(&nfa, &table, 0, "b"), None);
+        assert_eq!(scan_under(&nfa, &table, 1, "b"), matched(1, 1));
+        assert_eq!(scan_under(&nfa, &table, 1, "a"), None);
+    }
+
+    #[test]
+    fn a_lower_accept_under_another_start_does_not_win() {
+        let (nfa, table) = conditions(&["if", "if"]);
+
+        assert_eq!(scan_under(&nfa, &table, 1, "if"), matched(1, 2));
+        assert_eq!(scan_under(&nfa, &table, 0, "if"), matched(0, 2));
+    }
+
+    #[test]
+    fn a_nullable_start_does_not_make_another_start_nullable() {
+        let mut builder = builder();
+        let word = literal(&mut builder, "ab");
+        let repeat = star(&mut builder, 'a');
+        let nfa = builder
+            .build(&[word.entry, repeat])
+            .expect("a test stays below the capacity");
+        let table = accepts(nfa.state_count(), &[(word.exit, 0), (repeat, 1)]);
+
+        assert_eq!(scan_under(&nfa, &table, 1, "zz"), matched(1, 0));
+        assert_eq!(scan_under(&nfa, &table, 0, "zz"), None);
+        assert_eq!(scan_under(&nfa, &table, 0, "ab"), matched(0, 2));
+    }
+
+    #[test]
+    #[should_panic(expected = "start 2 is outside an automaton with 2 start states")]
+    fn a_scan_under_a_start_the_automaton_does_not_have_panics() {
+        let (nfa, table) = conditions(&["a", "b"]);
+
+        scan_under(&nfa, &table, 2, "a");
+    }
+
+    #[test]
     fn one_execution_scans_a_sequence_of_matches() {
         let (nfa, table) = alternation("if", " ");
-        let mut execution = nfa.execute(0);
+        let mut execution = nfa.execute();
         let symbols: Vec<char> = "if if".chars().collect();
         let mut input = &symbols[..];
         let mut found = Vec::new();
@@ -236,7 +342,7 @@ mod tests {
         let symbols: Vec<char> = "ab".chars().collect();
 
         let found = nfa
-            .execute(0)
+            .execute()
             .longest_match(0, &symbols, <[StateId]>::to_vec)
             .expect("the automaton accepts ab");
 

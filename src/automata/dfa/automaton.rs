@@ -1,7 +1,6 @@
 use super::execution::DeterministicExecution;
 use crate::automata::arena::Arena;
 use crate::automata::automaton::{Automaton, Transition};
-use crate::automata::execution::Execution;
 use crate::automata::id::StateId;
 use crate::automata::label::Label;
 use crate::automata::scanner::Scanner;
@@ -10,25 +9,29 @@ use crate::automata::table::StateTable;
 /// A deterministic finite automaton.
 ///
 /// The automaton holds states, transitions with a label of type `L`, the states that accept, and
-/// one or more start states. It holds no epsilon transition, and the labels of one state match no
-/// symbol in common. Thus a scan is in one state, or in no state.
+/// one or more start states. It holds no epsilon transition. The labels of one state match no
+/// symbol in common, and they are in ascending sequence. Thus a scan is in one state, or in no
+/// state.
 ///
-/// The automaton holds no dead state. A state that reads a symbol that no label of that state
-/// matches goes to no state, and the scan stops. Thus the automaton holds only the states that a
-/// scan reaches.
+/// The automaton holds only the states that a scan reaches. A state that reads a symbol that no
+/// label of that state matches goes to no state, and the scan stops. Thus the automaton needs no
+/// trap state. A state from which the automaton reaches no accept stays in the automaton.
 ///
-/// To make a `Dfa`, use [`Nfa::determinize`](crate::automata::NondeterministicFiniteAutomaton::determinize).
+/// To make a `DeterministicFiniteAutomaton`, use
+/// [`determinize`](crate::automata::NondeterministicFiniteAutomaton::determinize).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeterministicFiniteAutomaton<L> {
     table: StateTable<L>,
 }
 
 impl<L> DeterministicFiniteAutomaton<L> {
-    /// Creates a `DeterministicFiniteAutomaton` from the transitions, the accepts, and the start states.
+    /// Creates a `DeterministicFiniteAutomaton` from the transitions, the accepts, and the start
+    /// states.
     ///
-    /// The caller gives disjoint labels at one state. The constructor does not check that, because
-    /// the check costs one comparison for each pair of the labels. [`step`](Self::step) checks it
-    /// with a `debug_assert!`.
+    /// The caller gives the transitions of one state in ascending sequence, with labels that match
+    /// no symbol in common. The constructor does not check that, because the check costs one
+    /// comparison for each pair of the labels. [`step`](Self::step) checks it with a
+    /// `debug_assert!`.
     ///
     /// # Panics
     ///
@@ -54,24 +57,33 @@ impl<L: Label> DeterministicFiniteAutomaton<L> {
     ///
     /// The result is `None` if no label of that state matches `symbol`.
     ///
+    /// The transitions of one state are in ascending sequence, thus the function finds the
+    /// transition with a binary search and reads no other transition.
+    ///
     /// # Panics
     ///
     /// This function panics if `from` is not in the state arena.
     pub fn step(&self, from: StateId, symbol: L::Symbol) -> Option<StateId> {
         let transitions = self.transitions(from);
+        let index = transitions.partition_point(|transition| transition.label.below(symbol));
+        let target = transitions
+            .get(index)
+            .filter(|transition| transition.label.matches(symbol))
+            .map(|transition| transition.target);
+
         debug_assert!(
-            transitions
-                .iter()
-                .filter(|transition| transition.label.matches(symbol))
-                .count()
-                <= 1,
-            "state {} has more than one transition for one symbol",
+            {
+                let mut matching = transitions
+                    .iter()
+                    .filter(|transition| transition.label.matches(symbol));
+                matching.next().map(|transition| transition.target) == target
+                    && matching.next().is_none()
+            },
+            "state {} holds its transitions out of sequence, or two of them match one symbol",
             from.index()
         );
-        transitions
-            .iter()
-            .find(|transition| transition.label.matches(symbol))
-            .map(|transition| transition.target)
+
+        target
     }
 }
 
@@ -105,10 +117,8 @@ impl<L: Label> Scanner for DeterministicFiniteAutomaton<L> {
     where
         Self: 'a;
 
-    fn execute(&self, start: usize) -> DeterministicExecution<'_, L> {
-        let mut execution = DeterministicExecution::new(self);
-        execution.restart(start);
-        execution
+    fn execute(&self) -> DeterministicExecution<'_, L> {
+        DeterministicExecution::new(self)
     }
 }
 
@@ -181,6 +191,32 @@ mod tests {
     #[should_panic(expected = "state 9 is outside an arena of 3 states")]
     fn a_step_at_a_state_outside_the_arena_panics() {
         chain().step(StateId::new(9), 'a');
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "state 0 holds its transitions out of sequence")]
+    fn a_step_at_a_state_that_holds_its_transitions_out_of_sequence_panics() {
+        let dfa = dfa(
+            &[&[(range('d', 'f'), 1), (range('a', 'c'), 2)], &[], &[]],
+            &[false, true, true],
+            &[0],
+        );
+
+        dfa.step(StateId::new(0), 'b');
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "or two of them match one symbol")]
+    fn a_step_at_a_state_that_holds_two_transitions_for_one_symbol_panics() {
+        let dfa = dfa(
+            &[&[(range('a', 'c'), 1), (range('a', 'f'), 2)], &[], &[]],
+            &[false, true, true],
+            &[0],
+        );
+
+        dfa.step(StateId::new(0), 'b');
     }
 
     #[test]

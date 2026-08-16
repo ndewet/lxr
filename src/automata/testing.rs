@@ -34,6 +34,10 @@ impl Label for Symbols {
         (self.low..=self.high).contains(&symbol)
     }
 
+    fn below(&self, symbol: char) -> bool {
+        self.high < symbol
+    }
+
     fn divide(labels: &[Self]) -> Vec<(Self, char)> {
         Self::classes(labels)
     }
@@ -125,10 +129,23 @@ pub(super) fn literal(builder: &mut NfaBuilder<Symbols>, text: &str) -> Path {
     Path { entry, exit }
 }
 
-/// Builds a [`DeterministicFiniteAutomaton`] from one group of transitions for each state, the accepts, and the starts.
+/// Adds one state that matches any number of `symbol`, and that accepts.
 ///
-/// A transition is a label and the index of its target. Only determinization makes a `Dfa` outside
-/// a test, thus a test writes the transitions by hand.
+/// The state is a loop. Thus a test scans a repetition, and determinization reads a set that
+/// reaches itself.
+pub(super) fn star(builder: &mut NfaBuilder<Symbols>, symbol: char) -> StateId {
+    let state = builder.push();
+    builder.transition(state, only(symbol), state);
+    builder.accept(state);
+    state
+}
+
+/// Builds a [`DeterministicFiniteAutomaton`] from one group of transitions for each state, the
+/// accepts, and the starts.
+///
+/// A transition is a label and the index of its target. The labels of one state are in ascending
+/// sequence. Only determinization makes a deterministic automaton outside a test, thus a test
+/// writes the transitions by hand.
 pub(super) fn dfa(
     transitions: &[&[(Symbols, usize)]],
     accepts: &[bool],
@@ -175,7 +192,7 @@ where
 {
     let symbols: Vec<char> = input.chars().collect();
     automaton
-        .execute(start)
+        .execute()
         .longest_match(start, &symbols, |_| ())
         .map(|found| found.length)
 }

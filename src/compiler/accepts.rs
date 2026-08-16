@@ -26,12 +26,9 @@ impl<A> Accepts<A> {
         let mut accepts = Vec::with_capacity(count);
         accepts.resize_with(count, || None);
         for (state, accept) in marks {
-            let slot = accepts.get_mut(state.index()).unwrap_or_else(|| {
-                panic!(
-                    "state {} is outside an arena of {count} states",
-                    state.index()
-                )
-            });
+            let slot = accepts
+                .get_mut(state.index())
+                .unwrap_or_else(|| state.outside(count));
             assert!(
                 slot.is_none(),
                 "state {} already has an accept",
@@ -51,13 +48,7 @@ impl<A> Accepts<A> {
     pub fn get(&self, id: StateId) -> Option<&A> {
         self.accepts
             .get(id.index())
-            .unwrap_or_else(|| {
-                panic!(
-                    "state {} is outside an arena of {} states",
-                    id.index(),
-                    self.accepts.len()
-                )
-            })
+            .unwrap_or_else(|| id.outside(self.accepts.len()))
             .as_ref()
     }
 

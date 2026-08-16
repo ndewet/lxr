@@ -1,7 +1,6 @@
 use super::execution::NondeterministicExecution;
 use crate::automata::arena::Arena;
 use crate::automata::automaton::{Automaton, Transition};
-use crate::automata::execution::Execution;
 use crate::automata::id::StateId;
 use crate::automata::label::Label;
 use crate::automata::scanner::Scanner;
@@ -16,7 +15,7 @@ use crate::automata::table::StateTable;
 /// selects the label, and the caller holds the meaning of each state that accepts. A lexer, for
 /// example, uses a byte range as the label and holds a token for each state that accepts.
 ///
-/// To make an `Nfa`, use an [`NfaBuilder`](super::NfaBuilder).
+/// To make a `NondeterministicFiniteAutomaton`, use an [`NfaBuilder`](super::NfaBuilder).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NondeterministicFiniteAutomaton<L> {
     table: StateTable<L>,
@@ -24,8 +23,8 @@ pub struct NondeterministicFiniteAutomaton<L> {
 }
 
 impl<L> NondeterministicFiniteAutomaton<L> {
-    /// Creates an `Nfa` from the transitions, the epsilon transitions, the accepts, and the start
-    /// states.
+    /// Creates a `NondeterministicFiniteAutomaton` from the transitions, the epsilon transitions,
+    /// the accepts, and the start states.
     ///
     /// # Panics
     ///
@@ -64,7 +63,7 @@ impl<L> NondeterministicFiniteAutomaton<L> {
     pub fn epsilons(&self, id: StateId) -> &[StateId] {
         self.epsilons
             .get(id.index())
-            .unwrap_or_else(|| self.table.outside(id))
+            .unwrap_or_else(|| id.outside(self.table.state_count()))
     }
 }
 
@@ -122,10 +121,8 @@ impl<L: Label> Scanner for NondeterministicFiniteAutomaton<L> {
     where
         Self: 'a;
 
-    fn execute(&self, start: usize) -> NondeterministicExecution<'_, L> {
-        let mut execution = NondeterministicExecution::new(self);
-        execution.restart(start);
-        execution
+    fn execute(&self) -> NondeterministicExecution<'_, L> {
+        NondeterministicExecution::new(self)
     }
 }
 

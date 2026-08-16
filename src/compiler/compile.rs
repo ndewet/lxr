@@ -16,10 +16,10 @@ use crate::automata::{Automaton, NfaBuilder, NondeterministicFiniteAutomaton, St
 /// before each other condition. A scan under a start state reads only the
 /// rules of that condition.
 ///
-/// The function owns the [`NfaBuilder`](crate::automata::NfaBuilder). It
+/// The function owns the [`NfaBuilder`]. It
 /// pushes one start state for each start condition. Then, for each rule, it
 /// makes the states of the pattern one time with
-/// [`thompson::fragment`](super::thompson::fragment). It makes the exit
+/// [`thompson::fragment`]. It makes the exit
 /// accept, and it adds an epsilon transition from each start condition of the
 /// rule to the entry.
 ///
@@ -48,7 +48,10 @@ pub fn compile<A: Alphabet, R>(
         builder.accept(part.exit());
         marks.push((part.exit(), rule.accept));
         for condition in rule.conditions {
-            builder.epsilon(starts[condition], part.entry());
+            let start = *starts
+                .get(condition)
+                .expect("a lexicon declares each start condition of each of its rules");
+            builder.epsilon(start, part.entry());
         }
     }
 
@@ -85,8 +88,21 @@ mod tests {
         /// Returns the accept and the length of the longest match at the start
         /// of `input`, under `start`.
         fn scan(&self, start: usize, input: &str) -> Option<(Token, usize)> {
-            self.automaton
-                .execute(start)
+            self.matched(&mut self.automaton.execute(), start, input)
+        }
+
+        /// Returns the accept and the length of the longest match that
+        /// `execution` finds at the start of `input`, under `start`.
+        ///
+        /// A driver makes one execution, then it reads each token with that
+        /// execution. Thus the scan makes the buffers one time.
+        fn matched(
+            &self,
+            execution: &mut T::Execution<'_>,
+            start: usize,
+            input: &str,
+        ) -> Option<(Token, usize)> {
+            execution
                 .longest_match(start, input.as_bytes(), |states| {
                     self.accepts
                         .lowest(states)
@@ -101,13 +117,14 @@ mod tests {
         /// start condition, thus the same bytes give a different token inside
         /// a string.
         fn tokens(&self, code: usize, string: usize, input: &str) -> Vec<Token> {
+            let mut execution = self.automaton.execute();
             let mut condition = code;
             let mut offset = 0;
             let mut found = Vec::new();
 
             while offset < input.len() {
                 let (accept, length) = self
-                    .scan(condition, &input[offset..])
+                    .matched(&mut execution, condition, &input[offset..])
                     .expect("each byte of the input belongs to a token");
                 assert!(length > 0, "a rule that reads no byte stops the scan");
                 offset += length;
