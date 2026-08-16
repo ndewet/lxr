@@ -49,7 +49,9 @@ impl<'a, L, A> NfaExecution<'a, L, A> {
     ///
     /// # Panics
     ///
-    /// This function panics if a state in `states` is not in the state arena.
+    /// This function panics if a state in `states` is not in the state arena. Only a debug build
+    /// gives a message that names the state. Only lxr makes a state, thus such a state is a
+    /// defect.
     pub fn seed(&mut self, states: &[StateId]) {
         let Self {
             nfa,
@@ -104,7 +106,10 @@ impl<L: Label, A> Execution for NfaExecution<'_, L, A> {
 ///
 /// # Panics
 ///
-/// This function panics if a state in `seeds` is not in the state arena.
+/// This function panics if a state in `seeds` is not in the state arena. A debug build gives the
+/// message below. A release build gives the message of the bounds check on `reached`, because the
+/// loop that names each seed runs one time for each symbol. Only lxr makes a seed, thus a seed
+/// outside the state arena is a defect.
 fn closure<L, A>(
     nfa: &Nfa<L, A>,
     reached: &mut [bool],
@@ -113,7 +118,7 @@ fn closure<L, A>(
     out: &mut Vec<StateId>,
 ) {
     for &seed in seeds {
-        assert!(
+        debug_assert!(
             seed.index() < nfa.state_count(),
             "state {} is outside an arena of {} states",
             seed.index(),
@@ -151,6 +156,7 @@ fn closure<L, A>(
 #[cfg(test)]
 mod tests {
     use super::super::builder::NfaBuilder;
+    use super::super::reference::built;
     use super::*;
     use crate::automata::automaton::Automaton;
     use crate::automata::reference::{Symbols, only};
@@ -174,7 +180,7 @@ mod tests {
         let mut builder = builder();
         let accept = builder.push();
         builder.accept(accept, 0);
-        let nfa = builder.build(&[accept]);
+        let nfa = built(builder, &[accept]);
 
         assert_eq!(seeded(&nfa, &[accept]), vec![0]);
     }
@@ -189,7 +195,7 @@ mod tests {
         builder.epsilon(start, left);
         builder.epsilon(start, middle);
         builder.epsilon(start, right);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(seeded(&nfa, &[start]), vec![0, 1, 2, 3]);
     }
@@ -200,7 +206,7 @@ mod tests {
         let start = builder.push();
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(seeded(&nfa, &[start]), vec![0]);
     }
@@ -215,7 +221,7 @@ mod tests {
         builder.epsilon(left, accept);
         builder.epsilon(right, left);
         builder.epsilon(right, accept);
-        let nfa = builder.build(&[left]);
+        let nfa = built(builder, &[left]);
 
         assert_eq!(seeded(&nfa, &[left]), vec![0, 1, 2]);
     }
@@ -231,18 +237,19 @@ mod tests {
         builder.epsilon(left, second);
         builder.epsilon(right, second);
         builder.epsilon(right, first);
-        let nfa = builder.build(&[left]);
+        let nfa = built(builder, &[left]);
 
         assert_eq!(seeded(&nfa, &[right, left, right]), vec![0, 1, 2, 3]);
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "state 9 is outside an arena of 2 states")]
     fn a_closure_over_a_seed_outside_the_arena_panics() {
         let mut builder = builder();
         let start = builder.push();
         builder.push();
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         seeded(&nfa, &[StateId::new(9)]);
     }
@@ -254,7 +261,7 @@ mod tests {
         let accept = builder.push();
         builder.epsilon(start, accept);
         builder.accept(accept, 0);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         let execution = execute(&nfa);
 
@@ -269,7 +276,7 @@ mod tests {
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
         builder.accept(accept, 0);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         let mut execution = execute(&nfa);
 
@@ -289,7 +296,7 @@ mod tests {
         builder.transition(start, only('a'), second);
         builder.accept(first, 7);
         builder.accept(second, 3);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         let mut execution = execute(&nfa);
 
@@ -304,7 +311,7 @@ mod tests {
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
         builder.accept(accept, 0);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         let mut execution = execute(&nfa);
 
@@ -323,7 +330,7 @@ mod tests {
         let mut builder = builder();
         let code = builder.push();
         let string = builder.push();
-        let nfa = builder.build(&[code, string]);
+        let nfa = built(builder, &[code, string]);
 
         assert_eq!(nfa.execute(StartId::new(0)).states(), &[code]);
         assert_eq!(nfa.execute(StartId::new(1)).states(), &[string]);
@@ -335,7 +342,7 @@ mod tests {
         let mut builder = builder();
         let code = builder.push();
         let string = builder.push();
-        let nfa = builder.build(&[code, string]);
+        let nfa = built(builder, &[code, string]);
 
         nfa.execute(StartId::new(2));
     }
@@ -344,7 +351,7 @@ mod tests {
     fn the_execution_gives_back_its_automaton() {
         let mut builder = builder();
         let state = builder.push();
-        let nfa = builder.build(&[state]);
+        let nfa = built(builder, &[state]);
 
         assert_eq!(execute(&nfa).nfa(), &nfa);
     }

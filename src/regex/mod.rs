@@ -1,3 +1,12 @@
+//! Parses a regular expression into a syntax tree.
+//!
+//! [`Node`] is the tree. To make one from a pattern, use [`FromStr`]. A
+//! pattern that the parser cannot read gives a [`ParseError`]. The error holds
+//! a [`ParseErrorKind`] and the position at which the parser stopped.
+//!
+//! [`CharSet`] is the set of the characters that a
+//! [`Class`](Node::Class) leaf matches.
+
 mod ast;
 mod charset;
 mod cursor;
@@ -7,7 +16,7 @@ mod parser;
 
 pub use ast::{Node, Repetitions};
 pub use charset::CharSet;
-pub use error::ParseError;
+pub use error::{ParseError, ParseErrorKind};
 use std::str::FromStr;
 
 use parser::RegexParser;

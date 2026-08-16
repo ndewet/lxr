@@ -70,7 +70,10 @@ mod tests {
         let mut builder: NfaBuilder<ByteRange, u32> = NfaBuilder::new();
         let fragment = Bytes.lower(set, &mut builder);
         builder.accept(fragment.exit(), 0);
-        (builder.build(&[fragment.entry()]), fragment)
+        let nfa = builder
+            .build(&[fragment.entry()])
+            .expect("a test stays below the capacity of a builder");
+        (nfa, fragment)
     }
 
     /// Returns the number of the bytes that `set` matches at the start of

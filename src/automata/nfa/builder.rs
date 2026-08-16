@@ -1,6 +1,7 @@
 use super::automaton::Nfa;
 use crate::automata::arena_builder::ArenaBuilder;
 use crate::automata::id::StateId;
+use crate::automata::overflow::{Overflow, Part};
 use crate::automata::transition::Transition;
 
 /// An [`Nfa`] that is not complete.
@@ -10,11 +11,17 @@ use crate::automata::transition::Transition;
 /// slot.
 ///
 /// Build the automaton with [`build`](Self::build).
+///
+/// The state arena holds at most [`StateId::CAPACITY`] states. A push at that ceiling records an
+/// [`Overflow`], and each later call does nothing. [`build`](Self::build) then reports the
+/// overflow. Thus the caller of a long chain of pushes needs no check at each step.
 #[derive(Debug)]
 pub struct NfaBuilder<L, A> {
     transitions: ArenaBuilder<Transition<L>>,
     epsilons: ArenaBuilder<StateId>,
     accepts: Vec<Option<A>>,
+    capacity: usize,
+    overflow: bool,
 }
 
 impl<L, A> NfaBuilder<L, A> {
@@ -23,14 +30,32 @@ impl<L, A> NfaBuilder<L, A> {
         Self::default()
     }
 
+    /// Creates an `NfaBuilder` whose state arena holds at most `capacity` states.
+    ///
+    /// The tests need a capacity that a test can reach. [`StateId::CAPACITY`] is too large for a
+    /// test.
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            transitions: ArenaBuilder::new(),
+            epsilons: ArenaBuilder::new(),
+            accepts: Vec::new(),
+            capacity,
+            overflow: false,
+        }
+    }
+
     /// Adds a state to the end of the state arena, then returns its identifier.
     ///
     /// The state has no transition, no epsilon transition, and no accept.
     ///
-    /// # Panics
-    ///
-    /// This function panics if the state arena already holds `u32::MAX + 1` states.
+    /// A push past the capacity of the builder records an overflow. It adds no state, and it
+    /// returns an identifier that the caller must not use. [`build`](Self::build) reports the
+    /// overflow.
     pub fn push(&mut self) -> StateId {
+        if self.accepts.len() >= self.capacity {
+            self.overflow = true;
+            return StateId::new(0);
+        }
         let id = StateId::new(self.accepts.len());
         self.accepts.push(None);
         id
@@ -40,10 +65,16 @@ impl<L, A> NfaBuilder<L, A> {
     ///
     /// `to` can be a state that you push later. [`build`](Self::build) checks each target.
     ///
+    /// The function does nothing after a push records an overflow.
+    ///
     /// # Panics
     ///
-    /// This function panics if `from` is not in the state arena.
+    /// This function panics if `from` is not in the state arena. Only lxr builds an automaton,
+    /// thus such a state is a defect.
     pub fn transition(&mut self, from: StateId, label: L, to: StateId) {
+        if self.overflow {
+            return;
+        }
         assert!(
             from.index() < self.accepts.len(),
             "cannot add a transition at {}: no such state",
@@ -57,10 +88,16 @@ impl<L, A> NfaBuilder<L, A> {
     ///
     /// `to` can be a state that you push later. [`build`](Self::build) checks each target.
     ///
+    /// The function does nothing after a push records an overflow.
+    ///
     /// # Panics
     ///
-    /// This function panics if `from` is not in the state arena.
+    /// This function panics if `from` is not in the state arena. Only lxr builds an automaton,
+    /// thus such a state is a defect.
     pub fn epsilon(&mut self, from: StateId, to: StateId) {
+        if self.overflow {
+            return;
+        }
         assert!(
             from.index() < self.accepts.len(),
             "cannot add an epsilon transition at {}: no such state",
@@ -71,11 +108,16 @@ impl<L, A> NfaBuilder<L, A> {
 
     /// Makes `state` accept, with `accept` as its accept.
     ///
+    /// The function does nothing after a push records an overflow.
+    ///
     /// # Panics
     ///
     /// This function panics if `state` is not in the state arena. It also panics if `state`
-    /// already has an accept.
+    /// already has an accept. Only lxr builds an automaton, thus each one is a defect.
     pub fn accept(&mut self, state: StateId, accept: A) {
+        if self.overflow {
+            return;
+        }
         let slot = self
             .accepts
             .get_mut(state.index())
@@ -90,6 +132,12 @@ impl<L, A> NfaBuilder<L, A> {
 
     /// Builds an [`Nfa`] that has one start state for each identifier in `starts`.
     ///
+    /// # Errors
+    ///
+    /// This function returns an [`Overflow`] if a push went past the capacity of the state arena.
+    /// It also returns an [`Overflow`] if the transitions or the epsilon transitions go past the
+    /// capacity of an [`Arena`](crate::automata::Arena).
+    ///
     /// # Panics
     ///
     /// This function panics for each of these conditions:
@@ -98,7 +146,13 @@ impl<L, A> NfaBuilder<L, A> {
     /// - A start state is not in the state arena.
     /// - The target of a transition is not in the state arena.
     /// - The target of an epsilon transition is not in the state arena.
-    pub fn build(self, starts: &[StateId]) -> Nfa<L, A> {
+    ///
+    /// Only lxr builds an automaton, thus each condition is a defect.
+    pub fn build(self, starts: &[StateId]) -> Result<Nfa<L, A>, Overflow> {
+        if self.overflow {
+            return Err(Overflow::new(Part::States, self.capacity));
+        }
+
         let count = self.accepts.len();
         assert!(!starts.is_empty(), "an NFA needs at least one start state");
         for (index, start) in starts.iter().enumerate() {
@@ -109,8 +163,8 @@ impl<L, A> NfaBuilder<L, A> {
             );
         }
 
-        let transitions = self.transitions.build(count);
-        let epsilons = self.epsilons.build(count);
+        let transitions = self.transitions.build(count)?;
+        let epsilons = self.epsilons.build(count)?;
 
         for index in 0..count {
             let targets = transitions
@@ -128,23 +182,25 @@ impl<L, A> NfaBuilder<L, A> {
             }
         }
 
-        Nfa::new(transitions, epsilons, self.accepts, starts.to_vec())
+        Ok(Nfa::new(
+            transitions,
+            epsilons,
+            self.accepts,
+            starts.to_vec(),
+        ))
     }
 }
 
 impl<L, A> Default for NfaBuilder<L, A> {
     /// Creates an `NfaBuilder` that holds no state.
     fn default() -> Self {
-        Self {
-            transitions: ArenaBuilder::new(),
-            epsilons: ArenaBuilder::new(),
-            accepts: Vec::new(),
-        }
+        Self::with_capacity(StateId::CAPACITY)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::reference::built;
     use super::*;
     use crate::automata::reference::{Symbols, only};
 
@@ -169,7 +225,7 @@ mod tests {
         let second = builder.push();
         builder.accept(first, 0);
         builder.accept(second, 9);
-        let nfa = builder.build(&[second]);
+        let nfa = built(builder, &[second]);
 
         assert_eq!(nfa.accept(first), Some(&0));
         assert_eq!(nfa.accept(second), Some(&9));
@@ -182,7 +238,7 @@ mod tests {
         let loop_state = builder.push();
         builder.transition(loop_state, only('a'), loop_state);
         builder.epsilon(loop_state, loop_state);
-        let nfa = builder.build(&[loop_state]);
+        let nfa = built(builder, &[loop_state]);
 
         assert_eq!(nfa.transitions(loop_state)[0].target, loop_state);
         assert_eq!(nfa.epsilons(loop_state), &[loop_state]);
@@ -195,7 +251,7 @@ mod tests {
         let accept = StateId::new(1);
         builder.transition(start, only('a'), accept);
         builder.push();
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(nfa.transitions(start)[0].target, accept);
     }
@@ -237,7 +293,7 @@ mod tests {
         let mut builder = builder();
         let start = builder.push();
         builder.transition(start, only('a'), StateId::new(9));
-        builder.build(&[start]);
+        let _ = builder.build(&[start]);
     }
 
     #[test]
@@ -246,7 +302,7 @@ mod tests {
         let mut builder = builder();
         let start = builder.push();
         builder.epsilon(start, StateId::new(9));
-        builder.build(&[start]);
+        let _ = builder.build(&[start]);
     }
 
     #[test]
@@ -254,7 +310,7 @@ mod tests {
     fn building_with_a_start_outside_the_arena_panics() {
         let mut builder = builder();
         builder.push();
-        builder.build(&[StateId::new(9)]);
+        let _ = builder.build(&[StateId::new(9)]);
     }
 
     #[test]
@@ -262,7 +318,7 @@ mod tests {
     fn building_with_a_later_start_outside_the_arena_panics() {
         let mut builder = builder();
         let start = builder.push();
-        builder.build(&[start, StateId::new(9)]);
+        let _ = builder.build(&[start, StateId::new(9)]);
     }
 
     #[test]
@@ -270,6 +326,38 @@ mod tests {
     fn building_without_a_start_panics() {
         let mut builder = builder();
         builder.push();
-        builder.build(&[]);
+        let _ = builder.build(&[]);
+    }
+
+    #[test]
+    fn a_builder_at_its_capacity_builds() {
+        let mut builder: NfaBuilder<Symbols, u32> = NfaBuilder::with_capacity(2);
+        let start = builder.push();
+        let accept = builder.push();
+        builder.transition(start, only('a'), accept);
+
+        assert_eq!(built(builder, &[start]).state_count(), 2);
+    }
+
+    #[test]
+    fn a_push_past_the_capacity_reports_an_overflow() {
+        let mut builder: NfaBuilder<Symbols, u32> = NfaBuilder::with_capacity(2);
+        let start = builder.push();
+        builder.push();
+        builder.push();
+
+        assert_eq!(builder.build(&[start]), Err(Overflow::new(Part::States, 2)));
+    }
+
+    #[test]
+    fn a_builder_that_overflowed_takes_no_more_transitions() {
+        let mut builder: NfaBuilder<Symbols, u32> = NfaBuilder::with_capacity(1);
+        let start = builder.push();
+        let outside = builder.push();
+        builder.transition(start, only('a'), outside);
+        builder.epsilon(start, outside);
+        builder.accept(outside, 0);
+
+        assert_eq!(builder.build(&[start]), Err(Overflow::new(Part::States, 1)));
     }
 }

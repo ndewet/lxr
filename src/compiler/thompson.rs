@@ -146,11 +146,6 @@ fn optional<A: Alphabet, R>(
 /// The minimum gives that many copies. A maximum gives one
 /// [`Optional`](Node::Optional) copy for each repetition above the minimum. No
 /// maximum gives one [`Star`](Node::Star) copy.
-///
-/// # Panics
-///
-/// This function panics if the maximum of a [`Range`](Repetitions::Range) is
-/// below its minimum.
 fn repetition<A: Alphabet, R>(
     node: &Node,
     repetitions: Repetitions,
@@ -169,14 +164,15 @@ fn repetition<A: Alphabet, R>(
 /// Returns the minimum of `repetitions`, and its maximum. A maximum of `None`
 /// gives no limit.
 ///
-/// # Panics
-///
-/// This function panics if the maximum is below the minimum.
+/// [`Lexicon::rule`](super::Lexicon::rule) rejects a
+/// [`Range`](Repetitions::Range) whose maximum is below its minimum. Thus the
+/// check here is a `debug_assert!`, and a release build makes no copy of the
+/// expression for such a range.
 fn bounds(repetitions: Repetitions) -> (usize, Option<usize>) {
     match repetitions {
         Repetitions::AtLeast(minimum) => (minimum, None),
         Repetitions::Range(minimum, maximum) => {
-            assert!(
+            debug_assert!(
                 minimum <= maximum,
                 "a repetition of {minimum} to {maximum} times has no maximum at or above its minimum"
             );
@@ -197,7 +193,10 @@ mod tests {
         let mut builder: NfaBuilder<ByteRange, u32> = NfaBuilder::new();
         let part = fragment(node, &Bytes, &mut builder);
         builder.accept(part.exit(), 0);
-        (builder.build(&[part.entry()]), part)
+        let nfa = builder
+            .build(&[part.entry()])
+            .expect("a test stays below the capacity of a builder");
+        (nfa, part)
     }
 
     /// Returns the number of the bytes that `node` matches at the start of
@@ -507,6 +506,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "a repetition of 3 to 1 times")]
     fn a_maximum_below_the_minimum_panics() {
         let node: Node = "a"

@@ -1,6 +1,16 @@
+use super::automaton::Nfa;
 use super::builder::NfaBuilder;
 use crate::automata::id::StateId;
 use crate::automata::reference::{Symbols, only};
+
+/// Builds `builder`, and gives the automaton.
+///
+/// A test stays far below the capacity of a builder, thus a test never sees an overflow.
+pub(super) fn built(builder: NfaBuilder<Symbols, u32>, starts: &[StateId]) -> Nfa<Symbols, u32> {
+    builder
+        .build(starts)
+        .expect("a test stays below the capacity of a builder")
+}
 
 /// Adds the states that match `text`, then makes the last state accept.
 pub(super) fn literal(builder: &mut NfaBuilder<Symbols, u32>, text: &str, accept: u32) -> StateId {
@@ -48,7 +58,7 @@ mod tests {
     fn a_one_symbol_pattern_matches_that_symbol() {
         let mut builder = NfaBuilder::new();
         let start = literal(&mut builder, "a", 0);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(scan(&nfa, "a"), matched(0, 1));
     }
@@ -57,7 +67,7 @@ mod tests {
     fn a_one_symbol_pattern_rejects_another_symbol() {
         let mut builder = NfaBuilder::new();
         let start = literal(&mut builder, "a", 0);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(scan(&nfa, "b"), None);
         assert_eq!(scan(&nfa, ""), None);
@@ -67,7 +77,7 @@ mod tests {
     fn a_chain_matches_each_symbol_in_sequence() {
         let mut builder = NfaBuilder::new();
         let start = literal(&mut builder, "ab", 0);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(scan(&nfa, "ab"), matched(0, 2));
         assert_eq!(scan(&nfa, "a"), None);
@@ -82,7 +92,7 @@ mod tests {
         let start = builder.push();
         builder.epsilon(start, left);
         builder.epsilon(start, right);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(scan(&nfa, "ab"), matched(0, 2));
         assert_eq!(scan(&nfa, "cd"), matched(1, 2));
@@ -93,7 +103,7 @@ mod tests {
     fn a_star_matches_any_number_of_repetitions() {
         let mut builder = NfaBuilder::new();
         let start = star(&mut builder, 'a', 0);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(scan(&nfa, ""), matched(0, 0));
         assert_eq!(scan(&nfa, "zzz"), matched(0, 0));
@@ -109,7 +119,7 @@ mod tests {
         let start = builder.push();
         builder.epsilon(start, short);
         builder.epsilon(start, long);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(scan(&nfa, "ab"), matched(1, 2));
         assert_eq!(scan(&nfa, "ac"), matched(0, 1));
@@ -119,7 +129,7 @@ mod tests {
     fn trailing_input_is_left_for_the_next_call() {
         let mut builder = NfaBuilder::new();
         let start = literal(&mut builder, "ab", 0);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(scan(&nfa, "abcdef"), matched(0, 2));
     }
@@ -132,7 +142,7 @@ mod tests {
         let start = builder.push();
         builder.epsilon(start, identifier);
         builder.epsilon(start, keyword);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         assert_eq!(scan(&nfa, "if"), matched(0, 2));
     }
@@ -142,7 +152,7 @@ mod tests {
         let mut builder = NfaBuilder::<Symbols, u32>::new();
         let stuck = builder.push();
         builder.epsilon(stuck, stuck);
-        let nfa = builder.build(&[stuck]);
+        let nfa = built(builder, &[stuck]);
 
         assert_eq!(scan(&nfa, ""), None);
         assert_eq!(scan(&nfa, "anything"), None);
@@ -156,7 +166,7 @@ mod tests {
         let start = builder.push();
         builder.epsilon(start, keyword);
         builder.epsilon(start, space);
-        let nfa = builder.build(&[start]);
+        let nfa = built(builder, &[start]);
 
         let start = StartId::new(0);
         let mut execution = nfa.execute(start);
@@ -178,7 +188,7 @@ mod tests {
         let mut builder = NfaBuilder::new();
         let code = literal(&mut builder, "a", 0);
         let string = literal(&mut builder, "b", 1);
-        let nfa = builder.build(&[code, string]);
+        let nfa = built(builder, &[code, string]);
 
         assert_eq!(scan_under(&nfa, 0, "a"), matched(0, 1));
         assert_eq!(scan_under(&nfa, 0, "b"), None);
@@ -192,7 +202,7 @@ mod tests {
         let mut builder = NfaBuilder::new();
         let literal_start = literal(&mut builder, "ab", 0);
         let star_start = star(&mut builder, 'a', 1);
-        let nfa = builder.build(&[literal_start, star_start]);
+        let nfa = built(builder, &[literal_start, star_start]);
 
         assert_eq!(scan_under(&nfa, 1, "zz"), matched(1, 0));
         assert_eq!(scan_under(&nfa, 0, "zz"), None);
@@ -204,7 +214,7 @@ mod tests {
         let mut builder = NfaBuilder::new();
         let code = literal(&mut builder, "if", 0);
         let string = literal(&mut builder, "if", 1);
-        let nfa = builder.build(&[code, string]);
+        let nfa = built(builder, &[code, string]);
 
         assert_eq!(scan_under(&nfa, 1, "if"), matched(1, 2));
     }
@@ -215,7 +225,7 @@ mod tests {
         let mut builder = NfaBuilder::new();
         let code = literal(&mut builder, "a", 0);
         let string = literal(&mut builder, "b", 1);
-        let nfa = builder.build(&[code, string]);
+        let nfa = built(builder, &[code, string]);
 
         scan_under(&nfa, 2, "a");
     }

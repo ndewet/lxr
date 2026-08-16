@@ -1,4 +1,5 @@
 use super::arena::Arena;
+use super::overflow::{Overflow, Part};
 
 /// An [`Arena`] that is not complete.
 ///
@@ -6,19 +7,38 @@ use super::arena::Arena;
 #[derive(Debug)]
 pub struct ArenaBuilder<T> {
     entries: Vec<(u32, T)>,
+    capacity: usize,
 }
 
 impl<T> ArenaBuilder<T> {
+    /// The number of the items that an [`Arena`] holds.
+    ///
+    /// An arena keeps the offset of each group as a `u32`. The last offset is the number of the
+    /// items, thus the number of the items fits in a `u32`.
+    pub const CAPACITY: usize = u32::MAX as usize;
+
     /// Creates an `ArenaBuilder` that holds no item.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates an `ArenaBuilder` that holds at most `capacity` items.
+    ///
+    /// The tests need a capacity that a test can reach. [`CAPACITY`](Self::CAPACITY) is too large
+    /// for a test.
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+            capacity,
+        }
     }
 
     /// Adds `item` to the group at `group`.
     ///
     /// # Panics
     ///
-    /// This function panics if `group` is above `u32::MAX`.
+    /// This function panics if `group` is above `u32::MAX`. A group is a state, and the state
+    /// arena holds fewer states than that, thus such a group is a defect.
     pub fn push(&mut self, group: usize, item: T) {
         let group = u32::try_from(group).expect("an arena holds at most u32::MAX + 1 groups");
         self.entries.push((group, item));
@@ -28,16 +48,19 @@ impl<T> ArenaBuilder<T> {
     ///
     /// The items of one group stay in the sequence in which you added them.
     ///
+    /// # Errors
+    ///
+    /// This function returns an [`Overflow`] if the builder holds more than
+    /// [`CAPACITY`](Self::CAPACITY) items.
+    ///
     /// # Panics
     ///
-    /// This function panics if the group of an item is not below `group_count`. It also panics if
-    /// the arena holds more than `u32::MAX` items.
-    pub fn build(self, group_count: usize) -> Arena<T> {
-        assert!(
-            u32::try_from(self.entries.len()).is_ok(),
-            "an arena holds at most u32::MAX items, not {}",
-            self.entries.len()
-        );
+    /// This function panics if the group of an item is not below `group_count`. Only lxr adds an
+    /// item, thus such a group is a defect.
+    pub fn build(self, group_count: usize) -> Result<Arena<T>, Overflow> {
+        if self.entries.len() > self.capacity {
+            return Err(Overflow::new(Part::Items, self.capacity));
+        }
 
         let mut offsets = vec![0u32; group_count + 1];
         for &(group, _) in &self.entries {
@@ -64,16 +87,14 @@ impl<T> ArenaBuilder<T> {
             .into_iter()
             .map(|slot| slot.expect("the offsets cover each slot one time"))
             .collect();
-        Arena::new(offsets, items)
+        Ok(Arena::new(offsets, items))
     }
 }
 
 impl<T> Default for ArenaBuilder<T> {
     /// Creates an `ArenaBuilder` that holds no item.
     fn default() -> Self {
-        Self {
-            entries: Vec::new(),
-        }
+        Self::with_capacity(Self::CAPACITY)
     }
 }
 
@@ -86,7 +107,9 @@ mod tests {
         for &(group, item) in entries {
             builder.push(group, item);
         }
-        builder.build(groups)
+        builder
+            .build(groups)
+            .expect("the arena is below its capacity")
     }
 
     #[test]
@@ -134,5 +157,27 @@ mod tests {
     #[should_panic(expected = "group 2 is outside an arena of 2 groups")]
     fn an_item_outside_the_arena_panics() {
         arena(2, &[(0, 10), (2, 20)]);
+    }
+
+    #[test]
+    fn an_arena_at_its_capacity_builds() {
+        let mut builder = ArenaBuilder::with_capacity(2);
+        builder.push(0, 10);
+        builder.push(0, 20);
+
+        assert_eq!(
+            builder.build(1).map(|arena| arena.items().to_vec()),
+            Ok(vec![10, 20])
+        );
+    }
+
+    #[test]
+    fn an_arena_past_its_capacity_reports_an_overflow() {
+        let mut builder = ArenaBuilder::with_capacity(2);
+        builder.push(0, 10);
+        builder.push(0, 20);
+        builder.push(0, 30);
+
+        assert_eq!(builder.build(1), Err(Overflow::new(Part::Items, 2)));
     }
 }

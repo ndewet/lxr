@@ -16,6 +16,7 @@ use std::fmt::{Display, Formatter, Result};
 /// assert_eq!(error.to_string(), "unclosed '(' at position 1");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ParseError {
     /// The byte offset in the pattern at which the parser stopped.
     pub position: usize,
@@ -27,7 +28,12 @@ pub struct ParseError {
 ///
 /// A variant with the name `Unsupported...` shows a construction that this
 /// parser does not accept. Each other variant shows a fault in the pattern.
+///
+/// The enum gets a new variant for each new check, and it loses an
+/// `Unsupported...` variant for each construction that the parser learns. Thus
+/// the enum is not exhaustive, and a match on it needs a `_` arm.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParseErrorKind {
     /// The pattern stops before the expression is complete.
     UnexpectedEnd,
@@ -36,15 +42,31 @@ pub enum ParseErrorKind {
     UnexpectedCharacter(char),
     /// The parser needs one specific character. The pattern has a different
     /// character, or the pattern stops.
-    Expected { wanted: char, found: Option<char> },
+    Expected {
+        /// The character that the parser needs.
+        wanted: char,
+        /// The character that the pattern has. The end of the pattern gives
+        /// `None`.
+        found: Option<char>,
+    },
     /// A quantifier has no expression before it.
     NothingToRepeat(char),
     /// A quantifier comes immediately after another quantifier.
     RepeatedQuantifier(char),
     /// A range in a character class has a low end above its high end.
-    InvertedRange { low: char, high: char },
+    InvertedRange {
+        /// The low end of the range.
+        low: char,
+        /// The high end of the range.
+        high: char,
+    },
     /// A repetition has a minimum count above its maximum count.
-    InvertedRepetition { minimum: usize, maximum: usize },
+    InvertedRepetition {
+        /// The minimum count of the repetition.
+        minimum: usize,
+        /// The maximum count of the repetition.
+        maximum: usize,
+    },
     /// A repetition count is too large.
     RepetitionTooLarge,
     /// A group starts with `(`, but the pattern has no `)` for it.

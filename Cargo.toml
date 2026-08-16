@@ -4,3 +4,18 @@ version = "0.1.1"
 edition = "2024"
 
 [dependencies]
+
+# The lints mechanise the error handling standard in CONTRIBUTING.md.
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+# `clippy::panic_in_result_fn` stays off. A function that gives a `Result` for
+# a fault in the input still panics for a defect in lxr. The lint rejects that
+# pattern, thus it disagrees with the standard.
+[lints.clippy]
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+todo = "warn"
+unimplemented = "warn"
+unwrap_used = "warn"

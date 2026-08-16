@@ -206,6 +206,46 @@ impl Node {
         }
     }
 
+    /// Returns the first repetition of the tree whose maximum is below its
+    /// minimum.
+    ///
+    /// Such a repetition matches nothing, and a construction cannot make its
+    /// states. The parser rejects it. A caller that builds a tree by hand can
+    /// still make one, thus a lexer checks each tree that it gets.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::regex::{CharSet, Node, Repetitions};
+    ///
+    /// let a = Node::Class(CharSet::single('a'));
+    /// let inverted = Repetitions::Range(5, 2);
+    ///
+    /// assert_eq!(
+    ///     a.clone().repeated(inverted).inverted_repetition(),
+    ///     Some(inverted),
+    /// );
+    /// assert_eq!(
+    ///     a.repeated(Repetitions::Range(2, 5)).inverted_repetition(),
+    ///     None,
+    /// );
+    /// ```
+    pub fn inverted_repetition(&self) -> Option<Repetitions> {
+        match self {
+            Self::Epsilon | Self::Class(_) => None,
+            Self::Concatenation(parts) | Self::Alternation(parts) => {
+                parts.iter().find_map(Self::inverted_repetition)
+            }
+            Self::Star(inner) | Self::Plus(inner) | Self::Optional(inner) => {
+                inner.inverted_repetition()
+            }
+            Self::Repetition(inner, repetitions) => match *repetitions {
+                Repetitions::Range(minimum, maximum) if maximum < minimum => Some(*repetitions),
+                _ => inner.inverted_repetition(),
+            },
+        }
+    }
+
     /// Returns the number of the nodes of the tree, after each repetition
     /// expands into one copy for each permitted repetition.
     ///
