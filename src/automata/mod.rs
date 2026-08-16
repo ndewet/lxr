@@ -6,6 +6,9 @@
 //!
 //! Each automaton implements [`Automaton`]. Thus [`longest_match`] scans a nondeterministic
 //! automaton and a deterministic automaton with the same code.
+//!
+//! Each identifier comes from lxr, and not from a lexer author. Thus a function panics for an
+//! identifier that its automaton does not hold. A full automaton gives an [`Overflow`].
 
 #![allow(dead_code)]
 
@@ -16,6 +19,7 @@ mod execution;
 mod id;
 mod label;
 mod nfa;
+mod overflow;
 #[cfg(test)]
 mod reference;
 mod scan;
@@ -30,6 +34,7 @@ pub use self::{
     id::{StartId, StateId},
     label::Label,
     nfa::{Nfa, NfaBuilder, NfaExecution},
+    overflow::{Overflow, Part},
     scan::{Match, longest_match},
     transition::Transition,
 };

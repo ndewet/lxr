@@ -104,7 +104,8 @@ impl<L: Label, A> Execution for NfaExecution<'_, L, A> {
 ///
 /// # Panics
 ///
-/// This function panics if a state in `seeds` is not in the state arena.
+/// This function panics if a state in `seeds` is not in the state arena. The check is a
+/// `debug_assert!`, because `step` calls this function one time for each symbol.
 fn closure<L, A>(
     nfa: &Nfa<L, A>,
     reached: &mut [bool],
@@ -113,7 +114,7 @@ fn closure<L, A>(
     out: &mut Vec<StateId>,
 ) {
     for &seed in seeds {
-        assert!(
+        debug_assert!(
             seed.index() < nfa.state_count(),
             "state {} is outside an arena of {} states",
             seed.index(),
@@ -174,7 +175,9 @@ mod tests {
         let mut builder = builder();
         let accept = builder.push();
         builder.accept(accept, 0);
-        let nfa = builder.build(&[accept]);
+        let nfa = builder
+            .build(&[accept])
+            .expect("the builder is below its capacity");
 
         assert_eq!(seeded(&nfa, &[accept]), vec![0]);
     }
@@ -189,7 +192,9 @@ mod tests {
         builder.epsilon(start, left);
         builder.epsilon(start, middle);
         builder.epsilon(start, right);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(seeded(&nfa, &[start]), vec![0, 1, 2, 3]);
     }
@@ -200,7 +205,9 @@ mod tests {
         let start = builder.push();
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(seeded(&nfa, &[start]), vec![0]);
     }
@@ -215,7 +222,9 @@ mod tests {
         builder.epsilon(left, accept);
         builder.epsilon(right, left);
         builder.epsilon(right, accept);
-        let nfa = builder.build(&[left]);
+        let nfa = builder
+            .build(&[left])
+            .expect("the builder is below its capacity");
 
         assert_eq!(seeded(&nfa, &[left]), vec![0, 1, 2]);
     }
@@ -231,18 +240,23 @@ mod tests {
         builder.epsilon(left, second);
         builder.epsilon(right, second);
         builder.epsilon(right, first);
-        let nfa = builder.build(&[left]);
+        let nfa = builder
+            .build(&[left])
+            .expect("the builder is below its capacity");
 
         assert_eq!(seeded(&nfa, &[right, left, right]), vec![0, 1, 2, 3]);
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "state 9 is outside an arena of 2 states")]
     fn a_closure_over_a_seed_outside_the_arena_panics() {
         let mut builder = builder();
         let start = builder.push();
         builder.push();
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         seeded(&nfa, &[StateId::new(9)]);
     }
@@ -254,7 +268,9 @@ mod tests {
         let accept = builder.push();
         builder.epsilon(start, accept);
         builder.accept(accept, 0);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         let execution = execute(&nfa);
 
@@ -269,7 +285,9 @@ mod tests {
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
         builder.accept(accept, 0);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         let mut execution = execute(&nfa);
 
@@ -289,7 +307,9 @@ mod tests {
         builder.transition(start, only('a'), second);
         builder.accept(first, 7);
         builder.accept(second, 3);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         let mut execution = execute(&nfa);
 
@@ -304,7 +324,9 @@ mod tests {
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
         builder.accept(accept, 0);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         let mut execution = execute(&nfa);
 
@@ -323,7 +345,9 @@ mod tests {
         let mut builder = builder();
         let code = builder.push();
         let string = builder.push();
-        let nfa = builder.build(&[code, string]);
+        let nfa = builder
+            .build(&[code, string])
+            .expect("the builder is below its capacity");
 
         assert_eq!(nfa.execute(StartId::new(0)).states(), &[code]);
         assert_eq!(nfa.execute(StartId::new(1)).states(), &[string]);
@@ -335,7 +359,9 @@ mod tests {
         let mut builder = builder();
         let code = builder.push();
         let string = builder.push();
-        let nfa = builder.build(&[code, string]);
+        let nfa = builder
+            .build(&[code, string])
+            .expect("the builder is below its capacity");
 
         nfa.execute(StartId::new(2));
     }
@@ -344,7 +370,9 @@ mod tests {
     fn the_execution_gives_back_its_automaton() {
         let mut builder = builder();
         let state = builder.push();
-        let nfa = builder.build(&[state]);
+        let nfa = builder
+            .build(&[state])
+            .expect("the builder is below its capacity");
 
         assert_eq!(execute(&nfa).nfa(), &nfa);
     }

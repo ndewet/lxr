@@ -183,7 +183,9 @@ mod tests {
         let accept = builder.push();
         builder.transition(start, range('a', 'z'), accept);
         builder.accept(accept, 0);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(stepped(&nfa, &[start], 'm'), vec![accept]);
     }
@@ -194,7 +196,9 @@ mod tests {
         let start = builder.push();
         let accept = builder.push();
         builder.transition(start, range('a', 'z'), accept);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(stepped(&nfa, &[start], 'A'), Vec::new());
     }
@@ -205,7 +209,9 @@ mod tests {
         let start = builder.push();
         let accept = builder.push();
         builder.epsilon(start, accept);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(stepped(&nfa, &[start], 'a'), Vec::new());
     }
@@ -217,7 +223,9 @@ mod tests {
         let accept = builder.push();
         builder.transition(start, range('a', 'z'), accept);
         builder.transition(start, only('e'), accept);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(stepped(&nfa, &[start], 'e'), vec![accept, accept]);
     }
@@ -228,7 +236,9 @@ mod tests {
         let start = builder.push();
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         let mut out = vec![start, start, start];
         nfa.step(&[start], 'a', &mut out);
@@ -246,7 +256,9 @@ mod tests {
         let second = builder.push();
         builder.transition(start, only('b'), second);
         builder.transition(start, only('a'), first);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(
             nfa.transitions(start),
@@ -272,7 +284,9 @@ mod tests {
         let second = builder.push();
         builder.epsilon(start, second);
         builder.epsilon(start, first);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(nfa.epsilons(start), &[second, first]);
         assert_eq!(nfa.epsilons(first), &[]);
@@ -284,7 +298,9 @@ mod tests {
         let start = builder.push();
         let accept = builder.push();
         builder.accept(accept, 7);
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(nfa.accept(start), None);
         assert_eq!(nfa.accept(accept), Some(&7));
@@ -296,7 +312,9 @@ mod tests {
         let mut builder = builder();
         let code = builder.push();
         let string = builder.push();
-        let nfa = builder.build(&[code, string]);
+        let nfa = builder
+            .build(&[code, string])
+            .expect("the builder is below its capacity");
 
         assert_eq!(nfa.start_count(), 2);
         assert_eq!(nfa.start_state(StartId::new(0)), code);
@@ -313,7 +331,9 @@ mod tests {
         let mut builder = builder();
         let code = builder.push();
         let string = builder.push();
-        let nfa = builder.build(&[code, string]);
+        let nfa = builder
+            .build(&[code, string])
+            .expect("the builder is below its capacity");
 
         nfa.start_state(StartId::new(2));
     }
@@ -324,7 +344,9 @@ mod tests {
         let mut builder = builder();
         let start = builder.push();
         builder.push();
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         nfa.transitions(StateId::new(9));
     }
@@ -335,7 +357,9 @@ mod tests {
         let mut builder = builder();
         let start = builder.push();
         builder.push();
-        let nfa = builder.build(&[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         nfa.accept(StateId::new(9));
     }

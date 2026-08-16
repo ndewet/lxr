@@ -14,12 +14,16 @@
 //! 2. An [`Alphabet`] makes the states of each character set.
 //! 3. [`Bytes`] is the alphabet of a lexer that reads UTF-8. It lowers each
 //!    character set with [`utf8::lower`].
+//!
+//! [`Lexicon::rule`] and [`compile`] read what a lexer author wrote. Thus each
+//! one gives a [`BuildError`], and neither one panics.
 
 #![allow(dead_code)]
 
 mod alphabet;
 mod bytes;
 mod compile;
+mod error;
 mod fragment;
 mod lexicon;
 mod rule;
@@ -31,6 +35,7 @@ pub use self::{
     alphabet::Alphabet,
     bytes::Bytes,
     compile::compile,
+    error::{BuildError, BuildErrorKind},
     fragment::Fragment,
     lexicon::{Lexicon, MAX_PATTERN_SIZE},
     utf8::{ByteRange, ByteSequence},

@@ -1,4 +1,5 @@
 use super::alphabet::Alphabet;
+use super::error::{BuildError, BuildErrorKind};
 use super::lexicon::Lexicon;
 use super::thompson;
 use crate::automata::{Nfa, NfaBuilder, StateId};
@@ -23,7 +24,17 @@ use crate::automata::{Nfa, NfaBuilder, StateId};
 /// [`longest_match`](crate::automata::longest_match) selects the lowest accept
 /// of the accepts that it reaches at the longest length. Thus give the accepts
 /// in the sequence of precedence.
-pub fn compile<A: Alphabet, R>(alphabet: A, lexicon: Lexicon<R>) -> Nfa<A::Label, R> {
+///
+/// # Errors
+///
+/// This function returns a [`BuildError`] of the kind
+/// [`TooLarge`](BuildErrorKind::TooLarge) if the rules together need a larger
+/// automaton than one automaton holds. [`Lexicon::rule`] finds each other
+/// fault.
+pub fn compile<A: Alphabet, R>(
+    alphabet: A,
+    lexicon: Lexicon<R>,
+) -> Result<Nfa<A::Label, R>, BuildError> {
     let (rules, conditions) = lexicon.into_parts();
 
     let mut builder = NfaBuilder::new();
@@ -37,7 +48,9 @@ pub fn compile<A: Alphabet, R>(alphabet: A, lexicon: Lexicon<R>) -> Nfa<A::Label
         }
     }
 
-    builder.build(&starts)
+    builder
+        .build(&starts)
+        .map_err(|overflow| BuildErrorKind::from(overflow).in_lexicon())
 }
 
 #[cfg(test)]
@@ -45,6 +58,7 @@ mod tests {
     use super::*;
     use crate::automata::{Automaton, StartId, longest_match};
     use crate::compiler::{ByteRange, Bytes};
+    use crate::regex::Node;
 
     /// The accepts of the test lexer, in the sequence of precedence.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -63,22 +77,31 @@ mod tests {
             .map(|found| (found.accept, found.length))
     }
 
+    /// Adds a rule to `lexicon`. Each rule of a test is valid.
+    fn rule(lexicon: &mut Lexicon<Token>, pattern: &str, accept: Token, conditions: &[StartId]) {
+        let pattern: Node = pattern.parse().expect("the pattern is valid");
+        lexicon
+            .rule(pattern, accept, conditions)
+            .expect("the rule passes each check");
+    }
+
+    /// Compiles `lexicon`. A test stays below the capacity of an automaton.
+    fn compiled(lexicon: Lexicon<Token>) -> Nfa<ByteRange, Token> {
+        compile(Bytes, lexicon).expect("a test stays below the capacity")
+    }
+
     /// Builds a lexer that has a code condition and a string condition.
     fn lexer() -> (Nfa<ByteRange, Token>, StartId, StartId) {
         let mut lexicon = Lexicon::new();
         let code = lexicon.initial();
         let string = lexicon.condition();
 
-        lexicon.rule("let|fn".parse().unwrap(), Token::Keyword, &[code]);
-        lexicon.rule(
-            "[a-z][a-z0-9]*".parse().unwrap(),
-            Token::Identifier,
-            &[code],
-        );
-        lexicon.rule("\"".parse().unwrap(), Token::Quote, &[code, string]);
-        lexicon.rule("[^\"]+".parse().unwrap(), Token::Text, &[string]);
+        rule(&mut lexicon, "let|fn", Token::Keyword, &[code]);
+        rule(&mut lexicon, "[a-z][a-z0-9]*", Token::Identifier, &[code]);
+        rule(&mut lexicon, "\"", Token::Quote, &[code, string]);
+        rule(&mut lexicon, "[^\"]+", Token::Text, &[string]);
 
-        (compile(Bytes, lexicon), code, string)
+        (compiled(lexicon), code, string)
     }
 
     #[test]
@@ -118,15 +141,15 @@ mod tests {
     fn a_rule_of_two_conditions_costs_one_set_of_states() {
         let mut one = Lexicon::new();
         let code = one.initial();
-        one.rule("ab".parse().unwrap(), Token::Quote, &[code]);
+        rule(&mut one, "ab", Token::Quote, &[code]);
 
         let mut two = Lexicon::new();
         let code = two.initial();
         let string = two.condition();
-        two.rule("ab".parse().unwrap(), Token::Quote, &[code, string]);
+        rule(&mut two, "ab", Token::Quote, &[code, string]);
 
-        let one = compile(Bytes, one);
-        let two = compile(Bytes, two);
+        let one = compiled(one);
+        let two = compiled(two);
 
         assert_eq!(two.state_count(), one.state_count() + 1);
         assert_eq!(two.epsilons(two.start_state(code)).len(), 1);
@@ -137,7 +160,7 @@ mod tests {
     fn a_lexicon_of_no_rule_matches_nothing() {
         let lexicon: Lexicon<Token> = Lexicon::new();
         let start = lexicon.initial();
-        let nfa = compile(Bytes, lexicon);
+        let nfa = compiled(lexicon);
 
         assert_eq!(nfa.start_count(), 1);
         assert_eq!(scan(&nfa, start, "a"), None);

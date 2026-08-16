@@ -3,11 +3,14 @@
 pub struct StateId(u32);
 
 impl StateId {
+    /// The number of the states that a state arena holds.
+    pub const CAPACITY: usize = (u32::MAX as usize).saturating_add(1);
+
     /// Creates a `StateId` from an index into the state arena.
     ///
     /// # Panics
     ///
-    /// This function panics if `index` is above `u32::MAX`.
+    /// This function panics if `index` is not below [`CAPACITY`](Self::CAPACITY).
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("an automaton holds at most u32::MAX + 1 states"))
     }
@@ -27,11 +30,14 @@ impl StateId {
 pub struct StartId(u32);
 
 impl StartId {
+    /// The number of the start states that an automaton holds.
+    pub const CAPACITY: usize = (u32::MAX as usize).saturating_add(1);
+
     /// Creates a `StartId` from an index of a start state.
     ///
     /// # Panics
     ///
-    /// This function panics if `index` is above `u32::MAX`.
+    /// This function panics if `index` is not below [`CAPACITY`](Self::CAPACITY).
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("an automaton has at most u32::MAX + 1 start states"))
     }

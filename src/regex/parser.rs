@@ -8,6 +8,7 @@ const MAX_REPETITION: usize = 65535;
 const MAX_NESTING_DEPTH: usize = 250;
 
 pub(crate) struct RegexParser<'a> {
+    pattern: &'a str,
     cursor: Cursor<'a>,
     depth: usize,
 }
@@ -15,16 +16,37 @@ pub(crate) struct RegexParser<'a> {
 impl<'a> RegexParser<'a> {
     pub(crate) fn new(pattern: &'a str) -> Self {
         Self {
+            pattern,
             cursor: Cursor::new(pattern),
             depth: 0,
         }
+    }
+
+    /// Returns an error that spans from `start` to the cursor.
+    ///
+    /// Use it when the parser read the construction at fault.
+    fn spanned(&self, kind: Kind, start: usize) -> ParseError {
+        kind.spanning(start..self.position().max(start))
+    }
+
+    /// Returns an error that spans the one character at `start`.
+    ///
+    /// Use it when the parser did not read the character at fault, and when
+    /// only the first character of a construction is at fault. The end of the
+    /// pattern gives an empty span.
+    fn at(&self, kind: Kind, start: usize) -> ParseError {
+        let width = self.pattern[start..]
+            .chars()
+            .next()
+            .map_or(0, char::len_utf8);
+        kind.spanning(start..start + width)
     }
 
     pub(crate) fn parse(mut self) -> Result<Node, ParseError> {
         let pattern = self.parse_alternation()?;
         match self.cursor.peek() {
             None => Ok(pattern),
-            Some(')') => Err(Kind::UnmatchedCloseParenthesis.at(self.position())),
+            Some(')') => Err(self.at(Kind::UnmatchedCloseParenthesis, self.position())),
             Some(_) => Err(self.unexpected()),
         }
     }
@@ -73,9 +95,11 @@ impl<'a> RegexParser<'a> {
     fn reject_stacked_quantifier(&mut self) -> Result<(), ParseError> {
         let position = self.position();
         match self.cursor.peek() {
-            Some(found @ ('*' | '+' | '?')) => Err(Kind::RepeatedQuantifier(found).at(position)),
+            Some(found @ ('*' | '+' | '?')) => {
+                Err(self.at(Kind::RepeatedQuantifier(found), position))
+            }
             Some('{') => match self.parse_repetition()? {
-                Some(_) => Err(Kind::RepeatedQuantifier('{').at(position)),
+                Some(_) => Err(self.spanned(Kind::RepeatedQuantifier('{'), position)),
                 None => Ok(()),
             },
             _ => Ok(()),
@@ -85,20 +109,20 @@ impl<'a> RegexParser<'a> {
     fn parse_atom(&mut self) -> Result<Node, ParseError> {
         let position = self.position();
         match self.cursor.peek() {
-            None => Err(Kind::UnexpectedEnd.at(position)),
+            None => Err(self.at(Kind::UnexpectedEnd, position)),
             Some('(') => {
                 self.cursor.pop();
-                if self.cursor.peek() == Some('?') {
-                    return Err(Kind::UnsupportedGroup.at(position));
+                if self.cursor.accept('?') {
+                    return Err(self.spanned(Kind::UnsupportedGroup, position));
                 }
                 self.depth += 1;
                 if self.depth > MAX_NESTING_DEPTH {
-                    return Err(Kind::NestingTooDeep(MAX_NESTING_DEPTH).at(position));
+                    return Err(self.at(Kind::NestingTooDeep(MAX_NESTING_DEPTH), position));
                 }
                 let group = self.parse_alternation()?;
                 self.depth -= 1;
                 if !self.cursor.accept(')') {
-                    return Err(Kind::UnclosedGroup.at(position));
+                    return Err(self.at(Kind::UnclosedGroup, position));
                 }
                 Ok(group)
             }
@@ -109,12 +133,12 @@ impl<'a> RegexParser<'a> {
             }
             Some('\\') => Ok(Node::Class(self.parse_escape()?.into_set())),
             Some(quantifier @ ('*' | '+' | '?')) => {
-                Err(Kind::NothingToRepeat(quantifier).at(position))
+                Err(self.at(Kind::NothingToRepeat(quantifier), position))
             }
             Some('{') if self.parse_repetition()?.is_some() => {
-                Err(Kind::NothingToRepeat('{').at(position))
+                Err(self.spanned(Kind::NothingToRepeat('{'), position))
             }
-            Some(anchor @ ('^' | '$')) => Err(Kind::UnsupportedAnchor(anchor).at(position)),
+            Some(anchor @ ('^' | '$')) => Err(self.at(Kind::UnsupportedAnchor(anchor), position)),
             Some(literal) => {
                 self.cursor.pop();
                 Ok(Node::Class(CharSet::single(literal)))
@@ -128,7 +152,7 @@ impl<'a> RegexParser<'a> {
         self.cursor.pop();
         match self.parse_repetition_bounds()? {
             Some(Repetitions::Range(minimum, maximum)) if maximum < minimum => {
-                Err(Kind::InvertedRepetition { minimum, maximum }.at(position))
+                Err(self.spanned(Kind::InvertedRepetition { minimum, maximum }, position))
             }
             Some(repetitions) => Ok(Some(repetitions)),
             None => {
@@ -167,10 +191,10 @@ impl<'a> RegexParser<'a> {
         };
         let mut bound = first as usize;
         while let Some(digit) = self.cursor.pop_digit(10) {
-            bound = bound * 10 + digit as usize;
-            if bound > MAX_REPETITION {
-                return Err(Kind::RepetitionTooLarge.at(position));
-            }
+            bound = bound.saturating_mul(10).saturating_add(digit as usize);
+        }
+        if bound > MAX_REPETITION {
+            return Err(self.spanned(Kind::RepetitionTooLarge, position));
         }
         Ok(Some(bound))
     }
@@ -186,7 +210,7 @@ impl<'a> RegexParser<'a> {
         };
         loop {
             match self.cursor.peek() {
-                None => return Err(Kind::UnclosedClass.at(opened_at)),
+                None => return Err(self.at(Kind::UnclosedClass, opened_at)),
                 Some(']') => {
                     self.cursor.pop();
                     break;
@@ -196,7 +220,7 @@ impl<'a> RegexParser<'a> {
         }
         let set = if negated { set.negate() } else { set };
         if set.is_empty() {
-            return Err(Kind::EmptyClass.at(opened_at));
+            return Err(self.spanned(Kind::EmptyClass, opened_at));
         }
         Ok(set)
     }
@@ -215,21 +239,21 @@ impl<'a> RegexParser<'a> {
         let end_position = self.position();
         let high = match self.parse_class_atom(opened_at)? {
             Escape::Set(escape, _) => {
-                return Err(Kind::ClassEscapeInRange(escape).at(end_position));
+                return Err(self.spanned(Kind::ClassEscapeInRange(escape), end_position));
             }
             Escape::Char(character) => character,
         };
         if low > high {
-            return Err(Kind::InvertedRange { low, high }.at(position));
+            return Err(self.spanned(Kind::InvertedRange { low, high }, position));
         }
         Ok(CharSet::range(low, high))
     }
 
     fn parse_class_atom(&mut self, opened_at: usize) -> Result<Escape, ParseError> {
         match self.cursor.peek() {
-            None => Err(Kind::UnclosedClass.at(opened_at)),
+            None => Err(self.at(Kind::UnclosedClass, opened_at)),
             Some('[') if self.cursor.peek_ahead() == Some(':') => {
-                Err(Kind::UnsupportedPosixClass.at(self.position()))
+                Err(self.at(Kind::UnsupportedPosixClass, self.position()))
             }
             Some('\\') => self.parse_escape(),
             Some(literal) => {
@@ -243,13 +267,12 @@ impl<'a> RegexParser<'a> {
         let position = self.position();
         self.cursor.pop();
         match self.cursor.pop() {
-            None => Err(Kind::UnexpectedEnd.at(position)),
+            None => Err(self.spanned(Kind::UnexpectedEnd, position)),
             Some('x') => Ok(Escape::Char(self.parse_hex_escape(position)?)),
-            Some('0') => Err(Kind::UnsupportedOctalEscape.at(position)),
-            Some('1'..='9') => Err(Kind::UnsupportedBackreference.at(position)),
-            Some(escape) => {
-                Escape::from_char(escape).ok_or_else(|| Kind::UnknownEscape(escape).at(position))
-            }
+            Some('0') => Err(self.spanned(Kind::UnsupportedOctalEscape, position)),
+            Some('1'..='9') => Err(self.spanned(Kind::UnsupportedBackreference, position)),
+            Some(escape) => Escape::from_char(escape)
+                .ok_or_else(|| self.spanned(Kind::UnknownEscape(escape), position)),
         }
     }
 
@@ -268,7 +291,7 @@ impl<'a> RegexParser<'a> {
         u32::try_from(code_point)
             .ok()
             .and_then(char::from_u32)
-            .ok_or_else(|| Kind::InvalidCodePoint(code_point).at(position))
+            .ok_or_else(|| self.spanned(Kind::InvalidCodePoint(code_point), position))
     }
 
     fn parse_code_point(&mut self) -> Result<u64, ParseError> {
@@ -292,17 +315,19 @@ impl<'a> RegexParser<'a> {
         if self.cursor.accept(wanted) {
             return Ok(());
         }
-        Err(Kind::Expected {
-            wanted,
-            found: self.cursor.peek(),
-        }
-        .at(self.position()))
+        Err(self.at(
+            Kind::Expected {
+                wanted,
+                found: self.cursor.peek(),
+            },
+            self.position(),
+        ))
     }
 
     fn unexpected(&self) -> ParseError {
         match self.cursor.peek() {
-            Some(found) => Kind::UnexpectedCharacter(found).at(self.position()),
-            None => Kind::UnexpectedEnd.at(self.position()),
+            Some(found) => self.at(Kind::UnexpectedCharacter(found), self.position()),
+            None => self.at(Kind::UnexpectedEnd, self.position()),
         }
     }
 
@@ -323,8 +348,16 @@ impl<'a> RegexParser<'a> {
 mod tests {
     use super::*;
 
+    /// Parses `pattern`, and keeps only the start of the span of an error.
+    ///
+    /// Each test below names the kind of the failure and the byte at which it
+    /// starts. `a_span_covers_the_construction_at_fault` names the whole span
+    /// of each kind.
     fn parse(pattern: &str) -> Result<Node, ParseError> {
-        RegexParser::new(pattern).parse()
+        RegexParser::new(pattern).parse().map_err(|error| {
+            let start = error.span.start;
+            error.kind.spanning(start..start)
+        })
     }
 
     fn message(pattern: &str) -> String {
@@ -911,10 +944,74 @@ mod tests {
     }
 
     #[test]
-    fn positions_count_characters_not_bytes() {
-        assert_eq!(parse("é)"), Err(Kind::UnmatchedCloseParenthesis.at(1)));
-        assert_eq!(parse("αβ("), Err(Kind::UnclosedGroup.at(2)));
-        assert_eq!(parse(r"αβ\q"), Err(Kind::UnknownEscape('q').at(2)));
+    fn a_span_covers_the_construction_at_fault() {
+        let faults = [
+            ("*a", "*"),
+            ("a**", "*"),
+            ("a*?", "?"),
+            ("a{2}{3}", "{3}"),
+            ("{2}", "{2}"),
+            ("[z-a]", "z-a"),
+            ("a{5,2}", "{5,2}"),
+            ("a{99999999}", "99999999"),
+            ("a(b", "("),
+            ("a)b", ")"),
+            ("[a-", "["),
+            (r"[^\d\D]", r"[^\d\D]"),
+            (r"[a-\d]", r"\d"),
+            (r"\q", r"\q"),
+            (r"\x{D800}", r"\x{D800}"),
+            ("^a", "^"),
+            ("(?:a)", "(?"),
+            ("(?", "(?"),
+            ("[[:alpha:]]", "["),
+            (r"\012", r"\0"),
+            (r"(a)\1", r"\1"),
+            ("é)", ")"),
+            ("a\\", "\\"),
+            (r"\x{2", ""),
+        ];
+
+        for (pattern, at_fault) in faults {
+            let error = RegexParser::new(pattern).parse().unwrap_err();
+            assert_eq!(
+                &pattern[error.span.clone()],
+                at_fault,
+                "{pattern:?} gave {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_span_names_the_help_that_corrects_the_pattern() {
+        let error = RegexParser::new("a{5,2}").parse().unwrap_err();
+
+        assert_eq!(error.to_string(), "invalid repetition {5,2} at position 1");
+        assert_eq!(
+            error.kind.help(),
+            Some("Write the minimum first, for example `{2,5}`.")
+        );
+    }
+
+    #[test]
+    fn a_failure_that_the_author_cannot_correct_gives_no_help() {
+        let error = RegexParser::new(r"\x{2").parse().unwrap_err();
+
+        assert_eq!(
+            error.kind,
+            Kind::Expected {
+                wanted: '}',
+                found: None,
+            }
+        );
+        assert_eq!(error.kind.help(), None);
+    }
+
+    #[test]
+    fn positions_count_bytes_not_characters() {
+        assert_eq!(parse("é)"), Err(Kind::UnmatchedCloseParenthesis.at(2)));
+        assert_eq!(parse("αβ("), Err(Kind::UnclosedGroup.at(4)));
+        assert_eq!(parse(r"αβ\q"), Err(Kind::UnknownEscape('q').at(4)));
     }
 
     #[test]
@@ -978,9 +1075,9 @@ mod tests {
     }
 
     #[test]
-    fn no_pattern_makes_the_parser_panic_or_misreport_a_position() {
-        const ALPHABET: [char; 16] = [
-            'a', '1', 'x', '\\', '[', ']', '(', ')', '-', '^', '*', '{', ',', '}', '|', '.',
+    fn no_pattern_makes_the_parser_panic_or_misreport_a_span() {
+        const ALPHABET: [char; 17] = [
+            'a', '1', 'x', '\\', '[', ']', '(', ')', '-', '^', '*', '{', ',', '}', '|', '.', 'é',
         ];
         const MAX_LENGTH: u32 = 4;
 
@@ -992,10 +1089,12 @@ mod tests {
                     pattern.push(ALPHABET[encoded % ALPHABET.len()]);
                     encoded /= ALPHABET.len();
                 }
-                if let Err(error) = parse(&pattern) {
+                if let Err(error) = RegexParser::new(&pattern).parse() {
                     assert!(
-                        error.position <= pattern.chars().count(),
-                        "{pattern:?} reported {error}, past the end of the pattern"
+                        pattern.get(error.span.clone()).is_some(),
+                        "{pattern:?} reported {error} with the span {:?}, \
+                         which does not slice the pattern",
+                        error.span
                     );
                 }
             }

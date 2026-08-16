@@ -1,6 +1,7 @@
+use super::error::{BuildError, BuildErrorKind};
 use super::rule::Rule;
 use crate::automata::StartId;
-use crate::regex::Node;
+use crate::regex::{Node, Repetitions};
 
 /// The maximum size of the pattern of a rule.
 ///
@@ -64,45 +65,64 @@ impl<R> Lexicon<R> {
     /// accept of the accepts that it reaches at the longest length. Thus give
     /// the accepts in the sequence of precedence.
     ///
-    /// # Panics
+    /// A rule that fails a check changes nothing.
     ///
-    /// This function panics if `conditions` is empty, because no scan can
-    /// reach such a rule.
+    /// # Errors
     ///
-    /// This function panics if `conditions` holds an identifier that this
-    /// lexicon did not declare.
+    /// This function returns a [`BuildError`] of one of these kinds:
     ///
-    /// This function panics if `pattern` matches the empty string. Such a rule
-    /// gives a match of no length, thus a driver that advances by the length
-    /// of the match makes no progress.
-    ///
-    /// This function panics if the [`expanded_size`](Node::expanded_size) of
-    /// `pattern` is above [`MAX_PATTERN_SIZE`].
-    pub fn rule(&mut self, pattern: Node, accept: R, conditions: &[StartId]) {
-        assert!(
-            !conditions.is_empty(),
-            "a rule needs at least one start condition"
-        );
-        for condition in conditions {
-            assert!(
-                condition.index() < self.conditions,
-                "start condition {} is outside this lexicon. The count of the start conditions is {}",
-                condition.index(),
-                self.conditions
-            );
-        }
-        assert!(
-            !pattern.matches_empty(),
-            "a rule needs a pattern that reads at least one character"
-        );
-        let size = pattern.expanded_size();
-        assert!(
-            size <= MAX_PATTERN_SIZE,
-            "the repetitions of a pattern expand it to {size} nodes. \
-             The maximum is {MAX_PATTERN_SIZE} nodes"
-        );
+    /// - [`NoCondition`](BuildErrorKind::NoCondition), if `conditions` is
+    ///   empty.
+    /// - [`UnknownCondition`](BuildErrorKind::UnknownCondition), if
+    ///   `conditions` holds an identifier that this lexicon did not declare.
+    /// - [`MatchesEmpty`](BuildErrorKind::MatchesEmpty), if `pattern` matches
+    ///   the empty string.
+    /// - [`InvertedRepetition`](BuildErrorKind::InvertedRepetition), if a
+    ///   repetition of `pattern` has a maximum below its minimum.
+    /// - [`PatternTooLarge`](BuildErrorKind::PatternTooLarge), if the
+    ///   [`expanded_size`](Node::expanded_size) of `pattern` is above
+    ///   [`MAX_PATTERN_SIZE`].
+    pub fn rule(
+        &mut self,
+        pattern: Node,
+        accept: R,
+        conditions: &[StartId],
+    ) -> Result<(), BuildError> {
+        let index = self.rules.len();
+        self.check(&pattern, conditions)
+            .map_err(|kind| kind.in_rule(index))?;
         self.rules
             .push(Rule::new(pattern, accept, conditions.to_vec()));
+        Ok(())
+    }
+
+    /// Returns the first kind of failure that `pattern` or `conditions` gives.
+    fn check(&self, pattern: &Node, conditions: &[StartId]) -> Result<(), BuildErrorKind> {
+        if conditions.is_empty() {
+            return Err(BuildErrorKind::NoCondition);
+        }
+        for condition in conditions {
+            if condition.index() >= self.conditions {
+                return Err(BuildErrorKind::UnknownCondition {
+                    condition: condition.index(),
+                    declared: self.conditions,
+                });
+            }
+        }
+        if pattern.matches_empty() {
+            return Err(BuildErrorKind::MatchesEmpty);
+        }
+        if let Some(Repetitions::Range(minimum, maximum)) = pattern.inverted_repetition() {
+            return Err(BuildErrorKind::InvertedRepetition { minimum, maximum });
+        }
+        let size = pattern.expanded_size();
+        if size > MAX_PATTERN_SIZE {
+            return Err(BuildErrorKind::PatternTooLarge {
+                size,
+                maximum: MAX_PATTERN_SIZE,
+            });
+        }
+        Ok(())
     }
 
     /// Returns the rules, and the number of the start conditions.
@@ -160,8 +180,8 @@ mod tests {
         let mut lexicon = lexicon();
         let code = lexicon.initial();
         let string = lexicon.condition();
-        lexicon.rule(class('a'), 0, &[code]);
-        lexicon.rule(class('b'), 1, &[code, string]);
+        assert_eq!(lexicon.rule(class('a'), 0, &[code]), Ok(()));
+        assert_eq!(lexicon.rule(class('b'), 1, &[code, string]), Ok(()));
 
         let (rules, conditions) = lexicon.into_parts();
         assert_eq!(conditions, 2);
@@ -180,44 +200,103 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "a rule needs at least one start condition")]
-    fn a_rule_with_no_start_condition_panics() {
-        lexicon().rule(class('a'), 0, &[]);
+    fn a_rule_with_no_start_condition_is_rejected() {
+        let error = lexicon().rule(class('a'), 0, &[]).unwrap_err();
+
+        assert_eq!(error, BuildErrorKind::NoCondition.in_rule(0));
     }
 
     #[test]
-    #[should_panic(expected = "start condition 1 is outside this lexicon")]
-    fn a_rule_with_a_start_condition_of_another_lexicon_panics() {
+    fn a_rule_with_a_start_condition_of_another_lexicon_is_rejected() {
         let mut other = lexicon();
         let string = other.condition();
 
         let mut lexicon = lexicon();
         let code = lexicon.initial();
-        lexicon.rule(class('a'), 0, &[code, string]);
+        let error = lexicon.rule(class('a'), 0, &[code, string]).unwrap_err();
+
+        assert_eq!(
+            error,
+            BuildErrorKind::UnknownCondition {
+                condition: 1,
+                declared: 1,
+            }
+            .in_rule(0)
+        );
     }
 
     #[test]
-    #[should_panic(expected = "a rule needs a pattern that reads at least one character")]
-    fn a_rule_with_a_pattern_that_matches_the_empty_string_panics() {
+    fn a_rule_with_a_pattern_that_matches_the_empty_string_is_rejected() {
         let mut lexicon = lexicon();
         let code = lexicon.initial();
-        lexicon.rule("a*".parse().unwrap(), 0, &[code]);
+        let pattern: Node = "a*".parse().unwrap();
+        let error = lexicon.rule(pattern, 0, &[code]).unwrap_err();
+
+        assert_eq!(error, BuildErrorKind::MatchesEmpty.in_rule(0));
     }
 
     #[test]
-    #[should_panic(expected = "The maximum is 100000 nodes")]
-    fn a_rule_with_a_pattern_of_nested_repetitions_panics() {
+    fn a_rule_with_an_inverted_repetition_is_rejected() {
         let mut lexicon = lexicon();
         let code = lexicon.initial();
-        lexicon.rule("(a{65535}){65535}".parse().unwrap(), 0, &[code]);
+        let pattern = class('a').repeated(Repetitions::Range(5, 2));
+        let error = lexicon.rule(pattern, 0, &[code]).unwrap_err();
+
+        assert_eq!(
+            error,
+            BuildErrorKind::InvertedRepetition {
+                minimum: 5,
+                maximum: 2,
+            }
+            .in_rule(0)
+        );
+    }
+
+    #[test]
+    fn a_rule_with_a_pattern_of_nested_repetitions_is_rejected() {
+        let mut lexicon = lexicon();
+        let code = lexicon.initial();
+        let pattern: Node = "(a{65535}){65535}".parse().unwrap();
+        let error = lexicon.rule(pattern, 0, &[code]).unwrap_err();
+
+        assert!(matches!(
+            error.kind,
+            BuildErrorKind::PatternTooLarge {
+                maximum: MAX_PATTERN_SIZE,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn a_rule_with_a_pattern_below_the_maximum_size_is_accepted() {
         let mut lexicon = lexicon();
         let code = lexicon.initial();
-        lexicon.rule("(a{1000}){99}".parse().unwrap(), 0, &[code]);
+        let pattern: Node = "(a{1000}){99}".parse().unwrap();
 
+        assert_eq!(lexicon.rule(pattern, 0, &[code]), Ok(()));
         assert_eq!(lexicon.into_parts().0.len(), 1);
+    }
+
+    #[test]
+    fn a_rule_that_fails_a_check_changes_nothing() {
+        let mut lexicon = lexicon();
+        let code = lexicon.initial();
+        let pattern: Node = "a*".parse().unwrap();
+
+        assert!(lexicon.rule(pattern, 0, &[code]).is_err());
+        assert!(lexicon.into_parts().0.is_empty());
+    }
+
+    #[test]
+    fn an_error_names_the_index_of_the_rule_at_fault() {
+        let mut lexicon = lexicon();
+        let code = lexicon.initial();
+        let pattern: Node = "a*".parse().unwrap();
+
+        assert_eq!(lexicon.rule(class('a'), 0, &[code]), Ok(()));
+        let error = lexicon.rule(pattern, 1, &[code]).unwrap_err();
+
+        assert_eq!(error.rule, Some(1));
     }
 }

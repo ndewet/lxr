@@ -71,7 +71,9 @@ impl CharSet {
     ///
     /// # Panics
     ///
-    /// This function panics if `low` is above `high`.
+    /// This function panics if `low` is above `high`. A range that comes from
+    /// a pattern goes through the parser, and the parser gives
+    /// [`ParseErrorKind::InvertedRange`](super::ParseErrorKind::InvertedRange).
     ///
     /// # Examples
     ///
@@ -82,7 +84,12 @@ impl CharSet {
     /// assert_eq!(digits.ranges().collect::<Vec<_>>(), vec![('0', '9')]);
     /// ```
     pub fn range(low: char, high: char) -> Self {
-        assert!(low <= high);
+        assert!(
+            low <= high,
+            "a range from '{}' to '{}' has no high end at or above its low end",
+            low.escape_debug(),
+            high.escape_debug()
+        );
         Self::from_ranges(vec![CharRange {
             low: low as u32,
             high: high as u32,
@@ -102,6 +109,10 @@ impl CharSet {
     /// let set = CharSet::single('a').union(&CharSet::single('b'));
     /// assert_eq!(set.ranges().collect::<Vec<_>>(), vec![('a', 'b')]);
     /// ```
+    #[allow(
+        clippy::missing_panics_doc,
+        reason = "a bound is a `char`, thus `from_u32` always gives a value"
+    )]
     pub fn ranges(&self) -> impl Iterator<Item = (char, char)> + '_ {
         self.ranges.iter().map(|range| {
             let low = char::from_u32(range.low).expect("a bound is never a surrogate");

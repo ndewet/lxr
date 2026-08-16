@@ -183,13 +183,8 @@ fn encoded_length(codepoint: u32) -> usize {
 
 /// Returns the encoding of `codepoint`, with zeroes after the last byte.
 ///
-/// # Panics
-///
-/// This function panics if `codepoint` is a surrogate. It also panics if
-/// `codepoint` is above the highest character.
-///
-/// Neither value comes here. A [`CharSet`] holds neither value, and a split of
-/// a range gives only the values that the range already held.
+/// `codepoint` is always a character, because a [`CharSet`] holds only
+/// characters and a split gives only the values that the range held.
 fn encode(codepoint: u32) -> [u8; MAX_LENGTH] {
     let character = char::from_u32(codepoint).expect("a character range holds only characters");
     let mut bytes = [0; MAX_LENGTH];
