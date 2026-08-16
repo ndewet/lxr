@@ -7,7 +7,6 @@
 //! than a million symbols. Thus a test that reads this alphabet catches code in this module that
 //! assumes 256 contiguous symbols.
 
-use super::divisible::Divisible;
 use super::label::Label;
 
 /// The test alphabet. An automaton knows no alphabet, thus a test selects one.
@@ -23,25 +22,37 @@ impl Label for Symbols {
     fn matches(&self, symbol: char) -> bool {
         (self.low..=self.high).contains(&symbol)
     }
-}
 
-impl Divisible for Symbols {
     /// Divides `labels` into the ranges between their ends.
     ///
-    /// The result is in ascending sequence.
-    #[expect(clippy::todo, unused_variables, reason = "step 1 of the plan")]
-    fn divide(labels: &[Self]) -> Vec<Self> {
-        todo!()
-    }
+    /// The ends of the labels are the only symbols at which a label changes its answer. Thus the
+    /// range from one end to the next end is one class. A range that no label matches is a gap
+    /// between two labels, and the result leaves it out.
+    ///
+    /// The result is in ascending sequence, and the symbol of a class is its lowest character.
+    fn divide(labels: &[Self]) -> Vec<(Self, char)> {
+        let mut starts = Vec::with_capacity(labels.len() * 2);
+        for label in labels {
+            starts.push(label.low);
+            if let Some(above) = after(label.high) {
+                starts.push(above);
+            }
+        }
+        starts.sort_unstable();
+        starts.dedup();
 
-    /// Returns the lowest character in the range.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if the range matches no character.
-    #[expect(clippy::todo, reason = "step 1 of the plan")]
-    fn any_symbol(&self) -> char {
-        todo!()
+        let mut classes = Vec::with_capacity(starts.len());
+        for (index, &low) in starts.iter().enumerate() {
+            let high = match starts.get(index + 1) {
+                Some(&next) => before(next)
+                    .expect("a start is above the start before it, thus one is below it"),
+                None => char::MAX,
+            };
+            if labels.iter().any(|label| label.matches(low)) {
+                classes.push((range(low, high), low));
+            }
+        }
+        classes
     }
 }
 
@@ -88,8 +99,12 @@ pub(super) fn before(symbol: char) -> Option<char> {
 mod tests {
     use super::*;
 
+    /// Returns the classes of `labels`, without the symbol of each class.
     fn divided(labels: &[Symbols]) -> Vec<Symbols> {
         Symbols::divide(labels)
+            .into_iter()
+            .map(|(class, _)| class)
+            .collect()
     }
 
     #[test]
@@ -170,10 +185,18 @@ mod tests {
     }
 
     #[test]
-    fn a_label_gives_a_symbol_that_it_matches() {
-        assert!(range('a', 'z').matches(range('a', 'z').any_symbol()));
-        assert!(only('\0').matches(only('\0').any_symbol()));
-        assert!(only(char::MAX).matches(only(char::MAX).any_symbol()));
+    fn each_class_arrives_with_a_symbol_that_it_matches() {
+        let labels = [
+            range('a', 'f'),
+            range('d', 'z'),
+            only('\0'),
+            range(BELOW_GAP, ABOVE_GAP),
+            only(char::MAX),
+        ];
+
+        for (class, symbol) in Symbols::divide(&labels) {
+            assert!(class.matches(symbol), "{class:?} does not match {symbol:?}");
+        }
     }
 
     #[test]

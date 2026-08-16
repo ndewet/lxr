@@ -6,14 +6,14 @@ use super::dfa::Dfa;
     reason = "step 6 of the plan builds the automaton with it"
 )]
 use super::dfa::DfaBuilder;
-use super::divisible::Divisible;
 use super::id::StateId;
+use super::label::Label;
 use super::nfa::Nfa;
 use super::overflow::Overflow;
 
 impl<L, A> Nfa<L, A>
 where
-    L: Divisible + Clone,
+    L: Label + Clone,
     A: Ord + Clone,
 {
     /// Determinizes the automaton, then returns the automaton that accepts the same input.
@@ -51,7 +51,7 @@ where
 #[expect(clippy::todo, unused_variables, reason = "step 6 of the plan")]
 fn within<L, A>(nfa: &Nfa<L, A>, capacity: usize) -> Result<Dfa<L, A>, Overflow>
 where
-    L: Divisible + Clone,
+    L: Label + Clone,
     A: Ord + Clone,
 {
     todo!()
@@ -116,7 +116,7 @@ where
 
 /// Returns the label of each transition that leaves a state of `subset`.
 ///
-/// The result holds a duplicate if two states carry the same label. [`Divisible::divide`] removes
+/// The result holds a duplicate if two states carry the same label. [`Label::divide`] removes
 /// the duplicate.
 #[expect(clippy::todo, unused_variables, reason = "step 6 of the plan")]
 fn labels<L, A>(nfa: &Nfa<L, A>, subset: &[StateId]) -> Vec<L>

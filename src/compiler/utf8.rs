@@ -16,7 +16,7 @@
 //! manner as all other incorrect input. It never holds a part of a decoded
 //! character.
 
-use crate::automata::{Divisible, Label};
+use crate::automata::Label;
 use crate::regex::CharSet;
 
 /// The maximum number of the bytes that a character encodes to.
@@ -45,25 +45,37 @@ impl Label for ByteRange {
     fn matches(&self, byte: u8) -> bool {
         (self.low..=self.high).contains(&byte)
     }
-}
 
-impl Divisible for ByteRange {
     /// Divides `labels` into the ranges between their ends.
     ///
-    /// The result is in ascending sequence.
-    #[expect(clippy::todo, unused_variables, reason = "step 2 of the plan")]
-    fn divide(labels: &[Self]) -> Vec<Self> {
-        todo!()
-    }
+    /// The ends of the labels are the only bytes at which a label changes its
+    /// answer. Thus the range from one end to the next end is one class. A
+    /// range that no label matches is a gap between two labels, and the result
+    /// leaves it out.
+    ///
+    /// The result is in ascending sequence, and the symbol of a class is its
+    /// lowest byte.
+    fn divide(labels: &[Self]) -> Vec<(Self, u8)> {
+        let mut starts = Vec::with_capacity(labels.len() * 2);
+        for label in labels {
+            starts.push(label.low);
+            if let Some(above) = label.high.checked_add(1) {
+                starts.push(above);
+            }
+        }
+        starts.sort_unstable();
+        starts.dedup();
 
-    /// Returns the lowest byte in the range.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if the range matches no byte.
-    #[expect(clippy::todo, reason = "step 2 of the plan")]
-    fn any_symbol(&self) -> u8 {
-        todo!()
+        let mut classes = Vec::with_capacity(starts.len());
+        for (index, &low) in starts.iter().enumerate() {
+            // The starts ascend and hold no duplicate, thus the next start is
+            // above `low` and the subtraction stays in the bytes.
+            let high = starts.get(index + 1).map_or(u8::MAX, |&next| next - 1);
+            if labels.iter().any(|label| label.matches(low)) {
+                classes.push((ByteRange { low, high }, low));
+            }
+        }
+        classes
     }
 }
 
@@ -497,8 +509,12 @@ mod tests {
         ByteRange { low, high }
     }
 
+    /// Returns the classes of `labels`, without the symbol of each class.
     fn divided(labels: &[ByteRange]) -> Vec<ByteRange> {
         ByteRange::divide(labels)
+            .into_iter()
+            .map(|(class, _)| class)
+            .collect()
     }
 
     #[test]
@@ -571,7 +587,7 @@ mod tests {
     }
 
     /// Asserts that the classes of `labels` obey the conditions of
-    /// [`Divisible::divide`].
+    /// [`Label::divide`].
     fn obeys_the_conditions(labels: &[ByteRange]) {
         let classes = divided(labels);
 
@@ -639,15 +655,19 @@ mod tests {
     }
 
     #[test]
-    fn a_label_gives_a_byte_that_it_matches() {
-        assert!(range(b'a', b'z').matches(range(b'a', b'z').any_symbol()));
-        assert!(range(0, 255).matches(range(0, 255).any_symbol()));
-        assert!(range(255, 255).matches(range(255, 255).any_symbol()));
-    }
+    fn each_class_arrives_with_a_byte_that_it_matches() {
+        let labels = [
+            range(0, 0),
+            range(b'a', b'f'),
+            range(b'd', b'z'),
+            range(0, 255),
+        ];
 
-    #[test]
-    #[should_panic(expected = "the byte range from 10 to 5 matches no byte")]
-    fn a_label_that_matches_no_byte_gives_no_symbol() {
-        range(10, 5).any_symbol();
+        for (class, symbol) in ByteRange::divide(&labels) {
+            assert!(
+                class.matches(symbol),
+                "{class:?} does not match {symbol:#04X}"
+            );
+        }
     }
 }

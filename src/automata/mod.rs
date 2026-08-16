@@ -8,7 +8,7 @@
 //! automaton and a deterministic automaton with the same code.
 //!
 //! [`Nfa::determinize`] joins the two. It gives the [`Dfa`] that accepts the same input. It
-//! divides the labels with [`Divisible`], thus it needs no alphabet of its own.
+//! divides the labels with [`Label::divide`], thus it needs no alphabet of its own.
 //!
 //! Each identifier comes from lxr, and not from a lexer author. Thus a function panics for an
 //! identifier that its automaton does not hold. A full automaton gives an [`Overflow`].
@@ -20,7 +20,6 @@ mod arena_builder;
 mod automaton;
 mod determinize;
 mod dfa;
-mod divisible;
 mod execution;
 mod id;
 mod label;
@@ -37,7 +36,6 @@ pub use self::{
     arena_builder::ArenaBuilder,
     automaton::Automaton,
     dfa::{Dfa, DfaBuilder, DfaExecution},
-    divisible::Divisible,
     execution::Execution,
     id::{StartId, StateId},
     label::Label,
