@@ -33,8 +33,8 @@ use crate::tables::Tables;
 ///         actions: &ACTIONS,
 ///     };
 ///
-///     fn token(_rule: u16) -> Self {
-///         Token::A
+///     fn token(_rule: u16, _text: &str) -> Option<Self> {
+///         Some(Token::A)
 ///     }
 ///
 ///     fn condition(_index: u16) {}
@@ -57,13 +57,20 @@ pub trait Lexer: Sized {
     /// The automaton of the lexer.
     const TABLES: Tables<'static>;
 
-    /// Returns the token of the rule at `rule`.
+    /// Returns the token of the rule at `rule`, which matched `text`.
+    ///
+    /// A variant that holds a field takes its value from `text`, through
+    /// [`FromStr`](std::str::FromStr). The result is `None` if `text` does not fit that field. A
+    /// rule of `[0-9]+` matches a number of any length, thus a field of `u32` gives `None` for a
+    /// number above 4294967295.
+    ///
+    /// A variant that holds no field ignores `text`, thus it always gives a token.
     ///
     /// # Panics
     ///
     /// This function panics if `rule` is not a rule of the lexer, or if the rule skips its match
     /// and gives no token.
-    fn token(rule: u16) -> Self;
+    fn token(rule: u16, text: &str) -> Option<Self>;
 
     /// Returns the start condition at `index`.
     ///

@@ -1,17 +1,26 @@
 use lxr_codegen::{Conditions, Pattern, Rule, Specification};
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Fields, LitStr, Path, Token};
+use syn::{Data, DeriveInput, Fields, Ident, LitStr, Path, Token, Variant};
 
 use crate::attribute::Attribute;
 
+/// The variant that a rule gives, and the type of the field of that variant.
+#[derive(Clone)]
+struct Gives {
+    /// The name of the variant.
+    variant: Ident,
+    /// The type of its field, or `None` if the variant holds no field.
+    value: Option<TokenStream>,
+}
+
 /// The lexer that an enum of tokens describes, and the span of each of its parts.
 ///
-/// [`generate`](lxr_codegen::generate) reports the index of the rule at fault. [`spans`](Self::spans)
-/// turns that index into the span of the pattern, thus the compiler marks the rule that the author
-/// wrote.
+/// [`generate`](lxr_codegen::generate) reports the index of the rule at fault.
+/// [`spans`](Self::spans) turns that index into the span of the pattern, thus the compiler marks
+/// the rule that the author wrote.
 pub struct Read {
     /// The lexer, in the form that the codegen crate reads.
     pub specification: Specification,
@@ -29,8 +38,8 @@ pub struct Read {
 /// # Errors
 ///
 /// This function returns an error if `input` is not an enum, if an attribute names an option that
-/// lxr does not hold, if a variant holds a field, or if a rule names a start condition without a
-/// condition enum.
+/// lxr does not hold, if a variant holds more than one field or a named field, or if a rule names
+/// a start condition without a condition enum.
 pub fn read(input: &DeriveInput) -> syn::Result<Read> {
     let Data::Enum(data) = &input.data else {
         return Err(syn::Error::new(
@@ -63,12 +72,10 @@ pub fn read(input: &DeriveInput) -> syn::Result<Read> {
     }
 
     for variant in &data.variants {
-        if !matches!(variant.fields, Fields::Unit) {
-            return Err(syn::Error::new(
-                variant.ident.span(),
-                "a token of lxr holds no field. Read the text of the token with `Scan::slice`",
-            ));
-        }
+        let gives = Gives {
+            variant: variant.ident.clone(),
+            value: field(variant)?,
+        };
         for attribute in options(&variant.attrs)? {
             let Some((literal, skip)) = attribute.pattern()? else {
                 continue;
@@ -80,7 +87,7 @@ pub fn read(input: &DeriveInput) -> syn::Result<Read> {
                 ));
             }
             spans.push(literal.clone());
-            rules.push((attribute, Some(variant.ident.clone())));
+            rules.push((attribute, Some(gives.clone())));
         }
     }
 
@@ -94,7 +101,7 @@ pub fn read(input: &DeriveInput) -> syn::Result<Read> {
         token: input.ident.clone(),
         rules: rules
             .iter()
-            .map(|(attribute, token)| rule(attribute, token.clone(), &conditions))
+            .map(|(attribute, gives)| rule(attribute, gives.clone(), &conditions))
             .collect::<syn::Result<Vec<Rule>>>()?,
         conditions: conditions.map(|conditions| conditions.0),
     };
@@ -104,6 +111,35 @@ pub fn read(input: &DeriveInput) -> syn::Result<Read> {
         spans,
         name: input.ident.span(),
     })
+}
+
+/// Returns the type of the field of `variant`, or `None` if the variant holds no field.
+///
+/// # Errors
+///
+/// This function returns an error if `variant` holds more than one field, or if it holds a named
+/// field.
+fn field(variant: &Variant) -> syn::Result<Option<TokenStream>> {
+    match &variant.fields {
+        Fields::Unit => Ok(None),
+        Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+            let field = fields
+                .unnamed
+                .first()
+                .expect("the list holds exactly one field");
+            Ok(Some(field.ty.to_token_stream()))
+        }
+        Fields::Unnamed(fields) => Err(syn::Error::new(
+            fields.span(),
+            "a token of lxr holds one field or none. The field takes the text of the match, thus \
+             a second field has no value to take",
+        )),
+        Fields::Named(fields) => Err(syn::Error::new(
+            fields.span(),
+            "a token of lxr holds an unnamed field. Write `Name(String)` in place of \
+             `Name { text: String }`",
+        )),
+    }
 }
 
 /// The start conditions of the lexer, and the text of each one for a comparison.
@@ -133,7 +169,7 @@ fn options(attrs: &[syn::Attribute]) -> syn::Result<Vec<Attribute>> {
 /// condition, or if the first condition is not the variant of an enum.
 fn number(
     initial: &Option<Path>,
-    rules: &[(Attribute, Option<syn::Ident>)],
+    rules: &[(Attribute, Option<Gives>)],
 ) -> syn::Result<Option<Numbered>> {
     let Some(initial) = initial else {
         for (attribute, _) in rules {
@@ -177,7 +213,7 @@ fn number(
 /// # Errors
 ///
 /// This function returns an error if `path` holds one segment, thus it names no variant.
-fn kind(path: &Path) -> syn::Result<proc_macro2::TokenStream> {
+fn kind(path: &Path) -> syn::Result<TokenStream> {
     if path.segments.len() < 2 {
         return Err(syn::Error::new(
             path.span(),
@@ -202,7 +238,7 @@ fn text(path: &Path) -> String {
     path.to_token_stream().to_string()
 }
 
-/// Returns the rule of `attribute`, which gives `token`.
+/// Returns the rule of `attribute`, which gives the variant of `gives`.
 ///
 /// # Errors
 ///
@@ -210,7 +246,7 @@ fn text(path: &Path) -> String {
 /// not hold.
 fn rule(
     attribute: &Attribute,
-    token: Option<syn::Ident>,
+    gives: Option<Gives>,
     conditions: &Option<Numbered>,
 ) -> syn::Result<Rule> {
     let (literal, _) = attribute
@@ -240,7 +276,8 @@ fn rule(
 
     Ok(Rule {
         pattern,
-        token,
+        token: gives.as_ref().map(|gives| gives.variant.clone()),
+        value: gives.and_then(|gives| gives.value),
         conditions: under,
         go,
     })

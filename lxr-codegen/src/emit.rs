@@ -17,10 +17,15 @@ use quote::quote;
 use crate::table::Tables;
 
 /// What one rule of a lexer gives when it matches.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Rule {
     /// The variant of the token enum that the rule gives, or `None` if the rule skips its match.
     pub token: Option<Ident>,
+    /// The type of the field of that variant, or `None` if the variant holds no field.
+    ///
+    /// The emitted source reads the field from the text of the match with
+    /// [`FromStr`](std::str::FromStr).
+    pub value: Option<TokenStream>,
     /// The index of the start condition that the scan changes to, or `None` if it keeps the
     /// condition.
     pub go: Option<u16>,
@@ -138,17 +143,35 @@ fn condition_type(lexer: &Emission) -> TokenStream {
     lexer.condition.clone().unwrap_or_else(|| quote!(()))
 }
 
-/// Returns the `token` function, which maps a rule onto the variant that it gives.
+/// Returns the `token` function, which maps a rule and the text of its match onto the variant that
+/// the rule gives.
+///
+/// A variant that holds a field reads that field from the text with [`FromStr`](std::str::FromStr).
+/// A text that the field does not hold gives `None`, and the scan reports it.
 fn of_rule(lexer: &Emission) -> TokenStream {
     let token = &lexer.token;
     let arms = lexer.rules.iter().enumerate().filter_map(|(index, rule)| {
         let variant = rule.token.as_ref()?;
         let index = count(index);
-        Some(quote!(#index => #token::#variant))
+        Some(match &rule.value {
+            Some(value) => quote! {
+                #index => ::core::result::Result::ok(
+                    <#value as ::core::str::FromStr>::from_str(text)
+                )
+                .map(#token::#variant)
+            },
+            None => quote!(#index => ::core::option::Option::Some(#token::#variant)),
+        })
     });
 
+    let text = if lexer.rules.iter().any(|rule| rule.value.is_some()) {
+        quote!(text)
+    } else {
+        quote!(_text)
+    };
+
     quote! {
-        fn token(rule: u16) -> Self {
+        fn token(rule: u16, #text: &str) -> ::core::option::Option<Self> {
             match rule {
                 #(#arms,)*
                 rule => panic!("rule {rule} of this lexer gives no token"),
@@ -257,18 +280,22 @@ mod tests {
             rules: vec![
                 Rule {
                     token: Some(name("Quote")),
+                    value: None,
                     go: Some(1),
                 },
                 Rule {
                     token: Some(name("Word")),
+                    value: None,
                     go: None,
                 },
                 Rule {
                     token: Some(name("Text")),
+                    value: None,
                     go: Some(0),
                 },
                 Rule {
                     token: None,
+                    value: None,
                     go: None,
                 },
             ],
@@ -292,6 +319,7 @@ mod tests {
             conditions: Vec::new(),
             rules: vec![Rule {
                 token: Some(name("Letters")),
+                value: None,
                 go: None,
             }],
             tables: tables(1, &[("[a-z]+", &[0])]),
@@ -365,9 +393,49 @@ mod tests {
     fn each_rule_that_gives_a_token_gets_an_arm() {
         let source = emit(&lexer());
 
-        assert!(holds(&source, &quote!(0 => Token::Quote)));
-        assert!(holds(&source, &quote!(1 => Token::Word)));
-        assert!(holds(&source, &quote!(2 => Token::Text)));
+        for (index, variant) in [(0, "Quote"), (1, "Word"), (2, "Text")] {
+            let index = count(index);
+            let variant = name(variant);
+            assert!(holds(
+                &source,
+                &quote!(#index => ::core::option::Option::Some(Token::#variant))
+            ));
+        }
+    }
+
+    /// Builds a lexer of one rule whose token carries a value.
+    fn valued() -> Emission {
+        Emission {
+            token: name("Token"),
+            condition: None,
+            conditions: Vec::new(),
+            rules: vec![Rule {
+                token: Some(name("Int")),
+                value: Some(quote!(u64)),
+                go: None,
+            }],
+            tables: tables(1, &[("[0-9]+", &[0])]),
+        }
+    }
+
+    #[test]
+    fn a_rule_that_carries_a_value_reads_its_field_from_the_text() {
+        let source = emit(&valued());
+
+        assert!(holds(&source, &quote!(fn token(rule: u16, text: &str))));
+        assert!(holds(
+            &source,
+            &quote!(<u64 as ::core::str::FromStr>::from_str(text))
+        ));
+        assert!(holds(&source, &quote!(.map(Token::Int))));
+    }
+
+    #[test]
+    fn a_lexer_whose_tokens_carry_no_value_ignores_the_text_of_the_match() {
+        let source = emit(&simple());
+
+        assert!(holds(&source, &quote!(fn token(rule: u16, _text: &str))));
+        assert!(!holds(&source, &quote!(FromStr)));
     }
 
     #[test]

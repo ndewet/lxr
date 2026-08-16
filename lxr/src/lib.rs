@@ -18,7 +18,13 @@ mod lexer;
 mod scan;
 mod tables;
 
-pub use self::{action::Action, error::ScanError, lexer::Lexer, scan::Scan, tables::Tables};
+pub use self::{
+    action::Action,
+    error::{ScanError, ScanErrorKind},
+    lexer::Lexer,
+    scan::Scan,
+    tables::Tables,
+};
 
 /// Derives a lexer from an enum of tokens.
 ///
@@ -33,6 +39,11 @@ pub use self::{action::Action, error::ScanError, lexer::Lexer, scan::Scan, table
 /// conditions is that path without its last segment.
 ///
 /// The longest match wins, and the earliest rule wins a tie.
+///
+/// A variant that holds one unnamed field carries a value. The field takes the text of the match
+/// through [`FromStr`](std::str::FromStr), thus `Name(String)` holds the text and `Int(u64)` holds
+/// the number. A text that the field does not hold gives a [`ScanError`] of the kind
+/// [`Value`](ScanErrorKind::Value).
 ///
 /// # Examples
 ///
@@ -52,7 +63,7 @@ pub use self::{action::Action, error::ScanError, lexer::Lexer, scan::Scan, table
 ///     #[lxr(token = "let")]
 ///     Let,
 ///     #[lxr(regex = "[a-z][a-z0-9]*")]
-///     Word,
+///     Word(String),
 ///     #[lxr(token = "\"", go = Context::Text)]
 ///     Quote,
 ///     #[lxr(regex = "[^\"]+", in = [Context::Text])]
@@ -67,7 +78,13 @@ pub use self::{action::Action, error::ScanError, lexer::Lexer, scan::Scan, table
 ///
 /// assert_eq!(
 ///     tokens,
-///     vec![Token::Let, Token::Word, Token::Quote, Token::Text, Token::End]
+///     vec![
+///         Token::Let,
+///         Token::Word("a".to_owned()),
+///         Token::Quote,
+///         Token::Text,
+///         Token::End,
+///     ]
 /// );
 /// ```
 #[cfg(feature = "derive")]
