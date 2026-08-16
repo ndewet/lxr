@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
-use super::arena::Arena;
+use super::arena::{Arena, ArenaBuilder};
+use super::automaton::{Automaton, Transition};
 use super::dfa::DeterministicFiniteAutomaton;
+use super::execution::Execution;
 use super::id::StateId;
 use super::label::Label;
-use super::nfa::NondeterministicFiniteAutomaton;
-use super::overflow::Overflow;
+use super::nfa::{NondeterministicExecution, NondeterministicFiniteAutomaton};
+use super::overflow::{Overflow, Part};
 
 /// The automaton that determinization made, and the set behind each of its states.
 ///
@@ -46,21 +48,94 @@ impl<L: Label> NondeterministicFiniteAutomaton<L> {
     /// holds. One state of the result is one set of the states of this automaton, thus the number
     /// of the states can grow fast.
     pub fn determinize(&self) -> Result<Determinization<L>, Overflow> {
-        within(self, StateId::CAPACITY)
+        subset_construction(self, StateId::CAPACITY)
     }
 }
 
 /// Determinizes `nfa` into an automaton of at most `capacity` states.
 ///
+/// One state of the result is one set of the states of `nfa`. The function reads the transitions
+/// of each set one time, and it stops because the number of the sets is finite.
+///
+/// [`determinize`](NondeterministicFiniteAutomaton::determinize) gives the capacity of one
+/// automaton. A test gives a lower capacity to reach the [`Overflow`].
+///
 /// # Errors
 ///
 /// This function returns an [`Overflow`] if the result needs more than `capacity` states.
-#[expect(clippy::todo, unused_variables, reason = "step 6 of the plan")]
-fn within<L: Label>(
+fn subset_construction<L: Label>(
     nfa: &NondeterministicFiniteAutomaton<L>,
     capacity: usize,
 ) -> Result<Determinization<L>, Overflow> {
-    todo!()
+    let mut subsets = Subsets::new();
+    let mut execution = NondeterministicExecution::new(nfa);
+    let mut transitions = ArenaBuilder::new();
+
+    let mut starts = Vec::with_capacity(nfa.start_count());
+    for &state in nfa.start_states() {
+        execution.seed(&[state]);
+        starts.push(state_of(&mut subsets, capacity, execution.states())?);
+    }
+
+    while let Some((subset, state)) = subsets.next() {
+        for (class, symbol) in L::divide(&labels(nfa, &subset)) {
+            execution.seed(&subset);
+            if !execution.step(symbol) {
+                continue;
+            }
+            let target = state_of(&mut subsets, capacity, execution.states())?;
+            transitions.push(
+                state.index(),
+                Transition {
+                    label: class,
+                    target,
+                },
+            );
+        }
+    }
+
+    let sets = subsets.into_sets();
+    let count = sets.len();
+    let accepts = sets
+        .iter()
+        .map(|subset| subset.iter().any(|&id| nfa.accepts(id)))
+        .collect();
+
+    let mut groups = ArenaBuilder::new();
+    for (index, subset) in sets.iter().enumerate() {
+        for &id in subset {
+            groups.push(index, id);
+        }
+    }
+
+    Ok(Determinization {
+        dfa: DeterministicFiniteAutomaton::new(transitions.build(count)?, accepts, starts),
+        subsets: groups.build(count)?,
+    })
+}
+
+/// Returns the state of `subset`, and adds the set to `subsets` if the table does not hold it.
+///
+/// The function numbers each new state from 0. Thus the states of the table are the states of the
+/// deterministic automaton, and [`Subsets::into_sets`] gives one set for each of them.
+///
+/// # Errors
+///
+/// This function returns an [`Overflow`] if a new set needs a state at or above `capacity`.
+fn state_of(
+    subsets: &mut Subsets,
+    capacity: usize,
+    subset: &[StateId],
+) -> Result<StateId, Overflow> {
+    if let Some(state) = subsets.get(subset) {
+        return Ok(state);
+    }
+    if subsets.count() >= capacity {
+        return Err(Overflow::new(Part::States, capacity));
+    }
+    let state = StateId::new(subsets.count());
+    subsets.add(subset, state);
+    Ok(state)
 }
 
 /// The sets of the states of the NFA that determinization reached.
@@ -78,18 +153,24 @@ struct Subsets {
 
 impl Subsets {
     /// Creates a table that holds no set.
-    #[expect(clippy::todo, reason = "step 6 of the plan")]
     fn new() -> Self {
-        todo!()
+        Self {
+            states: HashMap::new(),
+            pending: Vec::new(),
+        }
     }
 
     /// Returns the state of `subset`, or `None` if the table does not hold that set.
     ///
     /// The states of `subset` are in ascending sequence, and the set holds no duplicate. An
     /// [`NfaExecution`](super::NondeterministicExecution) gives its states in that form.
-    #[expect(clippy::todo, unused_variables, reason = "step 6 of the plan")]
     fn get(&self, subset: &[StateId]) -> Option<StateId> {
-        todo!()
+        self.states.get(subset).copied()
+    }
+
+    /// Returns the number of the sets in the table.
+    fn count(&self) -> usize {
+        self.states.len()
     }
 
     /// Adds `subset` as the set of `state`, then queues it.
@@ -97,17 +178,34 @@ impl Subsets {
     /// # Panics
     ///
     /// This function panics if the table already holds `subset`.
-    #[expect(clippy::todo, unused_variables, reason = "step 6 of the plan")]
     fn add(&mut self, subset: &[StateId], state: StateId) {
-        todo!()
+        let subset = subset.to_vec();
+        let held = self.states.insert(subset.clone(), state);
+        assert!(held.is_none(), "the table already holds the set");
+        self.pending.push((subset, state));
     }
 
     /// Returns a set whose transitions determinization did not read, with its state.
     ///
     /// The result is `None` if determinization read the transitions of each set.
-    #[expect(clippy::todo, reason = "step 6 of the plan")]
     fn next(&mut self) -> Option<(Vec<StateId>, StateId)> {
-        todo!()
+        self.pending.pop()
+    }
+
+    /// Returns the set of each state, the set of the first state first.
+    ///
+    /// [`state_of`] numbers the states from 0, one for each set. Thus each state of the table is
+    /// below the number of the sets.
+    fn into_sets(self) -> Vec<Vec<StateId>> {
+        let count = self.states.len();
+        let mut sets = vec![Vec::new(); count];
+        for (subset, state) in self.states {
+            let slot = sets
+                .get_mut(state.index())
+                .expect("the table numbers its states from 0, one for each set");
+            *slot = subset;
+        }
+        sets
     }
 }
 
@@ -115,9 +213,12 @@ impl Subsets {
 ///
 /// The result holds a duplicate if two states carry the same label. [`Label::divide`] removes
 /// the duplicate.
-#[expect(clippy::todo, unused_variables, reason = "step 6 of the plan")]
 fn labels<L: Label>(nfa: &NondeterministicFiniteAutomaton<L>, subset: &[StateId]) -> Vec<L> {
-    todo!()
+    subset
+        .iter()
+        .flat_map(|&id| nfa.transitions(id))
+        .map(|transition| transition.label.clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -443,8 +544,11 @@ mod tests {
     fn a_dfa_above_the_capacity_reports_an_overflow() {
         let nfa = nfa(|builder| vec![literal(builder, "ab").entry]);
 
-        assert_eq!(within(&nfa, 2), Err(Overflow::new(Part::States, 2)));
-        assert!(within(&nfa, 3).is_ok());
+        assert_eq!(
+            subset_construction(&nfa, 2),
+            Err(Overflow::new(Part::States, 2))
+        );
+        assert!(subset_construction(&nfa, 3).is_ok());
     }
 
     #[test]
@@ -479,6 +583,23 @@ mod tests {
             vec![(vec![state(0)], state(0)), (vec![state(1)], state(1))]
         );
         assert_eq!(subsets.next(), None);
+    }
+
+    #[test]
+    fn the_table_gives_the_set_of_each_state_in_the_sequence_of_the_states() {
+        let mut subsets = Subsets::new();
+        subsets.add(&[state(1), state(2)], state(1));
+        subsets.add(&[state(0)], state(0));
+
+        assert_eq!(
+            subsets.into_sets(),
+            vec![vec![state(0)], vec![state(1), state(2)]]
+        );
+    }
+
+    #[test]
+    fn a_new_table_gives_no_set() {
+        assert_eq!(Subsets::new().into_sets(), Vec::<Vec<StateId>>::new());
     }
 
     #[test]
