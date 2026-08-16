@@ -17,21 +17,18 @@ pub struct DfaExecution<'a, L, A> {
 
 impl<'a, L, A> DfaExecution<'a, L, A> {
     /// Creates an execution of `dfa` that is in no state.
-    #[expect(clippy::todo, unused_variables, reason = "step 5 of the plan")]
     pub(super) fn new(dfa: &'a Dfa<L, A>) -> Self {
-        todo!()
+        Self { dfa, state: None }
     }
 
     /// Returns the automaton that this execution scans.
-    #[expect(clippy::todo, reason = "step 5 of the plan")]
     pub fn dfa(&self) -> &'a Dfa<L, A> {
-        todo!()
+        self.dfa
     }
 
     /// Returns the state that the execution is in, or `None` if the scan stopped.
-    #[expect(clippy::todo, reason = "step 5 of the plan")]
     pub fn state(&self) -> Option<StateId> {
-        todo!()
+        self.state
     }
 }
 
@@ -39,25 +36,17 @@ impl<L: Label, A> Execution for DfaExecution<'_, L, A> {
     type Symbol = L::Symbol;
     type Accept = A;
 
-    #[expect(clippy::todo, unused_variables, reason = "step 5 of the plan")]
     fn restart(&mut self, start: StartId) {
-        todo!()
+        self.state = Some(self.dfa.start_state(start));
     }
 
-    #[expect(clippy::todo, unused_variables, reason = "step 5 of the plan")]
     fn step(&mut self, symbol: Self::Symbol) -> bool {
-        todo!()
+        self.state = self.state.and_then(|id| self.dfa.step(id, symbol));
+        self.state.is_some()
     }
 
-    #[expect(
-        clippy::todo,
-        unreachable_code,
-        reason = "step 5 of the plan. An opaque return type needs a value, thus the empty \
-                  iterator stays until the body lands."
-    )]
     fn accepts(&self) -> impl Iterator<Item = &Self::Accept> {
-        todo!();
-        std::iter::empty()
+        self.state.and_then(|id| self.dfa.accept(id)).into_iter()
     }
 }
 

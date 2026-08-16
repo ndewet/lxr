@@ -1,7 +1,7 @@
 use super::automaton::Dfa;
 use crate::automata::arena_builder::ArenaBuilder;
 use crate::automata::id::StateId;
-use crate::automata::overflow::Overflow;
+use crate::automata::overflow::{Overflow, Part};
 use crate::automata::transition::Transition;
 
 /// A [`Dfa`] that is not complete.
@@ -33,9 +33,13 @@ impl<L, A> DfaBuilder<L, A> {
     /// Creates a `DfaBuilder` whose state arena holds at most `capacity` states.
     ///
     /// Determinization gives a limit here. The tests need a capacity below [`StateId::CAPACITY`].
-    #[expect(clippy::todo, unused_variables, reason = "step 4 of the plan")]
     pub(in crate::automata) fn with_capacity(capacity: usize) -> Self {
-        todo!()
+        Self {
+            transitions: ArenaBuilder::new(),
+            accepts: Vec::new(),
+            capacity,
+            overflow: false,
+        }
     }
 
     /// Adds a state to the end of the state arena, then returns its identifier.
@@ -43,18 +47,22 @@ impl<L, A> DfaBuilder<L, A> {
     /// The state has no transition and no accept.
     ///
     /// A push past the capacity returns an identifier that the caller must not use.
-    #[expect(clippy::todo, reason = "step 4 of the plan")]
     pub fn push(&mut self) -> StateId {
-        todo!()
+        if self.accepts.len() >= self.capacity {
+            self.overflow = true;
+            return StateId::new(0);
+        }
+        let id = StateId::new(self.accepts.len());
+        self.accepts.push(None);
+        id
     }
 
     /// Returns `true` if a push went past the capacity of the state arena.
     ///
     /// A caller that adds the states in a loop reads this to stop the loop.
     /// [`build`](Self::build) then reports the [`Overflow`].
-    #[expect(clippy::todo, reason = "step 4 of the plan")]
     pub fn overflowed(&self) -> bool {
-        todo!()
+        self.overflow
     }
 
     /// Adds a transition from `from` to `to` for each symbol that `label` matches.
@@ -64,9 +72,17 @@ impl<L, A> DfaBuilder<L, A> {
     /// # Panics
     ///
     /// This function panics if `from` is not in the state arena.
-    #[expect(clippy::todo, unused_variables, reason = "step 4 of the plan")]
     pub fn transition(&mut self, from: StateId, label: L, to: StateId) {
-        todo!()
+        if self.overflow {
+            return;
+        }
+        assert!(
+            from.index() < self.accepts.len(),
+            "cannot add a transition at {}: no such state",
+            from.index()
+        );
+        self.transitions
+            .push(from.index(), Transition { label, target: to });
     }
 
     /// Makes `state` accept, with `accept` as its accept.
@@ -75,9 +91,20 @@ impl<L, A> DfaBuilder<L, A> {
     ///
     /// This function panics if `state` is not in the state arena. It also panics if `state`
     /// already has an accept.
-    #[expect(clippy::todo, unused_variables, reason = "step 4 of the plan")]
     pub fn accept(&mut self, state: StateId, accept: A) {
-        todo!()
+        if self.overflow {
+            return;
+        }
+        let slot = self
+            .accepts
+            .get_mut(state.index())
+            .unwrap_or_else(|| panic!("cannot accept at {}: no such state", state.index()));
+        assert!(
+            slot.is_none(),
+            "state {} already has an accept",
+            state.index()
+        );
+        *slot = Some(accept);
     }
 
     /// Builds a [`Dfa`] that has one start state for each identifier in `starts`.
@@ -94,9 +121,34 @@ impl<L, A> DfaBuilder<L, A> {
     /// - `starts` is empty.
     /// - A start state is not in the state arena.
     /// - The target of a transition is not in the state arena.
-    #[expect(clippy::todo, unused_variables, reason = "step 4 of the plan")]
     pub fn build(self, starts: &[StateId]) -> Result<Dfa<L, A>, Overflow> {
-        todo!()
+        if self.overflow {
+            return Err(Overflow::new(Part::States, self.capacity));
+        }
+
+        let count = self.accepts.len();
+        assert!(!starts.is_empty(), "a DFA needs at least one start state");
+        for (index, start) in starts.iter().enumerate() {
+            assert!(
+                start.index() < count,
+                "start {index} points at {}, outside an arena of {count} states",
+                start.index()
+            );
+        }
+
+        let transitions = self.transitions.build(count)?;
+
+        for index in 0..count {
+            for transition in transitions.get(index).into_iter().flatten() {
+                assert!(
+                    transition.target.index() < count,
+                    "state {index} points at {}, outside an arena of {count} states",
+                    transition.target.index()
+                );
+            }
+        }
+
+        Ok(Dfa::new(transitions, self.accepts, starts.to_vec()))
     }
 }
 

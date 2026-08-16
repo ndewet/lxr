@@ -1,6 +1,7 @@
 use super::execution::DfaExecution;
 use crate::automata::arena::Arena;
 use crate::automata::automaton::Automaton;
+use crate::automata::execution::Execution;
 use crate::automata::id::{StartId, StateId};
 use crate::automata::label::Label;
 use crate::automata::transition::Transition;
@@ -26,13 +27,16 @@ pub struct Dfa<L, A> {
 
 impl<L, A> Dfa<L, A> {
     /// Creates a `Dfa` from the transitions, the accepts, and the start states.
-    #[expect(clippy::todo, unused_variables, reason = "step 3 of the plan")]
     pub(super) fn new(
         transitions: Arena<Transition<L>>,
         accepts: Vec<Option<A>>,
         starts: Vec<StateId>,
     ) -> Self {
-        todo!()
+        Self {
+            transitions,
+            accepts,
+            starts,
+        }
     }
 
     /// Returns the transitions that leave the state that `id` refers to.
@@ -42,9 +46,10 @@ impl<L, A> Dfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `id` is not in the state arena.
-    #[expect(clippy::todo, unused_variables, reason = "step 3 of the plan")]
     pub fn transitions(&self, id: StateId) -> &[Transition<L>] {
-        todo!()
+        self.transitions
+            .get(id.index())
+            .unwrap_or_else(|| self.outside(id))
     }
 
     /// Returns the accept of the state that `id` refers to, or `None` if the state does not
@@ -53,21 +58,21 @@ impl<L, A> Dfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `id` is not in the state arena.
-    #[expect(clippy::todo, unused_variables, reason = "step 3 of the plan")]
     pub fn accept(&self, id: StateId) -> Option<&A> {
-        todo!()
+        self.accepts
+            .get(id.index())
+            .unwrap_or_else(|| self.outside(id))
+            .as_ref()
     }
 
     /// Returns the number of the states in the state arena.
-    #[expect(clippy::todo, reason = "step 3 of the plan")]
     pub fn state_count(&self) -> usize {
-        todo!()
+        self.accepts.len()
     }
 
     /// Returns the number of the start states of the automaton.
-    #[expect(clippy::todo, reason = "step 3 of the plan")]
     pub fn start_count(&self) -> usize {
-        todo!()
+        self.starts.len()
     }
 
     /// Returns the state at which the automaton starts a scan under `start`.
@@ -75,21 +80,22 @@ impl<L, A> Dfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `start` is not a start state of this automaton.
-    #[expect(clippy::todo, unused_variables, reason = "step 3 of the plan")]
     pub fn start_state(&self, start: StartId) -> StateId {
-        todo!()
+        *self.starts.get(start.index()).unwrap_or_else(|| {
+            panic!(
+                "start {} is outside an automaton with {} start states",
+                start.index(),
+                self.starts.len()
+            )
+        })
     }
 
     /// Returns an iterator over the start identifiers and their states.
-    #[expect(
-        clippy::todo,
-        unreachable_code,
-        reason = "step 3 of the plan. An opaque return type needs a value, thus the empty iterator \
-                  stays until the body lands."
-    )]
     pub fn starts(&self) -> impl Iterator<Item = (StartId, StateId)> + '_ {
-        todo!();
-        std::iter::empty()
+        self.starts
+            .iter()
+            .enumerate()
+            .map(|(index, &state)| (StartId::new(index), state))
     }
 
     fn outside(&self, id: StateId) -> ! {
@@ -110,9 +116,21 @@ impl<L: Label, A> Dfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `from` is not in the state arena.
-    #[expect(clippy::todo, unused_variables, reason = "step 3 of the plan")]
     pub fn step(&self, from: StateId, symbol: L::Symbol) -> Option<StateId> {
-        todo!()
+        let transitions = self.transitions(from);
+        debug_assert!(
+            transitions
+                .iter()
+                .filter(|transition| transition.label.matches(symbol))
+                .count()
+                <= 1,
+            "state {} has more than one transition for one symbol",
+            from.index()
+        );
+        transitions
+            .iter()
+            .find(|transition| transition.label.matches(symbol))
+            .map(|transition| transition.target)
     }
 }
 
@@ -124,9 +142,10 @@ impl<L: Label, A> Automaton for Dfa<L, A> {
     where
         Self: 'a;
 
-    #[expect(clippy::todo, unused_variables, reason = "step 5 of the plan")]
     fn execute(&self, start: StartId) -> Self::Execution<'_> {
-        todo!()
+        let mut execution = DfaExecution::new(self);
+        execution.restart(start);
+        execution
     }
 }
 
