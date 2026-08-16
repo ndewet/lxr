@@ -9,7 +9,7 @@
 //! [`Class`](Node::Class) leaf to an [`Alphabet`].
 //!
 //! The construction makes no start state and no accept.
-//! [`compile`](super::compile) owns the builder. It joins each pattern to the
+//! [`compile`](super::compile()) owns the builder. It joins each pattern to the
 //! start states of the rule.
 
 use super::alphabet::Alphabet;
@@ -23,10 +23,10 @@ use crate::regex::{Node, Repetitions};
 ///
 /// The fragment has no accept. The caller makes the exit accept, or joins the
 /// fragment to another fragment.
-pub fn fragment<A: Alphabet, R>(
+pub fn fragment<A: Alphabet>(
     node: &Node,
     alphabet: &A,
-    builder: &mut NfaBuilder<A::Label, R>,
+    builder: &mut NfaBuilder<A::Label>,
 ) -> Fragment {
     match node {
         Node::Epsilon => epsilon(builder),
@@ -43,7 +43,7 @@ pub fn fragment<A: Alphabet, R>(
 /// Returns a fragment that matches the empty string.
 ///
 /// The function needs no alphabet, because the fragment reads no symbol.
-fn epsilon<L, R>(builder: &mut NfaBuilder<L, R>) -> Fragment {
+fn epsilon<L>(builder: &mut NfaBuilder<L>) -> Fragment {
     let entry = builder.push();
     let exit = builder.push();
     builder.epsilon(entry, exit);
@@ -53,10 +53,10 @@ fn epsilon<L, R>(builder: &mut NfaBuilder<L, R>) -> Fragment {
 /// Returns a fragment that matches each part in sequence.
 ///
 /// The function joins the exit of each part to the entry of the next part.
-fn concatenation<A: Alphabet, R>(
+fn concatenation<A: Alphabet>(
     parts: &[Node],
     alphabet: &A,
-    builder: &mut NfaBuilder<A::Label, R>,
+    builder: &mut NfaBuilder<A::Label>,
 ) -> Fragment {
     let Some((first, rest)) = parts.split_first() else {
         return epsilon(builder);
@@ -75,10 +75,10 @@ fn concatenation<A: Alphabet, R>(
 ///
 /// The function adds one entry state and one exit state. The entry goes to
 /// each branch, and each branch goes to the exit.
-fn alternation<A: Alphabet, R>(
+fn alternation<A: Alphabet>(
     branches: &[Node],
     alphabet: &A,
-    builder: &mut NfaBuilder<A::Label, R>,
+    builder: &mut NfaBuilder<A::Label>,
 ) -> Fragment {
     let entry = builder.push();
     let exit = builder.push();
@@ -91,11 +91,7 @@ fn alternation<A: Alphabet, R>(
 }
 
 /// Returns a fragment that matches `node` zero or more times.
-fn star<A: Alphabet, R>(
-    node: &Node,
-    alphabet: &A,
-    builder: &mut NfaBuilder<A::Label, R>,
-) -> Fragment {
+fn star<A: Alphabet>(node: &Node, alphabet: &A, builder: &mut NfaBuilder<A::Label>) -> Fragment {
     let inner = fragment(node, alphabet, builder);
     let entry = builder.push();
     let exit = builder.push();
@@ -107,11 +103,7 @@ fn star<A: Alphabet, R>(
 }
 
 /// Returns a fragment that matches `node` one or more times.
-fn plus<A: Alphabet, R>(
-    node: &Node,
-    alphabet: &A,
-    builder: &mut NfaBuilder<A::Label, R>,
-) -> Fragment {
+fn plus<A: Alphabet>(node: &Node, alphabet: &A, builder: &mut NfaBuilder<A::Label>) -> Fragment {
     let inner = fragment(node, alphabet, builder);
     let entry = builder.push();
     let exit = builder.push();
@@ -122,10 +114,10 @@ fn plus<A: Alphabet, R>(
 }
 
 /// Returns a fragment that matches `node` zero times or one time.
-fn optional<A: Alphabet, R>(
+fn optional<A: Alphabet>(
     node: &Node,
     alphabet: &A,
-    builder: &mut NfaBuilder<A::Label, R>,
+    builder: &mut NfaBuilder<A::Label>,
 ) -> Fragment {
     let inner = fragment(node, alphabet, builder);
     let entry = builder.push();
@@ -146,11 +138,11 @@ fn optional<A: Alphabet, R>(
 /// The minimum gives that many copies. A maximum gives one
 /// [`Optional`](Node::Optional) copy for each repetition above the minimum. No
 /// maximum gives one [`Star`](Node::Star) copy.
-fn repetition<A: Alphabet, R>(
+fn repetition<A: Alphabet>(
     node: &Node,
     repetitions: Repetitions,
     alphabet: &A,
-    builder: &mut NfaBuilder<A::Label, R>,
+    builder: &mut NfaBuilder<A::Label>,
 ) -> Fragment {
     let (minimum, maximum) = bounds(repetitions);
     let mut parts = vec![node.clone(); minimum];
@@ -182,15 +174,17 @@ fn bounds(repetitions: Repetitions) -> (usize, Option<usize>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automata::{Automaton, Nfa, StartId, StateId, longest_match};
+    use crate::automata::{
+        Automaton, Execution, NondeterministicFiniteAutomaton, Scanner, StateId,
+    };
     use crate::compiler::{ByteRange, Bytes};
 
     /// Builds an automaton that starts at the entry of the fragment of `node`
     /// and accepts at its exit.
-    fn built(node: &Node) -> (Nfa<ByteRange, u32>, Fragment) {
-        let mut builder: NfaBuilder<ByteRange, u32> = NfaBuilder::new();
+    fn built(node: &Node) -> (NondeterministicFiniteAutomaton<ByteRange>, Fragment) {
+        let mut builder: NfaBuilder<ByteRange> = NfaBuilder::new();
         let part = fragment(node, &Bytes, &mut builder);
-        builder.accept(part.exit(), 0);
+        builder.accept(part.exit());
         let nfa = builder
             .build(&[part.entry()])
             .expect("a test stays below the capacity of a builder");
@@ -201,8 +195,11 @@ mod tests {
     /// `input`.
     fn matched(node: &Node, input: &[u8]) -> Option<usize> {
         let (nfa, _) = built(node);
-        let mut execution = nfa.execute(StartId::new(0));
-        longest_match(&mut execution, StartId::new(0), input).map(|found| found.length)
+        let start = 0;
+        let mut execution = nfa.execute();
+        execution
+            .longest_match(start, input, |_| ())
+            .map(|found| found.length)
     }
 
     /// Returns the number of the bytes that `pattern` matches at the start of
@@ -213,7 +210,7 @@ mod tests {
     }
 
     /// Returns the number of the epsilon transitions in the whole automaton.
-    fn epsilon_count(nfa: &Nfa<ByteRange, u32>) -> usize {
+    fn epsilon_count(nfa: &NondeterministicFiniteAutomaton<ByteRange>) -> usize {
         (0..nfa.state_count())
             .map(|index| nfa.epsilons(StateId::new(index)).len())
             .sum()
@@ -522,7 +519,7 @@ mod tests {
 
             assert!(nfa.transitions(part.exit()).is_empty());
             assert!(nfa.epsilons(part.exit()).is_empty());
-            assert_eq!(nfa.accept(part.entry()), None);
+            assert!(!nfa.accepts(part.entry()));
         }
     }
 }

@@ -19,7 +19,7 @@ impl Alphabet for Bytes {
     /// The function calls [`lower`](super::utf8::lower) to get the sequences.
     /// Each chain starts at the entry of the fragment and stops at its exit.
     /// Thus the chains make an alternation.
-    fn lower<R>(&self, set: &CharSet, builder: &mut NfaBuilder<Self::Label, R>) -> Fragment {
+    fn lower(&self, set: &CharSet, builder: &mut NfaBuilder<Self::Label>) -> Fragment {
         let entry = builder.push();
         let exit = builder.push();
         let sequences = utf8::lower(set);
@@ -40,11 +40,11 @@ impl Alphabet for Bytes {
 /// Each chain of one character set starts at the same entry and stops at the
 /// same exit. Two chains that start with the same byte stay separate, because
 /// they share no state between the entry and the exit.
-fn chain<R>(
+fn chain(
     sequence: ByteSequence,
     entry: StateId,
     exit: StateId,
-    builder: &mut NfaBuilder<ByteRange, R>,
+    builder: &mut NfaBuilder<ByteRange>,
 ) {
     let mut previous = entry;
     let mut iterator = sequence.ranges().iter().peekable();
@@ -62,14 +62,14 @@ fn chain<R>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automata::{Automaton, Nfa, StartId, longest_match};
+    use crate::automata::{Automaton, Execution, NondeterministicFiniteAutomaton, Scanner};
 
     /// Lowers `set` into an automaton that starts at the entry of the
     /// fragment and accepts at its exit.
-    fn lowered(set: &CharSet) -> (Nfa<ByteRange, u32>, Fragment) {
-        let mut builder: NfaBuilder<ByteRange, u32> = NfaBuilder::new();
+    fn lowered(set: &CharSet) -> (NondeterministicFiniteAutomaton<ByteRange>, Fragment) {
+        let mut builder: NfaBuilder<ByteRange> = NfaBuilder::new();
         let fragment = Bytes.lower(set, &mut builder);
-        builder.accept(fragment.exit(), 0);
+        builder.accept(fragment.exit());
         let nfa = builder
             .build(&[fragment.entry()])
             .expect("a test stays below the capacity of a builder");
@@ -80,12 +80,15 @@ mod tests {
     /// `input`.
     fn matched(set: &CharSet, input: &[u8]) -> Option<usize> {
         let (nfa, _) = lowered(set);
-        let mut execution = nfa.execute(StartId::new(0));
-        longest_match(&mut execution, StartId::new(0), input).map(|found| found.length)
+        let start = 0;
+        let mut execution = nfa.execute();
+        execution
+            .longest_match(start, input, |_| ())
+            .map(|found| found.length)
     }
 
     /// Returns the number of the transitions in the whole automaton.
-    fn transition_count(nfa: &Nfa<ByteRange, u32>) -> usize {
+    fn transition_count(nfa: &NondeterministicFiniteAutomaton<ByteRange>) -> usize {
         (0..nfa.state_count())
             .map(|index| nfa.transitions(StateId::new(index)).len())
             .sum()
@@ -188,6 +191,6 @@ mod tests {
 
         assert!(nfa.transitions(fragment.exit()).is_empty());
         assert!(nfa.epsilons(fragment.entry()).is_empty());
-        assert_eq!(nfa.accept(fragment.entry()), None);
+        assert!(!nfa.accepts(fragment.entry()));
     }
 }

@@ -1,6 +1,5 @@
 use super::error::{BuildError, BuildErrorKind};
 use super::rule::Rule;
-use crate::automata::StartId;
 use crate::regex::{Node, Repetitions};
 
 /// The maximum size of the pattern of a rule.
@@ -22,13 +21,13 @@ pub const MAX_PATTERN_SIZE: usize = 100_000;
 /// token under one condition, thus only the rules of that condition can match.
 /// A string and a comment each need their own condition.
 ///
-/// A lexicon hands out each [`StartId`]. [`rule`](Self::rule) rejects an
-/// identifier that this lexicon did not declare, thus
-/// [`compile`](super::compile) needs no check.
+/// A lexicon hands out the index of each condition. [`rule`](Self::rule)
+/// rejects an index that this lexicon did not declare, thus
+/// [`compile`](super::compile()) needs no check.
 ///
 /// Declare the conditions with [`condition`](Self::condition), add the rules
 /// with [`rule`](Self::rule), then give the lexicon to
-/// [`compile`](super::compile).
+/// [`compile`](super::compile()).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lexicon<R> {
     rules: Vec<Rule<R>>,
@@ -44,15 +43,15 @@ impl<R> Lexicon<R> {
     /// Returns the start condition that each lexicon has.
     ///
     /// A lexer that needs one condition needs only this one.
-    pub fn initial(&self) -> StartId {
-        StartId::new(0)
+    pub fn initial(&self) -> usize {
+        0
     }
 
-    /// Declares a start condition, then returns its identifier.
-    pub fn condition(&mut self) -> StartId {
-        let id = StartId::new(self.conditions);
+    /// Declares a start condition, then returns its index.
+    pub fn condition(&mut self) -> usize {
+        let index = self.conditions;
         self.conditions += 1;
-        id
+        index
     }
 
     /// Adds a rule that matches `pattern` and gives `accept`.
@@ -61,9 +60,9 @@ impl<R> Lexicon<R> {
     /// states of the pattern are built one time, whatever the number of the
     /// conditions.
     ///
-    /// [`longest_match`](crate::automata::longest_match) selects the lowest
-    /// accept of the accepts that it reaches at the longest length. Thus give
-    /// the accepts in the sequence of precedence.
+    /// [`longest_match`](crate::automata::Execution::longest_match) selects the
+    /// lowest accept of the accepts that it reaches at the longest length. Thus
+    /// give the accepts in the sequence of precedence.
     ///
     /// A rule that fails a check changes nothing.
     ///
@@ -86,7 +85,7 @@ impl<R> Lexicon<R> {
         &mut self,
         pattern: Node,
         accept: R,
-        conditions: &[StartId],
+        conditions: &[usize],
     ) -> Result<(), BuildError> {
         let index = self.rules.len();
         self.check(&pattern, conditions)
@@ -97,14 +96,14 @@ impl<R> Lexicon<R> {
     }
 
     /// Returns the first kind of failure that `pattern` or `conditions` gives.
-    fn check(&self, pattern: &Node, conditions: &[StartId]) -> Result<(), BuildErrorKind> {
+    fn check(&self, pattern: &Node, conditions: &[usize]) -> Result<(), BuildErrorKind> {
         if conditions.is_empty() {
             return Err(BuildErrorKind::NoCondition);
         }
-        for condition in conditions {
-            if condition.index() >= self.conditions {
+        for &condition in conditions {
+            if condition >= self.conditions {
                 return Err(BuildErrorKind::UnknownCondition {
-                    condition: condition.index(),
+                    condition,
                     declared: self.conditions,
                 });
             }
@@ -158,7 +157,7 @@ mod tests {
     fn a_new_lexicon_has_one_start_condition_and_no_rule() {
         let lexicon = lexicon();
 
-        assert_eq!(lexicon.initial(), StartId::new(0));
+        assert_eq!(lexicon.initial(), 0);
 
         let (rules, conditions) = lexicon.into_parts();
         assert!(rules.is_empty());
@@ -169,9 +168,9 @@ mod tests {
     fn each_condition_gets_the_next_identifier() {
         let mut lexicon = lexicon();
 
-        assert_eq!(lexicon.condition(), StartId::new(1));
-        assert_eq!(lexicon.condition(), StartId::new(2));
-        assert_eq!(lexicon.initial(), StartId::new(0));
+        assert_eq!(lexicon.condition(), 1);
+        assert_eq!(lexicon.condition(), 2);
+        assert_eq!(lexicon.initial(), 0);
         assert_eq!(lexicon.into_parts().1, 3);
     }
 

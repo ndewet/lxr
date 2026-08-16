@@ -1,10 +1,10 @@
-use super::automaton::Nfa;
-use crate::automata::arena_builder::ArenaBuilder;
+use super::automaton::NondeterministicFiniteAutomaton;
+use crate::automata::arena::ArenaBuilder;
+use crate::automata::automaton::Transition;
 use crate::automata::id::StateId;
 use crate::automata::overflow::{Overflow, Part};
-use crate::automata::transition::Transition;
 
-/// An [`Nfa`] that is not complete.
+/// A [`NondeterministicFiniteAutomaton`] that is not complete.
 ///
 /// Add a state with [`push`](Self::push), then add its transitions, its epsilon transitions, and
 /// its accept. A transition can point at a state that comes later. Thus a loop needs no reserved
@@ -15,15 +15,15 @@ use crate::automata::transition::Transition;
 /// A push past [`StateId::CAPACITY`] records an [`Overflow`], and each later call does nothing.
 /// Thus a long chain of pushes needs no check at each step.
 #[derive(Debug)]
-pub struct NfaBuilder<L, A> {
+pub struct NfaBuilder<L> {
     transitions: ArenaBuilder<Transition<L>>,
     epsilons: ArenaBuilder<StateId>,
-    accepts: Vec<Option<A>>,
+    accepts: Vec<bool>,
     capacity: usize,
     overflow: bool,
 }
 
-impl<L, A> NfaBuilder<L, A> {
+impl<L> NfaBuilder<L> {
     /// Creates an `NfaBuilder` that holds no state.
     pub fn new() -> Self {
         Self::default()
@@ -53,7 +53,7 @@ impl<L, A> NfaBuilder<L, A> {
             return StateId::new(0);
         }
         let id = StateId::new(self.accepts.len());
-        self.accepts.push(None);
+        self.accepts.push(false);
         id
     }
 
@@ -96,13 +96,15 @@ impl<L, A> NfaBuilder<L, A> {
         self.epsilons.push(from.index(), to);
     }
 
-    /// Makes `state` accept, with `accept` as its accept.
+    /// Makes `state` accept.
+    ///
+    /// A second call at the same state changes nothing. The automaton holds no meaning of an
+    /// accept, thus one mark is the whole of it.
     ///
     /// # Panics
     ///
-    /// This function panics if `state` is not in the state arena. It also panics if `state`
-    /// already has an accept.
-    pub fn accept(&mut self, state: StateId, accept: A) {
+    /// This function panics if `state` is not in the state arena.
+    pub fn accept(&mut self, state: StateId) {
         if self.overflow {
             return;
         }
@@ -110,15 +112,11 @@ impl<L, A> NfaBuilder<L, A> {
             .accepts
             .get_mut(state.index())
             .unwrap_or_else(|| panic!("cannot accept at {}: no such state", state.index()));
-        assert!(
-            slot.is_none(),
-            "state {} already has an accept",
-            state.index()
-        );
-        *slot = Some(accept);
+        *slot = true;
     }
 
-    /// Builds an [`Nfa`] that has one start state for each identifier in `starts`.
+    /// Builds a [`NondeterministicFiniteAutomaton`] that has one start state for each identifier
+    /// in `starts`.
     ///
     /// # Errors
     ///
@@ -127,47 +125,18 @@ impl<L, A> NfaBuilder<L, A> {
     ///
     /// # Panics
     ///
-    /// This function panics for each of these conditions:
-    ///
-    /// - `starts` is empty.
-    /// - A start state is not in the state arena.
-    /// - The target of a transition is not in the state arena.
-    /// - The target of an epsilon transition is not in the state arena.
-    pub fn build(self, starts: &[StateId]) -> Result<Nfa<L, A>, Overflow> {
+    /// This function panics if `starts` is empty, if a start state is not in the state arena, or
+    /// if the target of a transition is not in the state arena.
+    pub fn build(self, starts: &[StateId]) -> Result<NondeterministicFiniteAutomaton<L>, Overflow> {
         if self.overflow {
             return Err(Overflow::new(Part::States, self.capacity));
         }
 
         let count = self.accepts.len();
-        assert!(!starts.is_empty(), "an NFA needs at least one start state");
-        for (index, start) in starts.iter().enumerate() {
-            assert!(
-                start.index() < count,
-                "start {index} points at {}, outside an arena of {count} states",
-                start.index()
-            );
-        }
-
         let transitions = self.transitions.build(count)?;
         let epsilons = self.epsilons.build(count)?;
 
-        for index in 0..count {
-            let targets = transitions
-                .get(index)
-                .into_iter()
-                .flatten()
-                .map(|transition| transition.target)
-                .chain(epsilons.get(index).into_iter().flatten().copied());
-            for target in targets {
-                assert!(
-                    target.index() < count,
-                    "state {index} points at {}, outside an arena of {count} states",
-                    target.index()
-                );
-            }
-        }
-
-        Ok(Nfa::new(
+        Ok(NondeterministicFiniteAutomaton::new(
             transitions,
             epsilons,
             self.accepts,
@@ -176,7 +145,7 @@ impl<L, A> NfaBuilder<L, A> {
     }
 }
 
-impl<L, A> Default for NfaBuilder<L, A> {
+impl<L> Default for NfaBuilder<L> {
     /// Creates an `NfaBuilder` that holds no state.
     fn default() -> Self {
         Self::with_capacity(StateId::CAPACITY)
@@ -186,11 +155,8 @@ impl<L, A> Default for NfaBuilder<L, A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automata::reference::{Symbols, only};
-
-    fn builder() -> NfaBuilder<Symbols, u32> {
-        NfaBuilder::new()
-    }
+    use crate::automata::automaton::Automaton;
+    use crate::automata::testing::{Symbols, builder, only};
 
     #[test]
     fn push_hands_back_sequential_ids() {
@@ -207,14 +173,13 @@ mod tests {
         let mut builder = builder();
         let first = builder.push();
         let second = builder.push();
-        builder.accept(first, 0);
-        builder.accept(second, 9);
+        builder.accept(second);
         let nfa = builder
             .build(&[second])
             .expect("the builder is below its capacity");
 
-        assert_eq!(nfa.accept(first), Some(&0));
-        assert_eq!(nfa.accept(second), Some(&9));
+        assert!(!nfa.accepts(first));
+        assert!(nfa.accepts(second));
         assert_eq!(nfa.state_count(), 2);
     }
 
@@ -247,18 +212,22 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "state 0 already has an accept")]
-    fn accepting_at_the_same_state_two_times_panics() {
+    fn accepting_at_the_same_state_two_times_changes_nothing() {
         let mut builder = builder();
         let state = builder.push();
-        builder.accept(state, 0);
-        builder.accept(state, 1);
+        builder.accept(state);
+        builder.accept(state);
+        let nfa = builder
+            .build(&[state])
+            .expect("the builder is below its capacity");
+
+        assert!(nfa.accepts(state));
     }
 
     #[test]
     #[should_panic(expected = "cannot accept at 3: no such state")]
     fn accepting_at_a_state_that_was_never_pushed_panics() {
-        builder().accept(StateId::new(3), 0);
+        builder().accept(StateId::new(3));
     }
 
     #[test]
@@ -296,16 +265,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "start 0 points at 9, outside")]
-    fn building_with_a_start_outside_the_arena_panics() {
-        let mut builder = builder();
-        builder.push();
-        let _ = builder.build(&[StateId::new(9)]);
-    }
-
-    #[test]
     #[should_panic(expected = "start 1 points at 9, outside")]
-    fn building_with_a_later_start_outside_the_arena_panics() {
+    fn building_with_a_start_outside_the_arena_panics() {
         let mut builder = builder();
         let start = builder.push();
         let _ = builder.build(&[start, StateId::new(9)]);
@@ -321,7 +282,7 @@ mod tests {
 
     #[test]
     fn a_builder_at_its_capacity_builds() {
-        let mut builder: NfaBuilder<Symbols, u32> = NfaBuilder::with_capacity(2);
+        let mut builder: NfaBuilder<Symbols> = NfaBuilder::with_capacity(2);
         let start = builder.push();
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
@@ -337,7 +298,7 @@ mod tests {
 
     #[test]
     fn a_push_past_the_capacity_reports_an_overflow() {
-        let mut builder: NfaBuilder<Symbols, u32> = NfaBuilder::with_capacity(2);
+        let mut builder: NfaBuilder<Symbols> = NfaBuilder::with_capacity(2);
         let start = builder.push();
         builder.push();
         builder.push();
@@ -347,12 +308,12 @@ mod tests {
 
     #[test]
     fn a_builder_that_overflowed_takes_no_more_transitions() {
-        let mut builder: NfaBuilder<Symbols, u32> = NfaBuilder::with_capacity(1);
+        let mut builder: NfaBuilder<Symbols> = NfaBuilder::with_capacity(1);
         let start = builder.push();
         let outside = builder.push();
         builder.transition(start, only('a'), outside);
         builder.epsilon(start, outside);
-        builder.accept(outside, 0);
+        builder.accept(outside);
 
         assert_eq!(builder.build(&[start]), Err(Overflow::new(Part::States, 1)));
     }

@@ -26,5 +26,5 @@ pub trait Alphabet {
     ///
     /// A set that holds no characters gives a fragment that has no path from
     /// the entry to the exit.
-    fn lower<R>(&self, set: &CharSet, builder: &mut NfaBuilder<Self::Label, R>) -> Fragment;
+    fn lower(&self, set: &CharSet, builder: &mut NfaBuilder<Self::Label>) -> Fragment;
 }

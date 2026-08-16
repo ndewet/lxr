@@ -1,4 +1,3 @@
-use crate::automata::StartId;
 use crate::regex::Node;
 
 /// One rule of a lexer.
@@ -10,7 +9,7 @@ use crate::regex::Node;
 /// way to make one, thus each start condition of a rule is a condition that
 /// the lexicon declared.
 ///
-/// [`compile`](super::compile) builds the states of the pattern one time. A
+/// [`compile`](super::compile()) builds the states of the pattern one time. A
 /// rule that is applicable in more than one start condition thus costs no more
 /// states than a rule that is applicable in one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,12 +19,12 @@ pub struct Rule<A> {
     /// The accept that a match of the pattern gives.
     pub(super) accept: A,
     /// The start conditions in which the rule is applicable.
-    pub(super) conditions: Vec<StartId>,
+    pub(super) conditions: Vec<usize>,
 }
 
 impl<A> Rule<A> {
     /// Creates a rule from its pattern, its accept, and its start conditions.
-    pub(super) fn new(pattern: Node, accept: A, conditions: Vec<StartId>) -> Self {
+    pub(super) fn new(pattern: Node, accept: A, conditions: Vec<usize>) -> Self {
         Self {
             pattern,
             accept,

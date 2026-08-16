@@ -19,32 +19,21 @@ impl StateId {
     pub fn index(self) -> usize {
         self.0 as usize
     }
-}
 
-/// An index of a start state of an [`Automaton`](super::Automaton).
-///
-/// An automaton has one or more start states. A scan starts at one of them. The automaton does not
-/// know why the caller selects one start state. A lexer selects the start state of its start
-/// condition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StartId(u32);
-
-impl StartId {
-    /// The number of the start states that an automaton holds.
-    pub const CAPACITY: usize = (u32::MAX as usize).saturating_add(1);
-
-    /// Creates a `StartId` from an index of a start state.
+    /// Reports this identifier as outside a table of `count` states.
+    ///
+    /// Each table that one state arena numbers reports the fault with the same message. The
+    /// automaton, the accepts of a lexer, and each later pass thus give one text.
     ///
     /// # Panics
     ///
-    /// This function panics if `index` is not below [`CAPACITY`](Self::CAPACITY).
-    pub fn new(index: usize) -> Self {
-        Self(u32::try_from(index).expect("an automaton has at most u32::MAX + 1 start states"))
-    }
-
-    /// Returns the index of the start state that this identifier refers to.
-    pub fn index(self) -> usize {
-        self.0 as usize
+    /// This function panics each time. Call it only for an identifier that the table does not
+    /// hold.
+    pub fn outside(self, count: usize) -> ! {
+        panic!(
+            "state {} is outside an arena of {count} states",
+            self.index()
+        )
     }
 }
 
@@ -64,19 +53,5 @@ mod tests {
     #[should_panic(expected = "an automaton holds at most u32::MAX + 1 states")]
     fn a_state_id_past_the_last_index_panics() {
         StateId::new(u32::MAX as usize + 1);
-    }
-
-    #[test]
-    fn a_start_id_round_trips_through_its_index() {
-        assert_eq!(StartId::new(0).index(), 0);
-        let last = u32::MAX as usize;
-        assert_eq!(StartId::new(last).index(), last);
-    }
-
-    #[test]
-    #[cfg(target_pointer_width = "64")]
-    #[should_panic(expected = "at most u32::MAX + 1 start states")]
-    fn a_start_id_past_the_last_index_panics() {
-        StartId::new(u32::MAX as usize + 1);
     }
 }
