@@ -12,9 +12,8 @@ use crate::automata::transition::Transition;
 ///
 /// Build the automaton with [`build`](Self::build).
 ///
-/// The state arena holds at most [`StateId::CAPACITY`] states. A push at that ceiling records an
-/// [`Overflow`], and each later call does nothing. [`build`](Self::build) then reports the
-/// overflow. Thus the caller of a long chain of pushes needs no check at each step.
+/// A push past [`StateId::CAPACITY`] records an [`Overflow`], and each later call does nothing.
+/// Thus a long chain of pushes needs no check at each step.
 #[derive(Debug)]
 pub struct NfaBuilder<L, A> {
     transitions: ArenaBuilder<Transition<L>>,
@@ -32,8 +31,7 @@ impl<L, A> NfaBuilder<L, A> {
 
     /// Creates an `NfaBuilder` whose state arena holds at most `capacity` states.
     ///
-    /// The tests need a capacity that a test can reach. [`StateId::CAPACITY`] is too large for a
-    /// test.
+    /// The tests need a capacity below [`StateId::CAPACITY`].
     pub(super) fn with_capacity(capacity: usize) -> Self {
         Self {
             transitions: ArenaBuilder::new(),
@@ -48,9 +46,7 @@ impl<L, A> NfaBuilder<L, A> {
     ///
     /// The state has no transition, no epsilon transition, and no accept.
     ///
-    /// A push past the capacity of the builder records an overflow. It adds no state, and it
-    /// returns an identifier that the caller must not use. [`build`](Self::build) reports the
-    /// overflow.
+    /// A push past the capacity returns an identifier that the caller must not use.
     pub fn push(&mut self) -> StateId {
         if self.accepts.len() >= self.capacity {
             self.overflow = true;
@@ -65,12 +61,9 @@ impl<L, A> NfaBuilder<L, A> {
     ///
     /// `to` can be a state that you push later. [`build`](Self::build) checks each target.
     ///
-    /// The function does nothing after a push records an overflow.
-    ///
     /// # Panics
     ///
-    /// This function panics if `from` is not in the state arena. Only lxr builds an automaton,
-    /// thus such a state is a defect.
+    /// This function panics if `from` is not in the state arena.
     pub fn transition(&mut self, from: StateId, label: L, to: StateId) {
         if self.overflow {
             return;
@@ -88,12 +81,9 @@ impl<L, A> NfaBuilder<L, A> {
     ///
     /// `to` can be a state that you push later. [`build`](Self::build) checks each target.
     ///
-    /// The function does nothing after a push records an overflow.
-    ///
     /// # Panics
     ///
-    /// This function panics if `from` is not in the state arena. Only lxr builds an automaton,
-    /// thus such a state is a defect.
+    /// This function panics if `from` is not in the state arena.
     pub fn epsilon(&mut self, from: StateId, to: StateId) {
         if self.overflow {
             return;
@@ -108,12 +98,10 @@ impl<L, A> NfaBuilder<L, A> {
 
     /// Makes `state` accept, with `accept` as its accept.
     ///
-    /// The function does nothing after a push records an overflow.
-    ///
     /// # Panics
     ///
     /// This function panics if `state` is not in the state arena. It also panics if `state`
-    /// already has an accept. Only lxr builds an automaton, thus each one is a defect.
+    /// already has an accept.
     pub fn accept(&mut self, state: StateId, accept: A) {
         if self.overflow {
             return;
@@ -134,9 +122,8 @@ impl<L, A> NfaBuilder<L, A> {
     ///
     /// # Errors
     ///
-    /// This function returns an [`Overflow`] if a push went past the capacity of the state arena.
-    /// It also returns an [`Overflow`] if the transitions or the epsilon transitions go past the
-    /// capacity of an [`Arena`](crate::automata::Arena).
+    /// This function returns an [`Overflow`] if the states, the transitions, or the epsilon
+    /// transitions went past a capacity.
     ///
     /// # Panics
     ///
@@ -146,8 +133,6 @@ impl<L, A> NfaBuilder<L, A> {
     /// - A start state is not in the state arena.
     /// - The target of a transition is not in the state arena.
     /// - The target of an epsilon transition is not in the state arena.
-    ///
-    /// Only lxr builds an automaton, thus each condition is a defect.
     pub fn build(self, starts: &[StateId]) -> Result<Nfa<L, A>, Overflow> {
         if self.overflow {
             return Err(Overflow::new(Part::States, self.capacity));

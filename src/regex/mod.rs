@@ -1,11 +1,8 @@
 //! Parses a regular expression into a syntax tree.
 //!
-//! [`Node`] is the tree. To make one from a pattern, use [`FromStr`]. A
-//! pattern that the parser cannot read gives a [`ParseError`]. The error holds
-//! a [`ParseErrorKind`] and the position at which the parser stopped.
-//!
-//! [`CharSet`] is the set of the characters that a
-//! [`Class`](Node::Class) leaf matches.
+//! [`Node`] is the tree, and [`CharSet`] is the set that a
+//! [`Class`](Node::Class) leaf matches. To make a tree from a pattern, use
+//! [`FromStr`]. A pattern that the parser cannot read gives a [`ParseError`].
 
 mod ast;
 mod charset;

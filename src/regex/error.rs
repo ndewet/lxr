@@ -28,10 +28,6 @@ pub struct ParseError {
 ///
 /// A variant with the name `Unsupported...` shows a construction that this
 /// parser does not accept. Each other variant shows a fault in the pattern.
-///
-/// The enum gets a new variant for each new check, and it loses an
-/// `Unsupported...` variant for each construction that the parser learns. Thus
-/// the enum is not exhaustive, and a match on it needs a `_` arm.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ParseErrorKind {

@@ -3,14 +3,8 @@ use std::fmt::{Display, Formatter, Result};
 
 /// A failure to build the automaton of a lexer.
 ///
-/// The error gives the index of the rule at fault, and the kind of the
-/// failure. A lexicon keeps its rules in the sequence in which they arrived,
-/// thus the index names the rule that the lexer author wrote. A fault that
-/// belongs to the whole lexicon gives no index.
-///
-/// The derive macro turns this error into a `compile_error!` at the span of
-/// that rule, or at the span of the lexer. Thus each check on a rule gives a
-/// `BuildError`, and no check on a rule panics.
+/// The index of the rule gives the derive macro the span for its
+/// `compile_error!`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct BuildError {
@@ -22,9 +16,6 @@ pub struct BuildError {
 }
 
 /// The kind of failure that a [`BuildError`] reports.
-///
-/// The enum gets a new variant for each new check. Thus the enum is not
-/// exhaustive, and a match on it needs a `_` arm.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BuildErrorKind {
@@ -38,8 +29,7 @@ pub enum BuildErrorKind {
         declared: usize,
     },
     /// The pattern of a rule matches the empty string. Such a rule gives a
-    /// match of no length, thus a driver that advances by the length of the
-    /// match makes no progress.
+    /// match of no length, thus the lexer makes no progress.
     MatchesEmpty,
     /// The repetitions of a pattern expand it above the maximum size.
     PatternTooLarge {
@@ -76,8 +66,7 @@ impl BuildErrorKind {
 
     /// Joins this kind to the whole lexicon, then gives the error.
     ///
-    /// A ceiling of the automaton belongs to each rule together, thus the
-    /// error names no rule.
+    /// A ceiling of the automaton belongs to each rule together.
     pub(super) fn in_lexicon(self) -> BuildError {
         BuildError {
             rule: None,
@@ -87,10 +76,6 @@ impl BuildErrorKind {
 }
 
 impl From<Overflow> for BuildErrorKind {
-    /// Takes the part and the maximum of `overflow`.
-    ///
-    /// The kind embeds both values. Thus a `BuildError` needs no other error,
-    /// and it stays small and `Clone`.
     fn from(overflow: Overflow) -> Self {
         Self::TooLarge {
             part: overflow.part,

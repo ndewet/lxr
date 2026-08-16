@@ -7,10 +7,8 @@
 //! Each automaton implements [`Automaton`]. Thus [`longest_match`] scans a nondeterministic
 //! automaton and a deterministic automaton with the same code.
 //!
-//! Each [`StateId`] and each [`StartId`] comes from lxr, and not from a lexer author. Thus a
-//! function of this module panics for an identifier that its automaton does not hold. An
-//! [`Overflow`] is the one failure that a build reports, because a large lexicon reaches a limit
-//! and shows no defect.
+//! Each identifier comes from lxr, and not from a lexer author. Thus a function panics for an
+//! identifier that its automaton does not hold. A full automaton gives an [`Overflow`].
 
 #![allow(dead_code)]
 

@@ -209,9 +209,8 @@ impl Node {
     /// Returns the first repetition of the tree whose maximum is below its
     /// minimum.
     ///
-    /// Such a repetition matches nothing, and a construction cannot make its
-    /// states. The parser rejects it. A caller that builds a tree by hand can
-    /// still make one, thus a lexer checks each tree that it gets.
+    /// Such a repetition matches nothing. The parser rejects it, but a tree
+    /// that a caller builds by hand can hold one.
     ///
     /// # Examples
     ///

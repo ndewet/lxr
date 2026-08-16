@@ -4,18 +4,13 @@ pub struct StateId(u32);
 
 impl StateId {
     /// The number of the states that a state arena holds.
-    ///
-    /// A `StateId` keeps its index as a `u32`, thus the last index is `u32::MAX`. A build that
-    /// needs one more state gives an [`Overflow`](super::Overflow).
     pub const CAPACITY: usize = (u32::MAX as usize).saturating_add(1);
 
     /// Creates a `StateId` from an index into the state arena.
     ///
     /// # Panics
     ///
-    /// This function panics if `index` is not below [`CAPACITY`](Self::CAPACITY). Only lxr makes a
-    /// `StateId`, thus such an index is a defect. An
-    /// [`NfaBuilder`](super::NfaBuilder) checks the count before it pushes a state.
+    /// This function panics if `index` is not below [`CAPACITY`](Self::CAPACITY).
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("an automaton holds at most u32::MAX + 1 states"))
     }
@@ -42,8 +37,7 @@ impl StartId {
     ///
     /// # Panics
     ///
-    /// This function panics if `index` is not below [`CAPACITY`](Self::CAPACITY). Only lxr makes a
-    /// `StartId`, thus such an index is a defect.
+    /// This function panics if `index` is not below [`CAPACITY`](Self::CAPACITY).
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("an automaton has at most u32::MAX + 1 start states"))
     }

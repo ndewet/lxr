@@ -16,8 +16,7 @@
 //!    character set with [`utf8::lower`].
 //!
 //! [`Lexicon::rule`] and [`compile`] read what a lexer author wrote. Thus each
-//! one gives a [`BuildError`], and neither one panics. The derive macro turns
-//! the error into a `compile_error!` at the span of the rule.
+//! one gives a [`BuildError`], and neither one panics.
 
 #![allow(dead_code)]
 

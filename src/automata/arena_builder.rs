@@ -13,8 +13,7 @@ pub struct ArenaBuilder<T> {
 impl<T> ArenaBuilder<T> {
     /// The number of the items that an [`Arena`] holds.
     ///
-    /// An arena keeps the offset of each group as a `u32`. The last offset is the number of the
-    /// items, thus the number of the items fits in a `u32`.
+    /// The last offset of an arena is the number of the items, and an offset is a `u32`.
     pub const CAPACITY: usize = u32::MAX as usize;
 
     /// Creates an `ArenaBuilder` that holds no item.
@@ -24,8 +23,7 @@ impl<T> ArenaBuilder<T> {
 
     /// Creates an `ArenaBuilder` that holds at most `capacity` items.
     ///
-    /// The tests need a capacity that a test can reach. [`CAPACITY`](Self::CAPACITY) is too large
-    /// for a test.
+    /// The tests need a capacity below [`CAPACITY`](Self::CAPACITY).
     pub(super) fn with_capacity(capacity: usize) -> Self {
         Self {
             entries: Vec::new(),
@@ -37,8 +35,7 @@ impl<T> ArenaBuilder<T> {
     ///
     /// # Panics
     ///
-    /// This function panics if `group` is above `u32::MAX`. A group is a state, and the state
-    /// arena holds fewer states than that, thus such a group is a defect.
+    /// This function panics if `group` is above `u32::MAX`.
     pub fn push(&mut self, group: usize, item: T) {
         let group = u32::try_from(group).expect("an arena holds at most u32::MAX + 1 groups");
         self.entries.push((group, item));
@@ -55,8 +52,7 @@ impl<T> ArenaBuilder<T> {
     ///
     /// # Panics
     ///
-    /// This function panics if the group of an item is not below `group_count`. Only lxr adds an
-    /// item, thus such a group is a defect.
+    /// This function panics if the group of an item is not below `group_count`.
     pub fn build(self, group_count: usize) -> Result<Arena<T>, Overflow> {
         if self.entries.len() > self.capacity {
             return Err(Overflow::new(Part::Items, self.capacity));

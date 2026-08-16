@@ -71,9 +71,8 @@ impl CharSet {
     ///
     /// # Panics
     ///
-    /// This function panics if `low` is above `high`. The caller gives both
-    /// ends, thus such a range is a defect in the calling code. A range that
-    /// comes from a pattern goes through the parser, and the parser gives
+    /// This function panics if `low` is above `high`. A range that comes from
+    /// a pattern goes through the parser, and the parser gives
     /// [`ParseErrorKind::InvertedRange`](super::ParseErrorKind::InvertedRange).
     ///
     /// # Examples

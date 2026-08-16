@@ -65,15 +65,14 @@ impl<R> Lexicon<R> {
     /// accept of the accepts that it reaches at the longest length. Thus give
     /// the accepts in the sequence of precedence.
     ///
-    /// The lexicon keeps a rule only if the rule passes each check. A rule
-    /// that fails a check changes nothing.
+    /// A rule that fails a check changes nothing.
     ///
     /// # Errors
     ///
     /// This function returns a [`BuildError`] of one of these kinds:
     ///
     /// - [`NoCondition`](BuildErrorKind::NoCondition), if `conditions` is
-    ///   empty. No scan can reach such a rule.
+    ///   empty.
     /// - [`UnknownCondition`](BuildErrorKind::UnknownCondition), if
     ///   `conditions` holds an identifier that this lexicon did not declare.
     /// - [`MatchesEmpty`](BuildErrorKind::MatchesEmpty), if `pattern` matches
@@ -83,9 +82,6 @@ impl<R> Lexicon<R> {
     /// - [`PatternTooLarge`](BuildErrorKind::PatternTooLarge), if the
     ///   [`expanded_size`](Node::expanded_size) of `pattern` is above
     ///   [`MAX_PATTERN_SIZE`].
-    ///
-    /// The error names the index that this rule gets. Thus the caller can
-    /// point at the rule that the lexer author wrote.
     pub fn rule(
         &mut self,
         pattern: Node,

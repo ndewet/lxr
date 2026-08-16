@@ -164,10 +164,8 @@ fn repetition<A: Alphabet, R>(
 /// Returns the minimum of `repetitions`, and its maximum. A maximum of `None`
 /// gives no limit.
 ///
-/// [`Lexicon::rule`](super::Lexicon::rule) rejects a
-/// [`Range`](Repetitions::Range) whose maximum is below its minimum. Thus the
-/// check here is a `debug_assert!`, and a release build makes no copy of the
-/// expression for such a range.
+/// [`Lexicon::rule`](super::Lexicon::rule) rejects an inverted
+/// [`Range`](Repetitions::Range), thus the check here is a `debug_assert!`.
 fn bounds(repetitions: Repetitions) -> (usize, Option<usize>) {
     match repetitions {
         Repetitions::AtLeast(minimum) => (minimum, None),

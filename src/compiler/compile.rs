@@ -29,11 +29,8 @@ use crate::automata::{Nfa, NfaBuilder, StateId};
 ///
 /// This function returns a [`BuildError`] of the kind
 /// [`TooLarge`](BuildErrorKind::TooLarge) if the rules together need a larger
-/// automaton than one automaton holds. The ceiling belongs to each rule
-/// together, thus the error names no rule.
-///
-/// [`Lexicon::rule`] checks each other property of a rule. Thus this function
-/// finds no other fault.
+/// automaton than one automaton holds. [`Lexicon::rule`] finds each other
+/// fault.
 pub fn compile<A: Alphabet, R>(
     alphabet: A,
     lexicon: Lexicon<R>,

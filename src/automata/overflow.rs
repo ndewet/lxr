@@ -2,12 +2,8 @@ use std::fmt::{Display, Formatter, Result};
 
 /// A build that asks for more than an automaton holds.
 ///
-/// An automaton keeps each identifier as a `u32`. Thus the state arena holds at most
-/// [`StateId::CAPACITY`](super::StateId::CAPACITY) states, and one [`Arena`](super::Arena) holds
-/// at most [`ArenaBuilder::CAPACITY`](super::ArenaBuilder::CAPACITY) items.
-///
 /// A ceiling is a limit of the automaton, and not a defect in the caller. Thus a build reports the
-/// overflow, and it does not panic. The caller gives the report to the person who wrote the lexer.
+/// overflow, and it does not panic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Overflow {
@@ -42,7 +38,7 @@ impl std::error::Error for Overflow {}
 pub enum Part {
     /// The states of the automaton.
     States,
-    /// The items of one [`Arena`](super::Arena). A transition and an epsilon transition are items.
+    /// The items of one [`Arena`](super::Arena), for example the transitions.
     Items,
 }
 

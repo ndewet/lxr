@@ -49,9 +49,7 @@ impl<'a, L, A> NfaExecution<'a, L, A> {
     ///
     /// # Panics
     ///
-    /// This function panics if a state in `states` is not in the state arena. Only a debug build
-    /// gives a message that names the state. Only lxr makes a state, thus such a state is a
-    /// defect.
+    /// This function panics if a state in `states` is not in the state arena.
     pub fn seed(&mut self, states: &[StateId]) {
         let Self {
             nfa,
@@ -106,10 +104,8 @@ impl<L: Label, A> Execution for NfaExecution<'_, L, A> {
 ///
 /// # Panics
 ///
-/// This function panics if a state in `seeds` is not in the state arena. A debug build gives the
-/// message below. A release build gives the message of the bounds check on `reached`, because the
-/// loop that names each seed runs one time for each symbol. Only lxr makes a seed, thus a seed
-/// outside the state arena is a defect.
+/// This function panics if a state in `seeds` is not in the state arena. The check is a
+/// `debug_assert!`, because `step` calls this function one time for each symbol.
 fn closure<L, A>(
     nfa: &Nfa<L, A>,
     reached: &mut [bool],
