@@ -164,7 +164,7 @@ impl<L: Label, A> Automaton for Nfa<L, A> {
 mod tests {
     use super::super::builder::NfaBuilder;
     use super::*;
-    use crate::automata::reference::{Symbols, only, range};
+    use crate::automata::testing::{Symbols, only, range};
 
     fn builder() -> NfaBuilder<Symbols, u32> {
         NfaBuilder::new()

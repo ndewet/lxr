@@ -186,7 +186,7 @@ impl<L, A> Default for NfaBuilder<L, A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automata::reference::{Symbols, only};
+    use crate::automata::testing::{Symbols, only};
 
     fn builder() -> NfaBuilder<Symbols, u32> {
         NfaBuilder::new()

@@ -1,6 +1,14 @@
+//! The automata that the tests of this module share, and the tests of a scan of an NFA.
+//!
+//! The module compiles only under `cfg(test)`. It ships in no build of the crate.
+//!
+//! Thompson construction is in the compiler, and the automata module does not depend on the
+//! compiler. Thus a test builds the shape of a pattern by hand. [`literal`] and [`star`] give the
+//! two shapes that the tests of a scan need.
+
 use super::builder::NfaBuilder;
 use crate::automata::id::StateId;
-use crate::automata::reference::{Symbols, only};
+use crate::automata::testing::{Symbols, only};
 
 /// Adds the states that match `text`, then makes the last state accept.
 pub(super) fn literal(builder: &mut NfaBuilder<Symbols, u32>, text: &str, accept: u32) -> StateId {

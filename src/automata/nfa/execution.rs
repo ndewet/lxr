@@ -154,7 +154,7 @@ mod tests {
     use super::super::builder::NfaBuilder;
     use super::*;
     use crate::automata::automaton::Automaton;
-    use crate::automata::reference::{Symbols, only};
+    use crate::automata::testing::{Symbols, only};
 
     fn builder() -> NfaBuilder<Symbols, u32> {
         NfaBuilder::new()

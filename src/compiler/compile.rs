@@ -56,7 +56,7 @@ pub fn compile<A: Alphabet, R>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automata::{Automaton, StartId, longest_match};
+    use crate::automata::{Automaton, Dfa, Label, StartId, StateId, longest_match};
     use crate::compiler::{ByteRange, Bytes};
     use crate::regex::Node;
 
@@ -71,8 +71,11 @@ mod tests {
 
     /// Returns the accept and the length of the longest match at the start of
     /// `input`, under `start`.
-    fn scan(nfa: &Nfa<ByteRange, Token>, start: StartId, input: &str) -> Option<(Token, usize)> {
-        let mut execution = nfa.execute(start);
+    fn scan<T>(automaton: &T, start: StartId, input: &str) -> Option<(Token, usize)>
+    where
+        T: Automaton<Symbol = u8, Accept = Token>,
+    {
+        let mut execution = automaton.execute(start);
         longest_match(&mut execution, start, input.as_bytes())
             .map(|found| (found.accept, found.length))
     }
@@ -172,13 +175,11 @@ mod tests {
     /// The scan starts under `code`. A [`Quote`](Token::Quote) changes the
     /// start condition, thus the same bytes give a different token inside a
     /// string.
-    fn tokens(
-        nfa: &Nfa<ByteRange, Token>,
-        code: StartId,
-        string: StartId,
-        input: &str,
-    ) -> Vec<Token> {
-        let mut execution = nfa.execute(code);
+    fn tokens<T>(automaton: &T, code: StartId, string: StartId, input: &str) -> Vec<Token>
+    where
+        T: Automaton<Symbol = u8, Accept = Token>,
+    {
+        let mut execution = automaton.execute(code);
         let mut condition = code;
         let mut offset = 0;
         let mut found = Vec::new();
@@ -226,5 +227,84 @@ mod tests {
 
         assert_eq!(nfa.start_count(), 2);
         assert_ne!(nfa.start_state(code), nfa.start_state(string));
+    }
+
+    /// Determinizes `nfa`. A test stays below the capacity of an automaton.
+    fn determinized(nfa: &Nfa<ByteRange, Token>) -> Dfa<ByteRange, Token> {
+        nfa.determinize().expect("a test stays below the capacity")
+    }
+
+    /// The inputs of the differential test. Each one is a token, a part of a
+    /// token, or an input that the lexer rejects.
+    const INPUTS: [&str; 18] = [
+        "", "l", "let", "letter", "let9", "f", "fn", "fun", "a", "z9", "9", "!", " ", "\"",
+        "\"let\"", "a b", "é", "\u{80}",
+    ];
+
+    #[test]
+    fn the_dfa_of_a_lexer_gives_the_same_match_as_its_nfa() {
+        let (nfa, code, string) = lexer();
+        let dfa = determinized(&nfa);
+
+        for start in [code, string] {
+            for input in INPUTS {
+                assert_eq!(
+                    scan(&dfa, start, input),
+                    scan(&nfa, start, input),
+                    "input {input:?} under start {}",
+                    start.index()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_lexer_reads_each_token_of_its_input_with_a_dfa() {
+        let (nfa, code, string) = lexer();
+        let dfa = determinized(&nfa);
+
+        assert_eq!(
+            tokens(&dfa, code, string, "let\"let\"fn"),
+            vec![
+                Token::Keyword,
+                Token::Quote,
+                Token::Text,
+                Token::Quote,
+                Token::Keyword,
+            ],
+        );
+        assert_eq!(
+            tokens(&dfa, code, string, "letter\"a b\""),
+            vec![Token::Identifier, Token::Quote, Token::Text, Token::Quote,],
+        );
+    }
+
+    #[test]
+    fn each_state_of_the_dfa_reads_one_byte_into_a_maximum_of_one_state() {
+        let (nfa, _, _) = lexer();
+        let dfa = determinized(&nfa);
+
+        for index in 0..dfa.state_count() {
+            let transitions = dfa.transitions(StateId::new(index));
+            for byte in 0..=u8::MAX {
+                let count = transitions
+                    .iter()
+                    .filter(|transition| transition.label.matches(byte))
+                    .count();
+                assert!(
+                    count <= 1,
+                    "state {index} reads the byte {byte:#04X} into {count} states"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_dfa_keeps_one_start_state_for_each_start_condition() {
+        let (nfa, code, string) = lexer();
+        let dfa = determinized(&nfa);
+
+        assert_eq!(dfa.start_count(), nfa.start_count());
+        assert_ne!(dfa.start_state(code), dfa.start_state(string));
     }
 }

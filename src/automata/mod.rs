@@ -7,6 +7,9 @@
 //! Each automaton implements [`Automaton`]. Thus [`longest_match`] scans a nondeterministic
 //! automaton and a deterministic automaton with the same code.
 //!
+//! [`Nfa::determinize`] joins the two. It gives the [`Dfa`] that accepts the same input. It
+//! divides the labels with [`Divisible`], thus it needs no alphabet of its own.
+//!
 //! Each identifier comes from lxr, and not from a lexer author. Thus a function panics for an
 //! identifier that its automaton does not hold. A full automaton gives an [`Overflow`].
 
@@ -15,14 +18,17 @@
 mod arena;
 mod arena_builder;
 mod automaton;
+mod determinize;
+mod dfa;
+mod divisible;
 mod execution;
 mod id;
 mod label;
 mod nfa;
 mod overflow;
-#[cfg(test)]
-mod reference;
 mod scan;
+#[cfg(test)]
+mod testing;
 mod transition;
 
 #[allow(unused_imports)]
@@ -30,6 +36,8 @@ pub use self::{
     arena::Arena,
     arena_builder::ArenaBuilder,
     automaton::Automaton,
+    dfa::{Dfa, DfaBuilder, DfaExecution},
+    divisible::Divisible,
     execution::Execution,
     id::{StartId, StateId},
     label::Label,

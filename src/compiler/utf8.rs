@@ -16,7 +16,7 @@
 //! manner as all other incorrect input. It never holds a part of a decoded
 //! character.
 
-use crate::automata::Label;
+use crate::automata::{Divisible, Label};
 use crate::regex::CharSet;
 
 /// The maximum number of the bytes that a character encodes to.
@@ -44,6 +44,26 @@ impl Label for ByteRange {
 
     fn matches(&self, byte: u8) -> bool {
         (self.low..=self.high).contains(&byte)
+    }
+}
+
+impl Divisible for ByteRange {
+    /// Divides `labels` into the ranges between their ends.
+    ///
+    /// The result is in ascending sequence.
+    #[expect(clippy::todo, unused_variables, reason = "step 2 of the plan")]
+    fn divide(labels: &[Self]) -> Vec<Self> {
+        todo!()
+    }
+
+    /// Returns the lowest byte in the range.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the range matches no byte.
+    #[expect(clippy::todo, reason = "step 2 of the plan")]
+    fn any_symbol(&self) -> u8 {
+        todo!()
     }
 }
 
@@ -471,5 +491,163 @@ mod tests {
     #[should_panic(expected = "a character encodes to 1 to 4 bytes, not 5")]
     fn a_sequence_of_more_ranges_than_a_character_has_bytes_panics() {
         sequence(&[(0, 0), (0, 0), (0, 0), (0, 0), (0, 0)]);
+    }
+
+    fn range(low: u8, high: u8) -> ByteRange {
+        ByteRange { low, high }
+    }
+
+    fn divided(labels: &[ByteRange]) -> Vec<ByteRange> {
+        ByteRange::divide(labels)
+    }
+
+    #[test]
+    fn no_label_divides_into_no_class() {
+        assert_eq!(divided(&[]), Vec::new());
+    }
+
+    #[test]
+    fn one_label_divides_into_itself() {
+        assert_eq!(divided(&[range(b'a', b'z')]), vec![range(b'a', b'z')]);
+    }
+
+    #[test]
+    fn two_labels_that_share_no_byte_stay_separate() {
+        assert_eq!(
+            divided(&[range(b'a', b'c'), range(b'e', b'f')]),
+            vec![range(b'a', b'c'), range(b'e', b'f')]
+        );
+    }
+
+    #[test]
+    fn two_labels_that_touch_stay_separate() {
+        assert_eq!(
+            divided(&[range(b'a', b'c'), range(b'd', b'f')]),
+            vec![range(b'a', b'c'), range(b'd', b'f')]
+        );
+    }
+
+    #[test]
+    fn two_labels_that_share_bytes_divide_into_three_classes() {
+        assert_eq!(
+            divided(&[range(b'a', b'f'), range(b'd', b'z')]),
+            vec![range(b'a', b'c'), range(b'd', b'f'), range(b'g', b'z')]
+        );
+    }
+
+    #[test]
+    fn a_label_inside_another_label_divides_into_three_classes() {
+        assert_eq!(
+            divided(&[range(0, 255), range(10, 20)]),
+            vec![range(0, 9), range(10, 20), range(21, 255)]
+        );
+    }
+
+    #[test]
+    fn two_equal_labels_divide_into_one_class() {
+        assert_eq!(
+            divided(&[range(0x80, 0xBF), range(0x80, 0xBF)]),
+            vec![range(0x80, 0xBF)]
+        );
+    }
+
+    #[test]
+    fn the_classes_are_ascending() {
+        assert_eq!(
+            divided(&[range(b'd', b'z'), range(b'b', b'b'), range(b'a', b'f')]),
+            vec![
+                range(b'a', b'a'),
+                range(b'b', b'b'),
+                range(b'c', b'c'),
+                range(b'd', b'f'),
+                range(b'g', b'z')
+            ]
+        );
+    }
+
+    #[test]
+    fn a_label_that_reaches_the_last_byte_divides_into_one_class() {
+        assert_eq!(divided(&[range(0xF0, 0xFF)]), vec![range(0xF0, 0xFF)]);
+    }
+
+    /// Asserts that the classes of `labels` obey the conditions of
+    /// [`Divisible::divide`].
+    fn obeys_the_conditions(labels: &[ByteRange]) {
+        let classes = divided(labels);
+
+        for class in &classes {
+            assert!(
+                class.low <= class.high,
+                "the class {class:?} matches no byte"
+            );
+        }
+        for pair in classes.windows(2) {
+            assert!(
+                pair[0].high < pair[1].low,
+                "{:?} does not come before {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+
+        for byte in 0..=u8::MAX {
+            let held = classes.iter().filter(|c| c.matches(byte)).count();
+            let covered = labels.iter().any(|label| label.matches(byte));
+            assert_eq!(
+                held,
+                usize::from(covered),
+                "{held} classes hold the byte {byte:#04X}"
+            );
+        }
+
+        for class in &classes {
+            let width = usize::from(class.high - class.low) + 1;
+            for label in labels {
+                let held = (class.low..=class.high)
+                    .filter(|&byte| label.matches(byte))
+                    .count();
+                assert!(
+                    held == 0 || held == width,
+                    "the label {label:?} holds {held} of the {width} bytes \
+                     of the class {class:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_classes_of_a_set_of_labels_obey_the_conditions() {
+        obeys_the_conditions(&[]);
+        obeys_the_conditions(&[range(0, 255)]);
+        obeys_the_conditions(&[range(0, 0), range(255, 255)]);
+        obeys_the_conditions(&[range(0, 255), range(0, 255)]);
+        obeys_the_conditions(&[range(0x80, 0xBF), range(0xC2, 0xDF)]);
+        obeys_the_conditions(&[range(b'a', b'f'), range(b'd', b'z'), range(b'A', b'Z')]);
+        obeys_the_conditions(&[range(0, 100), range(50, 150), range(100, 200)]);
+        obeys_the_conditions(&[range(10, 10), range(10, 20), range(0, 255)]);
+    }
+
+    #[test]
+    fn the_classes_of_the_labels_of_a_set_obey_the_conditions() {
+        let set = CharSet::any().subtract(&CharSet::single('é'));
+        let labels: Vec<ByteRange> = lower(&set)
+            .iter()
+            .flat_map(|sequence| sequence.ranges().to_vec())
+            .collect();
+
+        obeys_the_conditions(&labels);
+    }
+
+    #[test]
+    fn a_label_gives_a_byte_that_it_matches() {
+        assert!(range(b'a', b'z').matches(range(b'a', b'z').any_symbol()));
+        assert!(range(0, 255).matches(range(0, 255).any_symbol()));
+        assert!(range(255, 255).matches(range(255, 255).any_symbol()));
+    }
+
+    #[test]
+    #[should_panic(expected = "the byte range from 10 to 5 matches no byte")]
+    fn a_label_that_matches_no_byte_gives_no_symbol() {
+        range(10, 5).any_symbol();
     }
 }

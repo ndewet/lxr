@@ -4,7 +4,7 @@ mod automaton;
 mod builder;
 mod execution;
 #[cfg(test)]
-mod reference;
+mod testing;
 
 #[allow(unused_imports)]
 pub use self::{automaton::Nfa, builder::NfaBuilder, execution::NfaExecution};
