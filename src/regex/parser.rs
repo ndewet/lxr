@@ -112,7 +112,7 @@ impl<'a> RegexParser<'a> {
             None => Err(self.at(Kind::UnexpectedEnd, position)),
             Some('(') => {
                 self.cursor.pop();
-                if self.cursor.peek() == Some('?') {
+                if self.cursor.accept('?') {
                     return Err(self.spanned(Kind::UnsupportedGroup, position));
                 }
                 self.depth += 1;
@@ -962,7 +962,8 @@ mod tests {
             (r"\q", r"\q"),
             (r"\x{D800}", r"\x{D800}"),
             ("^a", "^"),
-            ("(?:a)", "("),
+            ("(?:a)", "(?"),
+            ("(?", "(?"),
             ("[[:alpha:]]", "["),
             (r"\012", r"\0"),
             (r"(a)\1", r"\1"),
