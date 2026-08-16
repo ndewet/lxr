@@ -3,7 +3,11 @@ name = "lxr-codegen"
 version.workspace = true
 edition.workspace = true
 
+# A derive macro calls this crate, thus it emits a `TokenStream`. CONTRIBUTING.md
+# holds the rule on the dependencies.
 [dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
 
 [lints]
 workspace = true

@@ -15,5 +15,6 @@
 
 mod automata;
 mod compiler;
+mod emit;
 pub mod regex;
 mod table;
