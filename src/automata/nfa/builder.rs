@@ -185,7 +185,6 @@ impl<L, A> Default for NfaBuilder<L, A> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::reference::built;
     use super::*;
     use crate::automata::reference::{Symbols, only};
 
@@ -210,7 +209,9 @@ mod tests {
         let second = builder.push();
         builder.accept(first, 0);
         builder.accept(second, 9);
-        let nfa = built(builder, &[second]);
+        let nfa = builder
+            .build(&[second])
+            .expect("the builder is below its capacity");
 
         assert_eq!(nfa.accept(first), Some(&0));
         assert_eq!(nfa.accept(second), Some(&9));
@@ -223,7 +224,9 @@ mod tests {
         let loop_state = builder.push();
         builder.transition(loop_state, only('a'), loop_state);
         builder.epsilon(loop_state, loop_state);
-        let nfa = built(builder, &[loop_state]);
+        let nfa = builder
+            .build(&[loop_state])
+            .expect("the builder is below its capacity");
 
         assert_eq!(nfa.transitions(loop_state)[0].target, loop_state);
         assert_eq!(nfa.epsilons(loop_state), &[loop_state]);
@@ -236,7 +239,9 @@ mod tests {
         let accept = StateId::new(1);
         builder.transition(start, only('a'), accept);
         builder.push();
-        let nfa = built(builder, &[start]);
+        let nfa = builder
+            .build(&[start])
+            .expect("the builder is below its capacity");
 
         assert_eq!(nfa.transitions(start)[0].target, accept);
     }
@@ -321,7 +326,13 @@ mod tests {
         let accept = builder.push();
         builder.transition(start, only('a'), accept);
 
-        assert_eq!(built(builder, &[start]).state_count(), 2);
+        assert_eq!(
+            builder
+                .build(&[start])
+                .expect("the builder is below its capacity")
+                .state_count(),
+            2
+        );
     }
 
     #[test]
