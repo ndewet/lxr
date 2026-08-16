@@ -56,8 +56,9 @@ determinization, minimization, Thompson construction.
 - Start each `# Panics` section with "This function panics if".
 - Give an example for each public function. CI runs the examples as doctests.
 - Keep the wrap width of the file. The files in `lxr-codegen/src/automata/`
-  wrap near 100 columns. The files in `lxr-codegen/src/regex/` and
-  `lxr-codegen/src/compiler/` wrap near 80 columns.
+  and `lxr-codegen/src/table.rs` wrap near 100 columns. The files in
+  `lxr-codegen/src/regex/` and `lxr-codegen/src/compiler/` wrap near 80
+  columns.
 
 ## Non-documentation comments
 
