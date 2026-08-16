@@ -1,7 +1,7 @@
 //! Compiles the rules of a lexer into an automaton.
 //!
 //! The module reads a [`Node`](crate::regex::Node) tree from the
-//! [`regex`](crate::regex) module. It gives an [`Nfa`](crate::automata::Nfa)
+//! [`regex`](crate::regex) module. It gives an [`Nfa`](crate::automata::NondeterministicFiniteAutomaton)
 //! to the [`automata`](crate::automata) module. Thus the alphabet of the
 //! lexer lives here, and not in either of the other two modules.
 //!
@@ -20,6 +20,7 @@
 
 #![allow(dead_code)]
 
+mod accepts;
 mod alphabet;
 mod bytes;
 mod compile;
@@ -32,6 +33,7 @@ mod utf8;
 
 #[allow(unused_imports)]
 pub use self::{
+    accepts::Accepts,
     alphabet::Alphabet,
     bytes::Bytes,
     compile::compile,

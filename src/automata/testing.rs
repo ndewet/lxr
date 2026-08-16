@@ -1,4 +1,4 @@
-//! The alphabet that the tests of this module share.
+//! The alphabet and the automata that the tests of this module share.
 //!
 //! The module compiles only under `cfg(test)`. It ships in no build of the crate.
 //!
@@ -6,8 +6,19 @@
 //! characters. A character alphabet holds a gap at the values of the surrogates, and it holds more
 //! than a million symbols. Thus a test that reads this alphabet catches code in this module that
 //! assumes 256 contiguous symbols.
+//!
+//! Thompson construction is in the compiler, and the automata module does not depend on the
+//! compiler. Thus [`literal`] makes the states of one word by hand.
 
+use super::arena::ArenaBuilder;
+use super::automaton::Transition;
+use super::dfa::DeterministicFiniteAutomaton;
+use super::execution::Execution;
+use super::id::StateId;
 use super::label::Label;
+use super::nfa::NfaBuilder;
+use super::range::Range;
+use super::scanner::Scanner;
 
 /// The test alphabet. An automaton knows no alphabet, thus a test selects one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,36 +34,44 @@ impl Label for Symbols {
         (self.low..=self.high).contains(&symbol)
     }
 
-    /// Divides `labels` into the ranges between their ends.
-    ///
-    /// The ends of the labels are the only symbols at which a label changes its answer. Thus the
-    /// range from one end to the next end is one class. A range that no label matches is a gap
-    /// between two labels, and the result leaves it out.
-    ///
-    /// The result is in ascending sequence, and the symbol of a class is its lowest character.
     fn divide(labels: &[Self]) -> Vec<(Self, char)> {
-        let mut starts = Vec::with_capacity(labels.len() * 2);
-        for label in labels {
-            starts.push(label.low);
-            if let Some(above) = after(label.high) {
-                starts.push(above);
-            }
-        }
-        starts.sort_unstable();
-        starts.dedup();
+        Self::classes(labels)
+    }
+}
 
-        let mut classes = Vec::with_capacity(starts.len());
-        for (index, &low) in starts.iter().enumerate() {
-            let high = match starts.get(index + 1) {
-                Some(&next) => before(next)
-                    .expect("a start is above the start before it, thus one is below it"),
-                None => char::MAX,
-            };
-            if labels.iter().any(|label| label.matches(low)) {
-                classes.push((range(low, high), low));
-            }
+impl Range for Symbols {
+    const LAST: char = char::MAX;
+
+    fn new(low: char, high: char) -> Self {
+        range(low, high)
+    }
+
+    fn low(&self) -> char {
+        self.low
+    }
+
+    fn high(&self) -> char {
+        self.high
+    }
+
+    /// Returns the character after `symbol`, or `None` if `symbol` is the last character.
+    ///
+    /// The characters leave out the surrogates. Thus the function steps across that gap.
+    fn after(symbol: char) -> Option<char> {
+        if symbol == BELOW_GAP {
+            return Some(ABOVE_GAP);
         }
-        classes
+        char::from_u32(symbol as u32 + 1)
+    }
+
+    /// Returns the character before `symbol`, or `None` if `symbol` is the first character.
+    ///
+    /// The characters leave out the surrogates. Thus the function steps across that gap.
+    fn before(symbol: char) -> Option<char> {
+        if symbol == ABOVE_GAP {
+            return Some(BELOW_GAP);
+        }
+        char::from_u32((symbol as u32).checked_sub(1)?)
     }
 }
 
@@ -70,146 +89,93 @@ pub(super) fn range(low: char, high: char) -> Symbols {
 }
 
 /// The first character above the values that the surrogates hold.
-const ABOVE_GAP: char = '\u{E000}';
+pub(super) const ABOVE_GAP: char = '\u{E000}';
 
 /// The last character below the values that the surrogates hold.
-const BELOW_GAP: char = '\u{D7FF}';
+pub(super) const BELOW_GAP: char = '\u{D7FF}';
 
-/// Returns the character after `symbol`, or `None` if `symbol` is the last character.
-///
-/// The characters leave out the surrogates. Thus the function steps across that gap.
-pub(super) fn after(symbol: char) -> Option<char> {
-    if symbol == BELOW_GAP {
-        return Some(ABOVE_GAP);
-    }
-    char::from_u32(symbol as u32 + 1)
+/// The first state and the last state of the states that [`literal`] added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Path {
+    /// The state at which the word starts.
+    pub entry: StateId,
+    /// The state that accepts the whole word.
+    pub exit: StateId,
 }
 
-/// Returns the character before `symbol`, or `None` if `symbol` is the first character.
-///
-/// The characters leave out the surrogates. Thus the function steps across that gap.
-pub(super) fn before(symbol: char) -> Option<char> {
-    if symbol == ABOVE_GAP {
-        return Some(BELOW_GAP);
-    }
-    char::from_u32((symbol as u32).checked_sub(1)?)
+/// Creates an [`NfaBuilder`] of the test alphabet.
+pub(super) fn builder() -> NfaBuilder<Symbols> {
+    NfaBuilder::new()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Returns the state at `index`.
+pub(super) fn state(index: usize) -> StateId {
+    StateId::new(index)
+}
 
-    /// Returns the classes of `labels`, without the symbol of each class.
-    fn divided(labels: &[Symbols]) -> Vec<Symbols> {
-        Symbols::divide(labels)
-            .into_iter()
-            .map(|(class, _)| class)
-            .collect()
-    }
+/// Adds the states that match `text`, then makes the last state accept.
+pub(super) fn literal(builder: &mut NfaBuilder<Symbols>, text: &str) -> Path {
+    let entry = builder.push();
+    let exit = text.chars().fold(entry, |current, symbol| {
+        let next = builder.push();
+        builder.transition(current, only(symbol), next);
+        next
+    });
+    builder.accept(exit);
+    Path { entry, exit }
+}
 
-    #[test]
-    fn no_label_gives_no_class() {
-        assert_eq!(divided(&[]), Vec::new());
-    }
-
-    #[test]
-    fn one_label_gives_itself() {
-        assert_eq!(divided(&[range('a', 'z')]), vec![range('a', 'z')]);
-    }
-
-    #[test]
-    fn two_labels_that_share_no_symbol_stay_separate() {
-        assert_eq!(
-            divided(&[range('a', 'c'), range('e', 'f')]),
-            vec![range('a', 'c'), range('e', 'f')]
-        );
-    }
-
-    #[test]
-    fn two_labels_that_touch_stay_separate() {
-        assert_eq!(
-            divided(&[range('a', 'c'), range('d', 'f')]),
-            vec![range('a', 'c'), range('d', 'f')]
-        );
-    }
-
-    #[test]
-    fn two_labels_that_share_symbols_give_three_classes() {
-        assert_eq!(
-            divided(&[range('a', 'f'), range('d', 'z')]),
-            vec![range('a', 'c'), range('d', 'f'), range('g', 'z')]
-        );
-    }
-
-    #[test]
-    fn a_label_inside_another_label_gives_three_classes() {
-        assert_eq!(
-            divided(&[range('a', 'z'), range('c', 'e')]),
-            vec![range('a', 'b'), range('c', 'e'), range('f', 'z')]
-        );
-    }
-
-    #[test]
-    fn two_equal_labels_give_one_class() {
-        assert_eq!(divided(&[only('a'), only('a')]), vec![only('a')]);
-    }
-
-    #[test]
-    fn the_classes_are_ascending() {
-        assert_eq!(
-            divided(&[range('d', 'z'), only('b'), range('a', 'f')]),
-            vec![
-                only('a'),
-                only('b'),
-                range('c', 'c'),
-                range('d', 'f'),
-                range('g', 'z'),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_label_that_reaches_the_last_character_gives_one_class() {
-        assert_eq!(
-            divided(&[range('a', char::MAX)]),
-            vec![range('a', char::MAX)]
-        );
-    }
-
-    #[test]
-    fn a_class_steps_across_the_gap_of_the_surrogates() {
-        assert_eq!(
-            divided(&[range(BELOW_GAP, ABOVE_GAP), only(ABOVE_GAP)]),
-            vec![only(BELOW_GAP), only(ABOVE_GAP)]
-        );
-    }
-
-    #[test]
-    fn each_class_arrives_with_a_symbol_that_it_matches() {
-        let labels = [
-            range('a', 'f'),
-            range('d', 'z'),
-            only('\0'),
-            range(BELOW_GAP, ABOVE_GAP),
-            only(char::MAX),
-        ];
-
-        for (class, symbol) in Symbols::divide(&labels) {
-            assert!(class.matches(symbol), "{class:?} does not match {symbol:?}");
+/// Builds a [`DeterministicFiniteAutomaton`] from one group of transitions for each state, the accepts, and the starts.
+///
+/// A transition is a label and the index of its target. Only determinization makes a `Dfa` outside
+/// a test, thus a test writes the transitions by hand.
+pub(super) fn dfa(
+    transitions: &[&[(Symbols, usize)]],
+    accepts: &[bool],
+    starts: &[usize],
+) -> DeterministicFiniteAutomaton<Symbols> {
+    let mut arena = ArenaBuilder::new();
+    for (state, group) in transitions.iter().enumerate() {
+        for &(label, target) in *group {
+            arena.push(
+                state,
+                Transition {
+                    label,
+                    target: StateId::new(target),
+                },
+            );
         }
     }
+    let arena = arena
+        .build(accepts.len())
+        .expect("a test stays below the capacity");
+    DeterministicFiniteAutomaton::new(
+        arena,
+        accepts.to_vec(),
+        starts.iter().map(|&index| StateId::new(index)).collect(),
+    )
+}
 
-    #[test]
-    fn the_character_after_the_last_character_below_the_gap_is_above_the_gap() {
-        assert_eq!(after(BELOW_GAP), Some(ABOVE_GAP));
-        assert_eq!(before(ABOVE_GAP), Some(BELOW_GAP));
-    }
+/// Builds the deterministic automaton that matches `"a"` and `"ab"`.
+pub(super) fn chain() -> DeterministicFiniteAutomaton<Symbols> {
+    dfa(
+        &[&[(only('a'), 1)], &[(only('b'), 2)], &[]],
+        &[false, true, true],
+        &[0],
+    )
+}
 
-    #[test]
-    fn the_characters_stop_at_both_ends() {
-        assert_eq!(after(char::MAX), None);
-        assert_eq!(before('\0'), None);
-        assert_eq!(after('a'), Some('b'));
-        assert_eq!(before('b'), Some('a'));
-    }
+/// Returns the length of the longest match at the start of `input`, under `start`.
+///
+/// The test reads a length, and not a meaning of an accept. Thus one call compares a
+/// nondeterministic automaton with the deterministic automaton that it gives.
+pub(super) fn scan<T>(automaton: &T, start: usize, input: &str) -> Option<usize>
+where
+    T: Scanner<Symbol = char>,
+{
+    let symbols: Vec<char> = input.chars().collect();
+    automaton
+        .execute(start)
+        .longest_match(start, &symbols, |_| ())
+        .map(|found| found.length)
 }

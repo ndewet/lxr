@@ -3,8 +3,9 @@
 mod automaton;
 mod builder;
 mod execution;
-#[cfg(test)]
-mod testing;
 
 #[allow(unused_imports)]
-pub use self::{automaton::Nfa, builder::NfaBuilder, execution::NfaExecution};
+pub use self::{
+    automaton::NondeterministicFiniteAutomaton, builder::NfaBuilder,
+    execution::NondeterministicExecution,
+};

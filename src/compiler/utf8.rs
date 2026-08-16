@@ -16,7 +16,7 @@
 //! manner as all other incorrect input. It never holds a part of a decoded
 //! character.
 
-use crate::automata::Label;
+use crate::automata::{Label, Range};
 use crate::regex::CharSet;
 
 /// The maximum number of the bytes that a character encodes to.
@@ -46,36 +46,32 @@ impl Label for ByteRange {
         (self.low..=self.high).contains(&byte)
     }
 
-    /// Divides `labels` into the ranges between their ends.
-    ///
-    /// The ends of the labels are the only bytes at which a label changes its
-    /// answer. Thus the range from one end to the next end is one class. A
-    /// range that no label matches is a gap between two labels, and the result
-    /// leaves it out.
-    ///
-    /// The result is in ascending sequence, and the symbol of a class is its
-    /// lowest byte.
     fn divide(labels: &[Self]) -> Vec<(Self, u8)> {
-        let mut starts = Vec::with_capacity(labels.len() * 2);
-        for label in labels {
-            starts.push(label.low);
-            if let Some(above) = label.high.checked_add(1) {
-                starts.push(above);
-            }
-        }
-        starts.sort_unstable();
-        starts.dedup();
+        Self::classes(labels)
+    }
+}
 
-        let mut classes = Vec::with_capacity(starts.len());
-        for (index, &low) in starts.iter().enumerate() {
-            // The starts ascend and hold no duplicate, thus the next start is
-            // above `low` and the subtraction stays in the bytes.
-            let high = starts.get(index + 1).map_or(u8::MAX, |&next| next - 1);
-            if labels.iter().any(|label| label.matches(low)) {
-                classes.push((ByteRange { low, high }, low));
-            }
-        }
-        classes
+impl Range for ByteRange {
+    const LAST: u8 = u8::MAX;
+
+    fn new(low: u8, high: u8) -> Self {
+        Self { low, high }
+    }
+
+    fn low(&self) -> u8 {
+        self.low
+    }
+
+    fn high(&self) -> u8 {
+        self.high
+    }
+
+    fn after(byte: u8) -> Option<u8> {
+        byte.checked_add(1)
+    }
+
+    fn before(byte: u8) -> Option<u8> {
+        byte.checked_sub(1)
     }
 }
 

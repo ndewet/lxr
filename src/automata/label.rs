@@ -10,7 +10,7 @@
 /// [`divide`](Self::divide) keeps the alphabet outside the automata module. A byte label divides
 /// into byte ranges, and a character label divides into character ranges. Determinization reads
 /// only this trait, thus it knows neither alphabet.
-pub trait Label: Sized {
+pub trait Label: Clone {
     /// One symbol of the alphabet that the automaton reads.
     type Symbol: Copy;
 
