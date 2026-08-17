@@ -30,6 +30,18 @@ pub struct Read {
     pub name: Span,
 }
 
+/// A description that [`read`] cannot read, and the type of the start conditions beside it.
+///
+/// The macro reports the fault, then it emits a lexer that matches nothing. That lexer names the
+/// type of the start conditions, thus a call of `condition` stays valid and one fault gives one
+/// error. The type is `None` if the enum names no first condition.
+pub struct Fault {
+    /// The fault.
+    pub error: syn::Error,
+    /// The type of the start conditions.
+    pub condition: Option<TokenStream>,
+}
+
 /// Reads the lexer that `input` describes.
 ///
 /// A rule of a variant comes before a rule of the container, thus a token wins a tie against a
@@ -37,22 +49,56 @@ pub struct Read {
 ///
 /// # Errors
 ///
-/// This function returns an error for each of these faults:
+/// This function returns a [`Fault`] for each of these faults:
 ///
-/// - `input` is not an enum, or a variant holds a named field or two fields.
-/// - An attribute names an option that lxr does not hold, or it names one two times.
-/// - A variant holds no rule, or the lexer holds no rule.
+/// - `input` is not an enum, it holds a generic parameter, or a variant holds a named field or two
+///   fields.
+/// - An attribute names no option, an option that lxr does not hold, or one option two times.
+/// - A variant holds no rule, or no variant of the enum holds a rule.
 /// - An attribute names a start condition and no pattern.
 /// - A rule on the enum gives a token, or a rule on a variant skips.
 /// - A variant names the first start condition, which belongs to the enum.
 /// - A rule names a start condition, and the lexer names no condition enum.
-pub fn read(input: &DeriveInput) -> syn::Result<Read> {
+/// - A rule names a start condition of another type than the first condition.
+pub fn read(input: &DeriveInput) -> Result<Read, Fault> {
+    parts(input).map_err(|error| Fault {
+        error,
+        condition: declared(input),
+    })
+}
+
+/// Returns the type of the start conditions that the attributes of `input` name.
+///
+/// [`read`] reports the type beside a fault, and a fault stops [`parts`] before it builds the
+/// specification. Thus this function reads the type on its own, and it gives `None` for each
+/// attribute that it cannot read.
+fn declared(input: &DeriveInput) -> Option<TokenStream> {
+    options(&input.attrs)
+        .ok()?
+        .iter()
+        .find_map(|attribute| attribute.condition.as_ref())
+        .and_then(|path| kind(path).ok())
+}
+
+/// Returns the lexer that `input` describes, or the first fault of the description.
+///
+/// # Errors
+///
+/// This function returns the error of the [`Fault`] that [`read`] gives.
+fn parts(input: &DeriveInput) -> syn::Result<Read> {
     let Data::Enum(data) = &input.data else {
         return Err(syn::Error::new(
             input.ident.span(),
             "lxr derives a lexer from an enum of tokens",
         ));
     };
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new(
+            input.generics.span(),
+            "lxr derives a lexer from an enum that holds no generic parameter. A token holds no \
+             borrow of the input, thus each field owns its value",
+        ));
+    }
 
     let mut rules = Vec::new();
     let mut spans = Vec::new();
@@ -70,7 +116,7 @@ pub fn read(input: &DeriveInput) -> syn::Result<Read> {
             }
             initial = Some(condition.clone());
         }
-        attached(&attribute)?;
+        attached(&attribute, Position::Enum)?;
         let named = attribute
             .pattern()?
             .map(|(literal, skip)| (literal.clone(), skip));
@@ -101,7 +147,7 @@ pub fn read(input: &DeriveInput) -> syn::Result<Read> {
                      `#[lxr(condition = ...)]` on the enum, and not on a variant",
                 ));
             }
-            attached(&attribute)?;
+            attached(&attribute, Position::Variant)?;
             let Some((literal, skip)) = attribute.pattern()? else {
                 continue;
             };
@@ -124,17 +170,17 @@ pub fn read(input: &DeriveInput) -> syn::Result<Read> {
         }
     }
 
-    for attribute in skips {
-        rules.push((attribute, None));
-    }
-    spans.extend(skip_spans);
-
     if rules.is_empty() {
         return Err(syn::Error::new(
             input.ident.span(),
             "the lexer holds no rule. Write `#[lxr(token = \"...\")]` on a variant of the enum",
         ));
     }
+
+    for attribute in skips {
+        rules.push((attribute, None));
+    }
+    spans.extend(skip_spans);
 
     let conditions = number(&initial, &rules)?;
     let specification = Specification {
@@ -153,16 +199,41 @@ pub fn read(input: &DeriveInput) -> syn::Result<Read> {
     })
 }
 
+/// The item that carries an `#[lxr(...)]` attribute.
+///
+/// A rule that skips goes on the enum, and a rule that gives a token goes on a variant. Thus one
+/// message names the pattern that its own position permits.
+#[derive(Clone, Copy)]
+enum Position {
+    /// The enum of the tokens.
+    Enum,
+    /// One variant of that enum.
+    Variant,
+}
+
+impl Position {
+    /// Returns the pattern that this position permits, as the author writes it.
+    fn pattern(self) -> &'static str {
+        match self {
+            Self::Enum => "`skip`",
+            Self::Variant => "`token` or `regex`",
+        }
+    }
+}
+
 /// Returns an error if `attribute` names a start condition and no pattern.
 ///
 /// `in` and `go` belong to a rule. An attribute that names no pattern carries no rule, thus the
 /// start condition attaches to nothing and the whole attribute does nothing.
 ///
+/// The correction names the pattern of `at`. A rule on the enum skips, and a rule on a variant
+/// gives a token, thus the other pattern gives a second error.
+///
 /// # Errors
 ///
 /// This function returns an error if the attribute names `in` or `go` and no pattern, or if it
 /// names more than one pattern.
-fn attached(attribute: &Attribute) -> syn::Result<()> {
+fn attached(attribute: &Attribute, at: Position) -> syn::Result<()> {
     if attribute.pattern()?.is_some() {
         return Ok(());
     }
@@ -176,14 +247,19 @@ fn attached(attribute: &Attribute) -> syn::Result<()> {
     match named {
         Some(path) => Err(syn::Error::new(
             path.span(),
-            "the attribute names a start condition and no pattern. Write `token`, `regex`, or \
-             `skip` in the same attribute",
+            format!(
+                "the attribute names a start condition and no pattern. Write {} in the same \
+                 attribute",
+                at.pattern()
+            ),
         )),
         None => Ok(()),
     }
 }
 
 /// Returns the type of the field of `variant`, or `None` if the variant holds no field.
+///
+/// A tuple variant of no field carries no value, thus it gives `None`.
 ///
 /// # Errors
 ///
@@ -192,6 +268,7 @@ fn attached(attribute: &Attribute) -> syn::Result<()> {
 fn field(variant: &Variant) -> syn::Result<Option<TokenStream>> {
     match &variant.fields {
         Fields::Unit => Ok(None),
+        Fields::Unnamed(fields) if fields.unnamed.is_empty() => Ok(None),
         Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
             let field = fields
                 .unnamed
@@ -233,24 +310,20 @@ fn options(attrs: &[syn::Attribute]) -> syn::Result<Vec<Attribute>> {
 /// `initial` is the condition at which the scan begins. Each other condition takes the next index,
 /// in the sequence in which the rules name it.
 ///
+/// Each condition names the type that `initial` names, thus one condition has one text.
+///
 /// # Errors
 ///
 /// This function returns an error if a rule names a start condition and the lexer names no first
-/// condition, or if the first condition is not the variant of an enum.
+/// condition, if the first condition is not the variant of an enum, or if a rule names a start
+/// condition of another type.
 fn number(
     initial: &Option<Path>,
     rules: &[(Attribute, Option<Gives>)],
 ) -> syn::Result<Option<Numbered>> {
     let Some(initial) = initial else {
         for (attribute, _) in rules {
-            if let Some(path) = attribute.under.as_ref().and_then(|paths| paths.first()) {
-                return Err(syn::Error::new(
-                    path.span(),
-                    "the lexer names no start condition. Write `#[lxr(condition = ...)]` on the \
-                     enum, and name the condition at which the scan begins",
-                ));
-            }
-            if let Some(path) = &attribute.go {
+            if let Some(path) = named(attribute).next() {
                 return Err(syn::Error::new(
                     path.span(),
                     "the lexer names no start condition. Write `#[lxr(condition = ...)]` on the \
@@ -266,8 +339,8 @@ fn number(
     let mut texts = vec![text(initial)];
 
     for (attribute, _) in rules {
-        let named = attribute.under.iter().flatten().chain(attribute.go.iter());
-        for path in named {
+        for path in named(attribute) {
+            belongs(path, &kind)?;
             if !texts.contains(&text(path)) {
                 texts.push(text(path));
                 names.push(path.to_token_stream());
@@ -278,17 +351,54 @@ fn number(
     Ok(Some(Numbered(Conditions { kind, names }, texts)))
 }
 
+/// Returns each start condition that `attribute` names, the conditions of `in` first.
+fn named(attribute: &Attribute) -> impl Iterator<Item = &Path> {
+    attribute.under.iter().flatten().chain(attribute.go.iter())
+}
+
 /// Returns the type of the start conditions, which is `path` without its last segment.
 ///
 /// # Errors
 ///
 /// This function returns an error if `path` holds one segment, thus it names no variant.
 fn kind(path: &Path) -> syn::Result<TokenStream> {
-    if path.segments.len() < 2 {
-        return Err(syn::Error::new(
+    prefix(path).ok_or_else(|| {
+        syn::Error::new(
             path.span(),
             "name the start condition at which the scan begins, for example `Context::Code`",
-        ));
+        )
+    })
+}
+
+/// Returns an error if `path` does not name a start condition of the type `kind`.
+///
+/// A comparison of two conditions reads the text of the path. Thus `Text` after a `use` and
+/// `Context::Text` read as two conditions, and the lexer then holds one condition that no rule
+/// matches under. The scan reaches that condition and it stops at each byte.
+///
+/// # Errors
+///
+/// This function returns an error if `path` holds one segment, or if the segments before the last
+/// one do not give the text of `kind`.
+fn belongs(path: &Path, kind: &TokenStream) -> syn::Result<()> {
+    let held = prefix(path).map(|held| held.to_string());
+    if held.as_deref() == Some(&kind.to_string()) {
+        return Ok(());
+    }
+
+    Err(syn::Error::new(
+        path.span(),
+        format!(
+            "a start condition of this lexer is a variant of `{kind}`. Write that type before the \
+             name of the condition"
+        ),
+    ))
+}
+
+/// Returns `path` without its last segment, or `None` if the path holds one segment.
+fn prefix(path: &Path) -> Option<TokenStream> {
+    if path.segments.len() < 2 {
+        return None;
     }
 
     let mut segments = Punctuated::<syn::PathSegment, Token![::]>::new();
@@ -296,11 +406,13 @@ fn kind(path: &Path) -> syn::Result<TokenStream> {
         segments.push(segment.clone());
     }
 
-    Ok(Path {
-        leading_colon: path.leading_colon,
-        segments,
-    }
-    .to_token_stream())
+    Some(
+        Path {
+            leading_colon: path.leading_colon,
+            segments,
+        }
+        .to_token_stream(),
+    )
 }
 
 /// Returns the text of `path`, for a comparison of two conditions.
@@ -380,16 +492,24 @@ mod tests {
     /// Returns the lexer that `source` describes.
     fn lexer(source: &str) -> Read {
         let input: DeriveInput = syn::parse_str(source).expect("the source is an item");
-        read(&input).expect("the source describes a lexer")
+        match read(&input) {
+            Ok(read) => read,
+            Err(fault) => panic!("the source describes no lexer: {}", fault.error),
+        }
+    }
+
+    /// Returns the fault of `source`, which describes no lexer.
+    fn read_fault(source: &str) -> Fault {
+        let input: DeriveInput = syn::parse_str(source).expect("the source is an item");
+        match read(&input) {
+            Ok(_) => panic!("the source holds no fault"),
+            Err(fault) => fault,
+        }
     }
 
     /// Returns the message of the fault of `source`, which describes no lexer.
     fn fault(source: &str) -> String {
-        let input: DeriveInput = syn::parse_str(source).expect("the source is an item");
-        match read(&input) {
-            Ok(_) => panic!("the source holds no fault"),
-            Err(error) => error.to_string(),
-        }
+        read_fault(source).error.to_string()
     }
 
     /// Returns the pattern of each rule of `source`, in the sequence of the precedence.
@@ -473,6 +593,124 @@ mod tests {
     #[test]
     fn a_lexer_that_holds_no_rule_is_rejected() {
         assert!(fault("enum Token {}").starts_with("the lexer holds no rule"));
+    }
+
+    #[test]
+    fn a_lexer_of_a_rule_that_skips_alone_is_rejected() {
+        let message = fault(
+            r#"
+            #[lxr(skip = "[ ]+")]
+            enum Token {}
+            "#,
+        );
+
+        assert!(message.starts_with("the lexer holds no rule"), "{message}");
+    }
+
+    #[test]
+    fn an_enum_that_holds_a_generic_parameter_is_rejected() {
+        for source in [
+            r#"enum Token<'a> { #[lxr(regex = "[a-z]+")] Word(&'a str) }"#,
+            r#"enum Token<T> { #[lxr(regex = "[a-z]+")] Word(T) }"#,
+        ] {
+            let message = fault(source);
+            assert!(
+                message.contains("no generic parameter"),
+                "{source}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tuple_variant_of_no_field_carries_no_value() {
+        let specification = lexer(r#"enum Token { #[lxr(token = "a")] A() }"#).specification;
+
+        assert!(specification.rules[0].value.is_none());
+    }
+
+    #[test]
+    fn a_start_condition_that_does_not_name_its_type_is_rejected() {
+        for source in [
+            r#"
+            #[lxr(condition = Context::Code)]
+            enum Token {
+                #[lxr(regex = "[a-z]+", in = [Text])]
+                Word,
+            }
+            "#,
+            r#"
+            #[lxr(condition = Context::Code)]
+            enum Token {
+                #[lxr(regex = "[a-z]+", go = Other::Text)]
+                Word,
+            }
+            "#,
+        ] {
+            let message = fault(source);
+            assert!(
+                message.contains("is a variant of `Context`"),
+                "{source}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fault_carries_the_type_of_the_start_conditions() {
+        let fault = read_fault(
+            r#"
+            #[lxr(condition = Context::Code)]
+            enum Token {
+                #[lxr(regex = "[a-z]+")]
+                Word,
+                Forgotten,
+            }
+            "#,
+        );
+
+        assert_eq!(
+            fault.condition.map(|kind| kind.to_string()),
+            Some("Context".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_fault_of_a_lexer_that_names_no_start_condition_carries_no_type() {
+        let fault = read_fault(r#"enum Token { #[lxr(regex = "[a-z]+")] Word, Forgotten }"#);
+
+        assert!(fault.condition.is_none());
+    }
+
+    #[test]
+    fn the_correction_of_an_unattached_start_condition_names_its_own_position() {
+        let variant = fault(
+            r#"
+            #[lxr(condition = Context::Code)]
+            enum Token {
+                #[lxr(in = [Context::Text])]
+                #[lxr(regex = "[a-z]+")]
+                Word,
+            }
+            "#,
+        );
+        let container = fault(
+            r#"
+            #[lxr(condition = Context::Code)]
+            #[lxr(go = Context::Text)]
+            enum Token {
+                #[lxr(regex = "[a-z]+")]
+                Word,
+            }
+            "#,
+        );
+
+        assert!(
+            variant.ends_with("Write `token` or `regex` in the same attribute"),
+            "{variant}"
+        );
+        assert!(
+            container.ends_with("Write `skip` in the same attribute"),
+            "{container}"
+        );
     }
 
     #[test]

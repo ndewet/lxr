@@ -56,14 +56,17 @@ impl ScanError {
         }
     }
 
-    /// Returns the correction that the lexer author must make.
+    /// Returns the correction of this fault.
+    ///
+    /// The correction names the input first. A fault of the input does not always show a fault of
+    /// the lexer, thus a change to the lexer comes second.
     pub fn help(&self) -> &'static str {
         self.kind.help()
     }
 }
 
 impl ScanErrorKind {
-    /// Returns the correction that the lexer author must make.
+    /// Returns the correction of this kind of fault.
     pub fn help(&self) -> &'static str {
         match self {
             Self::NoRule => {
@@ -71,8 +74,8 @@ impl ScanErrorKind {
                  add a rule that skips it."
             }
             Self::Value => {
-                "Give the token a field of a wider type, or write a pattern that matches only the \
-                 text that the field holds."
+                "The text is outside the range of the field. Correct the input, or give the token \
+                 a field of a wider type."
             }
         }
     }

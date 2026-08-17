@@ -5,7 +5,7 @@
 //! and it does not compile the regex parser or the automata.
 //!
 //! [`Lexer`] is the trait that the macro implements. [`Lexer::scan`] starts a [`Scan`], which gives
-//! one token at a time and reports each character that no rule matches.
+//! one token at a time and reports each fault of the input.
 //! [`Scan::located`] gives the place of each token with the token.
 //!
 //! [`syntax`] holds the reference of the rules: each attribute, the sequence of the rules, the

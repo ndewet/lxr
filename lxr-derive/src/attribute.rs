@@ -85,6 +85,14 @@ impl Attribute {
 
 impl Parse for Attribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        if input.is_empty() {
+            return Err(syn::Error::new(
+                input.span(),
+                "the attribute names no option. Write `token`, `regex`, `skip`, `in`, `go`, or \
+                 `condition`, or remove the attribute",
+            ));
+        }
+
         let mut attribute = Self::default();
 
         while !input.is_empty() {
@@ -218,6 +226,15 @@ mod tests {
         assert_eq!(
             fault(r#"regex = "a", in = []"#),
             "`in` names no start condition. Name one, or remove `in`"
+        );
+    }
+
+    #[test]
+    fn an_attribute_of_no_option_is_rejected() {
+        let message = fault("");
+        assert!(
+            message.starts_with("the attribute names no option"),
+            "{message}"
         );
     }
 

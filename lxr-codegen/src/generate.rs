@@ -240,6 +240,9 @@ fn parse(rules: &[Rule]) -> Result<Vec<Node>, Vec<GenerateError>> {
 ///
 /// The accept of a rule is its index, thus the earliest rule wins a tie.
 ///
+/// A rule that fails a check does not join the lexicon. Thus the index that [`Lexicon::rule`]
+/// reports counts the rules that passed, and the error takes the index of this loop instead.
+///
 /// # Errors
 ///
 /// This function returns one error for each rule that fails a check of the lexicon, and one error
@@ -277,10 +280,7 @@ fn build(
             rule.conditions.clone()
         };
         if let Err(error) = lexicon.rule(node, accept, &under) {
-            errors.push(GenerateError {
-                rule: error.rule,
-                kind: GenerateErrorKind::Rule(error.kind),
-            });
+            errors.push(GenerateErrorKind::Rule(error.kind).in_rule(index));
         }
     }
 
@@ -427,6 +427,19 @@ mod tests {
             found[0].kind,
             GenerateErrorKind::Rule(BuildErrorKind::UnknownCondition { .. })
         ));
+    }
+
+    #[test]
+    fn each_rule_that_fails_a_check_names_its_own_index() {
+        let found = errors(&lexer(vec![
+            rule("[a-z]+", "Word"),
+            rule("a*", "Empty"),
+            rule("b*", "Also"),
+        ]));
+
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].rule, Some(1));
+        assert_eq!(found[1].rule, Some(2));
     }
 
     #[test]

@@ -81,7 +81,7 @@ impl Tables {
         dfa: &DeterministicFiniteAutomaton<ByteRange>,
         accepts: &Accepts<u16>,
     ) -> Result<Self, Overflow> {
-        Self::within(dfa, accepts, MAX_STATES, MAX_RULES)
+        Self::with_limits(dfa, accepts, MAX_STATES, MAX_RULES)
     }
 
     /// Builds the tables of `dfa` inside `states` states and `rules` rules.
@@ -97,7 +97,7 @@ impl Tables {
     /// # Panics
     ///
     /// This function panics if `accepts` does not hold one accept for each state of `dfa`.
-    fn within(
+    fn with_limits(
         dfa: &DeterministicFiniteAutomaton<ByteRange>,
         accepts: &Accepts<u16>,
         states: usize,
@@ -114,7 +114,7 @@ impl Tables {
             return Err(Overflow::new(Part::States, states));
         }
 
-        let (classes, representatives) = divide(dfa);
+        let (classes, representatives) = divide_classes(dfa);
         let width = representatives.len() + 1;
 
         Ok(Self {
@@ -170,12 +170,12 @@ impl Tables {
 
 /// Returns the class of each byte, and one byte of each class.
 ///
-/// [`Range::classes`] divides the labels. It reads each label of each state, thus one class serves
-/// each state and the table needs one column for it.
+/// [`Range::classes`] divides the bytes into the classes. It reads each label of each state, thus
+/// one class serves each state and the table needs one column for it.
 ///
 /// A byte range holds two bytes, thus the automaton carries at most 65536 distinct labels however
 /// many states it holds. The function keeps one copy of each, and a duplicate changes no class.
-fn divide(dfa: &DeterministicFiniteAutomaton<ByteRange>) -> ([u16; 256], Vec<u8>) {
+fn divide_classes(dfa: &DeterministicFiniteAutomaton<ByteRange>) -> ([u16; 256], Vec<u8>) {
     let mut held = HashSet::new();
     let labels: Vec<ByteRange> = (0..dfa.state_count())
         .flat_map(|index| dfa.transitions(StateId::new(index)))
@@ -534,10 +534,10 @@ mod tests {
         let states = lexer.dfa.state_count();
 
         assert_eq!(
-            Tables::within(&lexer.dfa, &lexer.accepts, states - 1, MAX_RULES),
+            Tables::with_limits(&lexer.dfa, &lexer.accepts, states - 1, MAX_RULES),
             Err(Overflow::new(Part::States, states - 1))
         );
-        assert!(Tables::within(&lexer.dfa, &lexer.accepts, states, MAX_RULES).is_ok());
+        assert!(Tables::with_limits(&lexer.dfa, &lexer.accepts, states, MAX_RULES).is_ok());
     }
 
     #[test]
@@ -545,10 +545,10 @@ mod tests {
         let lexer = build(1, &[("a", &[0]), ("b", &[0]), ("c", &[0])]);
 
         assert_eq!(
-            Tables::within(&lexer.dfa, &lexer.accepts, MAX_STATES, 2),
+            Tables::with_limits(&lexer.dfa, &lexer.accepts, MAX_STATES, 2),
             Err(Overflow::new(Part::Rules, 2))
         );
-        assert!(Tables::within(&lexer.dfa, &lexer.accepts, MAX_STATES, 3).is_ok());
+        assert!(Tables::with_limits(&lexer.dfa, &lexer.accepts, MAX_STATES, 3).is_ok());
     }
 
     #[test]

@@ -41,7 +41,13 @@ pub struct Emission {
     pub token: Ident,
     /// The type of the start conditions, or `None` if the lexer reads under one condition.
     pub condition: Option<TokenStream>,
-    /// One expression for each start condition, in the sequence of the indexes.
+    /// One name for each start condition, in the sequence of the indexes.
+    ///
+    /// The list holds one name for each start state of [`tables`](Self::tables). A name serves as
+    /// the body of a match arm, thus it is an expression of the type of
+    /// [`condition`](Self::condition).
+    ///
+    /// A lexer that reads under one condition holds an empty list.
     pub conditions: Vec<TokenStream>,
     /// What each rule gives.
     pub rules: Vec<Rule>,
@@ -53,7 +59,14 @@ pub struct Emission {
 ///
 /// The statics live inside an anonymous `const`, thus they do not reach the module of the author
 /// and two lexers in one module do not collide.
+///
+/// # Panics
+///
+/// This function panics if `lexer` breaks a condition of [`check`]. The emitted source would then
+/// fail in the crate of the author, and the message there would name no cause.
 pub fn emit(lexer: &Emission) -> TokenStream {
+    check(lexer);
+
     let token = &lexer.token;
     let tables = &lexer.tables;
 
@@ -102,6 +115,47 @@ pub fn emit(lexer: &Emission) -> TokenStream {
     }
 }
 
+/// Checks that the parts of `lexer` agree with each other.
+///
+/// The tables and the rules arrive from two places, and the emitted source joins them. A
+/// disagreement compiles here, and it breaks in the crate of the author. An accept above the
+/// actions and a `go` above the start states each give an index panic in the scan. A list of names
+/// that is too short gives a panic at a condition that the author wrote.
+///
+/// # Panics
+///
+/// This function panics if any of these conditions fails:
+///
+/// - The rules cover the highest accept of the tables.
+/// - The `go` of each rule is a start condition of the tables.
+/// - The names of the conditions number one for each start condition of the tables.
+fn check(lexer: &Emission) {
+    let rules = lexer.rules.len();
+    let highest = lexer.tables.accept().iter().copied().max().unwrap_or(0);
+    assert!(
+        usize::from(highest) <= rules,
+        "the tables accept the rule {}, and the lexer holds {rules} rules",
+        highest.saturating_sub(1)
+    );
+
+    let starts = lexer.tables.start().len();
+    for (index, rule) in lexer.rules.iter().enumerate() {
+        if let Some(go) = rule.go {
+            assert!(
+                usize::from(go) < starts,
+                "rule {index} goes to the start condition {go}, and the lexer holds {starts} of them"
+            );
+        }
+    }
+
+    let named = lexer.conditions.len();
+    let expected = if lexer.condition.is_some() { starts } else { 0 };
+    assert_eq!(
+        named, expected,
+        "a lexer of {starts} start conditions needs {expected} names for them, and not {named}"
+    );
+}
+
 /// Returns the literal of each value of `values`.
 fn array(values: &[u16]) -> Vec<Literal> {
     values
@@ -146,6 +200,10 @@ fn condition_type(lexer: &Emission) -> TokenStream {
 ///
 /// A variant that holds a field reads that field from the text with [`FromStr`](std::str::FromStr).
 /// A text that the field does not hold gives `None`, and the scan reports it.
+///
+/// Only a rule that gives a token gets an arm, thus only a rule that gives a token and holds a
+/// field reads the text. The parameter takes the name `_text` for each other lexer, and the crate
+/// of the author then reports no unused variable.
 fn of_rule(lexer: &Emission) -> TokenStream {
     let token = &lexer.token;
     let arms = lexer.rules.iter().enumerate().filter_map(|(index, rule)| {
@@ -162,7 +220,11 @@ fn of_rule(lexer: &Emission) -> TokenStream {
         })
     });
 
-    let text = if lexer.rules.iter().any(|rule| rule.value.is_some()) {
+    let text = if lexer
+        .rules
+        .iter()
+        .any(|rule| rule.token.is_some() && rule.value.is_some())
+    {
         quote!(text)
     } else {
         quote!(_text)
@@ -333,14 +395,23 @@ mod tests {
         let width = count(tables.width());
         assert!(holds(&source, &quote!(width: #width)));
 
-        let next = count(tables.next().len());
-        assert!(holds(&source, &quote!(static NEXT: [u16; #next])));
-
-        let accept = count(tables.accept().len());
-        assert!(holds(&source, &quote!(static ACCEPT: [u16; #accept])));
-
-        let classes = array(tables.classes());
-        assert!(holds(&source, &quote!([#(#classes),*])));
+        for (table, values) in [
+            ("CLASSES", tables.classes().as_slice()),
+            ("NEXT", tables.next()),
+            ("ACCEPT", tables.accept()),
+            ("START", tables.start()),
+        ] {
+            let table = name(table);
+            let length = count(values.len());
+            let values = array(values);
+            assert!(
+                holds(
+                    &source,
+                    &quote!(static #table: [u16; #length] = [#(#values),*];)
+                ),
+                "{table}"
+            );
+        }
     }
 
     #[test]
@@ -468,6 +539,35 @@ mod tests {
             )
         ));
         assert!(!holds(&source, &quote!(Context)));
+    }
+
+    #[test]
+    #[should_panic(expected = "the tables accept the rule 3, and the lexer holds 3 rules")]
+    fn a_lexer_whose_rules_do_not_cover_each_accept_of_the_tables_panics() {
+        let mut lexer = lexer();
+        lexer.rules.truncate(3);
+
+        let _ = emit(&lexer);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "rule 0 goes to the start condition 2, and the lexer holds 2 of them"
+    )]
+    fn a_rule_that_goes_to_a_start_condition_of_no_table_panics() {
+        let mut lexer = lexer();
+        lexer.rules[0].go = Some(2);
+
+        let _ = emit(&lexer);
+    }
+
+    #[test]
+    #[should_panic(expected = "a lexer of 2 start conditions needs 2 names for them, and not 1")]
+    fn a_lexer_that_names_fewer_conditions_than_the_tables_hold_panics() {
+        let mut lexer = lexer();
+        lexer.conditions.truncate(1);
+
+        let _ = emit(&lexer);
     }
 
     #[test]

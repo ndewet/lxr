@@ -16,7 +16,8 @@ use crate::tables::Tables;
 ///
 /// # Examples
 ///
-/// ```
+#[cfg_attr(feature = "derive", doc = "```")]
+#[cfg_attr(not(feature = "derive"), doc = "```ignore")]
 /// use lxr::Lexer;
 ///
 /// #[derive(Debug, PartialEq, Lexer)]
@@ -72,7 +73,9 @@ pub trait Lexer: Sized {
     /// Starts a scan of `input` under the first start condition.
     ///
     /// The scan gives one token at a time. It gives a [`ScanError`](crate::ScanError) for each
-    /// character that no rule matches, then it reads the input after that character.
+    /// fault of the input, then it reads the input after the part at fault. A character that no
+    /// rule matches is one fault, and a match whose text does not fit the field of its token is
+    /// the other one. Thus the span of an error covers one character or the whole match.
     fn scan(input: &str) -> Scan<'_, Self> {
         Scan::new(input)
     }
