@@ -1,8 +1,8 @@
 //! Emits the source of a lexer from its tables.
 //!
 //! [`emit`] gives the `impl` of the [`Lexer`] trait of the runtime crate. It holds the tables as
-//! statics, and it holds the maps between a number and a name. The derive macro places the result
-//! in the crate of the lexer author.
+//! statics, and it maps each number of a table onto the name that the author wrote. The derive
+//! macro places the result in the crate of the lexer author.
 //!
 //! The emitted source names the runtime as `::lxr`, thus it does not depend on what the author
 //! imported.
@@ -72,7 +72,6 @@ pub fn emit(lexer: &Emission) -> TokenStream {
 
     let condition = condition_type(lexer);
     let of_index = of_index(lexer);
-    let to_index = to_index(lexer);
     let of_rule = of_rule(lexer);
 
     quote! {
@@ -98,7 +97,6 @@ pub fn emit(lexer: &Emission) -> TokenStream {
 
                 #of_rule
                 #of_index
-                #to_index
             }
         };
     }
@@ -199,31 +197,6 @@ fn of_index(lexer: &Emission) -> TokenStream {
             match index {
                 #(#arms,)*
                 index => panic!("condition {index} is not a start condition of this lexer"),
-            }
-        }
-    }
-}
-
-/// Returns the `index` function, which maps a start condition onto its index.
-fn to_index(lexer: &Emission) -> TokenStream {
-    if lexer.condition.is_none() {
-        return quote! {
-            fn index(_condition: Self::Condition) -> u16 {
-                0
-            }
-        };
-    }
-
-    let condition = condition_type(lexer);
-    let arms = lexer.conditions.iter().enumerate().map(|(index, name)| {
-        let index = count(index);
-        quote!(#name => #index)
-    });
-
-    quote! {
-        fn index(condition: #condition) -> u16 {
-            match condition {
-                #(#arms,)*
             }
         }
     }
@@ -465,13 +438,17 @@ mod tests {
     }
 
     #[test]
-    fn a_start_condition_maps_onto_its_index_and_back() {
+    fn each_index_maps_onto_the_start_condition_that_the_author_wrote() {
         let source = emit(&lexer());
 
         assert!(holds(&source, &quote!(0 => Context::Code)));
         assert!(holds(&source, &quote!(1 => Context::Text)));
-        assert!(holds(&source, &quote!(Context::Code => 0)));
-        assert!(holds(&source, &quote!(Context::Text => 1)));
+        assert!(holds(
+            &source,
+            &quote!(index => panic!(
+                "condition {index} is not a start condition of this lexer"
+            ))
+        ));
     }
 
     #[test]
@@ -488,14 +465,6 @@ mod tests {
             &source,
             &quote!(
                 fn condition(_index: u16) {}
-            )
-        ));
-        assert!(holds(
-            &source,
-            &quote!(
-                fn index(_condition: Self::Condition) -> u16 {
-                    0
-                }
             )
         ));
         assert!(!holds(&source, &quote!(Context)));

@@ -12,7 +12,10 @@ use quote::quote;
 use syn::{DeriveInput, LitStr, parse_macro_input};
 
 mod attribute;
+mod fallback;
 mod specification;
+
+use self::fallback::fallback;
 
 /// Derives a lexer from an enum of tokens.
 ///
@@ -76,7 +79,11 @@ pub fn lexer(input: TokenStream) -> TokenStream {
 
     let read = match specification::read(&input) {
         Ok(read) => read,
-        Err(error) => return error.to_compile_error().into(),
+        Err(error) => {
+            let report = error.to_compile_error();
+            let fallback = fallback(&input.ident, None);
+            return quote!(#report #fallback).into();
+        }
     };
 
     match generate(&read.specification) {
@@ -85,7 +92,14 @@ pub fn lexer(input: TokenStream) -> TokenStream {
             let reports = errors
                 .iter()
                 .map(|error| report(error, &read.spans, read.name));
-            quote!(#(#reports)*).into()
+            let fallback = fallback(
+                &input.ident,
+                read.specification
+                    .conditions
+                    .as_ref()
+                    .map(|conditions| &conditions.kind),
+            );
+            quote!(#(#reports)* #fallback).into()
         }
     }
 }

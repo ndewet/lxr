@@ -4,7 +4,7 @@ use crate::tables::Tables;
 /// A lexer that reads an input into the tokens of `Self`.
 ///
 /// The derive macro implements this trait. It reads the rules of an enum of tokens, it builds the
-/// automaton, and it emits the tables and the two maps between a number and a name.
+/// automaton, and it emits the tables and the map from a number of a table onto a name.
 ///
 /// Do not implement this trait by hand. A table that lxr did not build can make a scan panic. The
 /// conditions of [`Tables`] state what a table must obey.
@@ -38,10 +38,6 @@ use crate::tables::Tables;
 ///     }
 ///
 ///     fn condition(_index: u16) {}
-///
-///     fn index(_condition: Self::Condition) -> u16 {
-///         0
-///     }
 /// }
 ///
 /// let tokens: Vec<_> = Token::scan("aa").collect();
@@ -78,9 +74,6 @@ pub trait Lexer: Sized {
     ///
     /// This function panics if `index` is not a start condition of the lexer.
     fn condition(index: u16) -> Self::Condition;
-
-    /// Returns the index of `condition`.
-    fn index(condition: Self::Condition) -> u16;
 
     /// Starts a scan of `input` under the first start condition.
     ///
