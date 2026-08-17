@@ -333,7 +333,7 @@ mod tests {
         }
 
         assert_eq!(found, vec![0, 1, 0]);
-        assert_eq!(input, []);
+        assert!(input.is_empty());
     }
 
     #[test]
