@@ -6,42 +6,36 @@ use crate::tables::Tables;
 /// The derive macro implements this trait. It reads the rules of an enum of tokens, it builds the
 /// automaton, and it emits the tables and the map from a number of a table onto a name.
 ///
-/// Do not implement this trait by hand. A table that lxr did not build can make a scan panic. The
-/// conditions of [`Tables`] state what a table must obey.
+/// Derive it, and do not implement it by hand. [`TABLES`](Self::TABLES),
+/// [`token`](Self::token), and [`condition`](Self::condition) carry the automaton that the macro
+/// built, and a table that lxr did not build can make a scan panic. The conditions of [`Tables`]
+/// state what a table must obey.
+///
+/// A bound of `T: Lexer` reads any lexer, thus one function serves each enum of tokens.
+/// [`syntax`](crate::syntax) holds the reference of the rules.
 ///
 /// # Examples
 ///
 /// ```
-/// use lxr::{Action, Lexer, Tables};
+/// use lxr::Lexer;
 ///
-/// # #[derive(Debug, PartialEq)]
-/// # enum Token { A }
-/// # static CLASSES: [u16; 256] = { let mut c = [0; 256]; c[b'a' as usize] = 1; c };
-/// # static NEXT: [u16; 6] = [0, 0, 0, 2, 0, 0];
-/// # static ACCEPT: [u16; 3] = [0, 0, 1];
-/// # static START: [u16; 1] = [1];
-/// # static ACTIONS: [Action; 1] = [Action::token()];
-/// impl Lexer for Token {
-///     type Condition = ();
-///
-///     const TABLES: Tables<'static> = Tables {
-///         classes: &CLASSES,
-///         next: &NEXT,
-///         width: 2,
-///         accept: &ACCEPT,
-///         start: &START,
-///         actions: &ACTIONS,
-///     };
-///
-///     fn token(_rule: u16, _text: &str) -> Option<Self> {
-///         Some(Token::A)
-///     }
-///
-///     fn condition(_index: u16) {}
+/// #[derive(Debug, PartialEq, Lexer)]
+/// #[lxr(skip = " +")]
+/// enum Token {
+///     #[lxr(token = "let")]
+///     Let,
+///     #[lxr(regex = "[a-z]+")]
+///     Word,
 /// }
 ///
-/// let tokens: Vec<_> = Token::scan("aa").collect();
-/// assert_eq!(tokens, vec![Ok(Token::A), Ok(Token::A)]);
+/// /// Returns the tokens of `input`, whichever lexer reads it.
+/// fn tokens<T: Lexer>(input: &str) -> Vec<T> {
+///     T::scan(input)
+///         .map(|found| found.expect("each character belongs to a token"))
+///         .collect()
+/// }
+///
+/// assert_eq!(tokens::<Token>("let it"), vec![Token::Let, Token::Word]);
 /// ```
 pub trait Lexer: Sized {
     /// The start conditions of the lexer.

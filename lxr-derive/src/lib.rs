@@ -19,60 +19,13 @@ use self::fallback::fallback;
 
 /// Derives a lexer from an enum of tokens.
 ///
-/// Write one `#[lxr(...)]` attribute for each rule. A rule holds one pattern:
+/// Write one `#[lxr(...)]` attribute for each rule, and the macro implements the `Lexer` trait of
+/// the runtime. `token` matches a literal, `regex` matches a regular expression, and `skip` reads
+/// the match and gives no token. `in` and `go` carry the start conditions.
 ///
-/// - `token = "fn"` matches the literal. A regex character in it needs no escape.
-/// - `regex = "[a-z]+"` matches the regular expression.
-/// - `skip = "[ \t]+"` reads the match and gives no token. Write it on the enum.
-///
-/// A rule takes two more options:
-///
-/// - `in = [Context::Text]` gives the start conditions of the rule. One condition needs no list,
-///   thus `in = Context::Text` gives the same rule. It defaults to the first condition.
-/// - `go = Context::Code` changes the start condition after the match.
-///
-/// Write each option one time in one attribute. Write `condition` on the enum, write `skip` on the
-/// enum, and give each variant a rule.
-///
-/// Write `#[lxr(condition = Context::Code)]` on the enum to name the start conditions. The type of
-/// the conditions is the path without its last segment, and the path is the condition at which the
-/// scan begins.
-///
-/// The rules are in the sequence of precedence. The longest match wins, and the earliest rule wins
-/// a tie. A rule of a variant comes before a rule that skips.
-///
-/// A variant that holds one unnamed field carries a value. The field takes the text of the match
-/// through [`FromStr`](std::str::FromStr), thus `Name(String)` holds the text and `Int(u64)` holds
-/// the number. A text that the field does not hold gives a `ScanError`, and the scan reads on. A
-/// variant that holds no field carries nothing.
-///
-/// # Examples
-///
-/// ```ignore
-/// use lxr::Lexer;
-///
-/// #[derive(Clone, Copy)]
-/// enum Context {
-///     Code,
-///     Text,
-/// }
-///
-/// #[derive(Debug, PartialEq, Lexer)]
-/// #[lxr(condition = Context::Code)]
-/// #[lxr(skip = "[ \t\n]+")]
-/// enum Token {
-///     #[lxr(token = "fn")]
-///     Function,
-///     #[lxr(regex = "[a-z][a-z0-9]*")]
-///     Word,
-///     #[lxr(token = "\"", go = Context::Text)]
-///     Quote,
-///     #[lxr(regex = "[^\"]+", in = [Context::Text])]
-///     Text,
-///     #[lxr(token = "\"", in = [Context::Text], go = Context::Code)]
-///     End,
-/// }
-/// ```
+/// Read the documentation of `lxr`, which re-exports this macro. The module `lxr::syntax` holds
+/// each attribute, the sequence of the rules, the pattern language, and each limit. This crate
+/// holds no example, because an example of the macro needs the runtime.
 #[proc_macro_derive(Lexer, attributes(lxr))]
 pub fn lexer(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
