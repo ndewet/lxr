@@ -34,9 +34,12 @@ pub use self::{
 /// A rule holds one pattern. `token` matches a literal, `regex` matches a regular expression, and
 /// `skip` reads the match and gives no token. Write `skip` on the enum.
 ///
-/// `in` gives the start conditions of a rule, and `go` changes the condition after the match.
-/// Write `condition` on the enum to name the condition at which the scan begins. The type of the
-/// conditions is that path without its last segment.
+/// `in` gives the start conditions of a rule, and `go` changes the condition after the match. One
+/// condition needs no list, thus `in = Context::Text` and `in = [Context::Text]` give the same
+/// rule. Write `condition` on the enum to name the condition at which the scan begins. The type of
+/// the conditions is that path without its last segment.
+///
+/// Each variant needs a rule, and each attribute names each option one time.
 ///
 /// The longest match wins, and the earliest rule wins a tie.
 ///

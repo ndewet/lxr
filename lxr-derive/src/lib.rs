@@ -24,9 +24,12 @@ mod specification;
 ///
 /// A rule takes two more options:
 ///
-/// - `in = [Context::Text]` gives the start conditions of the rule. It defaults to the first
-///   condition.
+/// - `in = [Context::Text]` gives the start conditions of the rule. One condition needs no list,
+///   thus `in = Context::Text` gives the same rule. It defaults to the first condition.
 /// - `go = Context::Code` changes the start condition after the match.
+///
+/// Write each option one time in one attribute. Write `condition` on the enum, write `skip` on the
+/// enum, and give each variant a rule.
 ///
 /// Write `#[lxr(condition = Context::Code)]` on the enum to name the start conditions. The type of
 /// the conditions is the path without its last segment, and the path is the condition at which the
