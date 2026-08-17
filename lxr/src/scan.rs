@@ -14,6 +14,9 @@ use crate::tables::Tables;
 /// last token is. Read [`span`](Self::span), [`slice`](Self::slice), [`line`](Self::line), and
 /// [`column`](Self::column) after each token.
 ///
+/// A rule that skips gives no token, thus it moves none of the four. They hold the last token or
+/// the last fault, and a space after that token does not move them.
+///
 /// A `for` loop takes the scan, thus the body of the loop cannot read the place of the token. Use
 /// [`located`](Self::located) for that loop, and it gives the place with the token.
 ///
@@ -73,7 +76,8 @@ impl<'a, T: Lexer> Scan<'a, T> {
     ///
     /// # Examples
     ///
-    /// ```
+    #[cfg_attr(feature = "derive", doc = "```")]
+    #[cfg_attr(not(feature = "derive"), doc = "```ignore")]
     /// use lxr::Lexer;
     ///
     /// #[derive(Debug, PartialEq, Lexer)]
@@ -155,6 +159,9 @@ impl<'a, T: Lexer> Scan<'a, T> {
     }
 
     /// Records the last token as the `length` bytes at the offset of the scan, then moves forward.
+    ///
+    /// A rule that skips its match gives no token. Thus it calls [`bump`](Self::bump) alone, and
+    /// the place of the last token stays where it is.
     fn take(&mut self, length: usize) {
         self.line = self.next_line;
         self.column = self.next_column;
@@ -188,17 +195,19 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
             };
 
             let action = tables.actions[usize::from(rule)];
-            self.take(length);
             if let Some(condition) = action.go {
                 self.condition = condition;
             }
-            if !action.skip {
-                let value = T::token(rule, self.slice());
-                return Some(
-                    value
-                        .ok_or_else(|| ScanError::value(self.span.clone(), self.line, self.column)),
-                );
+            if action.skip {
+                self.bump(length);
+                continue;
             }
+
+            self.take(length);
+            let value = T::token(rule, self.slice());
+            return Some(
+                value.ok_or_else(|| ScanError::value(self.span.clone(), self.line, self.column)),
+            );
         }
     }
 }

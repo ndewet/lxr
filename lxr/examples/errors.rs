@@ -9,7 +9,7 @@ use lxr::{Lexer, ScanError};
 
 /// The tokens of a language of an assignment. It holds no rule for `?` and none for `¤`.
 #[derive(Debug, PartialEq, Eq, Lexer)]
-#[lxr(skip = r"[ \t\n]+")]
+#[lxr(skip = r"[ \t\r\n]+")]
 enum Token {
     #[lxr(token = "let")]
     Let,
@@ -44,12 +44,18 @@ fn main() {
 /// Writes `error` with the line that holds it, and a caret under the character at fault.
 ///
 /// The column counts characters and not bytes, thus the caret lands under a character above ASCII.
+/// A terminal moves a tab to the next tab stop, thus the indent keeps each tab of the line and it
+/// writes one space for each other character.
 fn report(source: &str, error: &ScanError) {
     let line = source
         .lines()
         .nth(error.line as usize - 1)
         .unwrap_or_default();
-    let indent = " ".repeat(error.column as usize - 1);
+    let indent: String = line
+        .chars()
+        .take(error.column as usize - 1)
+        .map(|character| if character == '\t' { '\t' } else { ' ' })
+        .collect();
 
     println!("error: {error}");
     println!("   |");

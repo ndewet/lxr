@@ -32,9 +32,9 @@ pub fn lexer(input: TokenStream) -> TokenStream {
 
     let read = match specification::read(&input) {
         Ok(read) => read,
-        Err(error) => {
-            let report = error.to_compile_error();
-            let fallback = fallback(&input.ident, None);
+        Err(fault) => {
+            let report = fault.error.to_compile_error();
+            let fallback = fallback(&input, fault.condition.as_ref());
             return quote!(#report #fallback).into();
         }
     };
@@ -46,7 +46,7 @@ pub fn lexer(input: TokenStream) -> TokenStream {
                 .iter()
                 .map(|error| report(error, &read.spans, read.name));
             let fallback = fallback(
-                &input.ident,
+                &input,
                 read.specification
                     .conditions
                     .as_ref()

@@ -20,7 +20,8 @@
 //! One start condition needs no list, thus `in = Context::Text` gives the same rule as
 //! `in = [Context::Text]`.
 //!
-//! Each attribute names each option one time, and each variant of the enum holds a rule.
+//! Each attribute names one option or more, and it names each option one time. Each variant of the
+//! enum holds a rule, and the enum holds no generic parameter.
 //!
 //! # The value of a token
 //!
@@ -61,7 +62,13 @@
 //! ```
 //!
 //! Only a rule changes the condition. The scan begins at the condition of `condition`, and `go`
-//! moves it after a match.
+//! moves it after a match. The end of the input closes nothing, thus a string that no rule leaves
+//! reads to the end and gives no fault. Read [`Scan::condition`](crate::Scan::condition) after the
+//! scan to find such an input.
+//!
+//! Each of `in`, `go`, and `condition` names the type of the conditions before the name of the
+//! condition. Write `Context::Text`, and not `Text` after a `use`. The name of the type is enough,
+//! thus `ctx::Context::Text` and `Context::Text` name one condition and not two.
 //!
 //! # The syntax of a regular expression
 //!

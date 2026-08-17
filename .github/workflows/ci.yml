@@ -48,16 +48,33 @@ jobs:
       - name: Doc tests
         run: cargo test --workspace --all-features --doc
 
+      # The derive macro sits behind a feature, and the command above turns each
+      # feature on. This step compiles the runtime alone, so that a doc test
+      # that needs the macro cannot land outside that feature gate. The examples
+      # and the integration tests each need the macro, thus this step reads the
+      # library and its doc tests alone.
+      - name: No default features
+        run: |
+          cargo test --package lxr --no-default-features --lib
+          cargo test --package lxr --no-default-features --doc
+
       # An example is documentation, thus it must keep working. The step above
       # compiles each one. This step compiles them again on their own, so that a
       # change to the test command cannot drop them, and it runs each one, so
-      # that a panic fails the build. The loop reads the directory, thus a new
-      # example needs no change here.
+      # that a panic fails the build. Cargo names each example target, thus a
+      # new example needs no change here, and one that lives in a directory
+      # counts as well.
+      #
+      # `jq` on the Windows runner is a native binary, thus it ends each line
+      # with a carriage return. `tr` removes it, and cargo then reads the name.
       - name: Examples
         run: |
           cargo build --workspace --all-features --examples
-          for path in lxr/examples/*.rs; do
-            name="$(basename "$path" .rs)"
+          names="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "lxr") | .targets[]
+                     | select(.kind[] == "example") | .name' \
+            | tr -d '\r')"
+          for name in $names; do
             echo "--- $name"
             cargo run --quiet --package lxr --example "$name" >/dev/null
           done

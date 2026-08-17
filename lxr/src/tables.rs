@@ -18,13 +18,16 @@ use crate::action::Action;
 ///
 /// The fields are public, because the emitted source builds a `Tables` in a `static`. lxr builds
 /// each table that it emits, and it agrees with each of these conditions. A `Tables` that lxr did
-/// not build can break them, and a scan of it panics:
+/// not build can break them. A scan of it then panics, and a `width` of 0 gives the wrong token
+/// with no panic:
 ///
+/// - `width` is not 0.
 /// - `next` holds `width` values for each state, thus its length is a multiple of `width`.
 /// - `accept` holds one value for each state.
 /// - Each value of `classes` is below `width`, and each value of `next` is below the state count.
 /// - Each value of `accept` is at most the length of `actions`.
 /// - `start` is not empty, and each of its values is below the state count.
+/// - The `go` of each action is below the length of `start`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tables<'a> {
     /// The class of each byte. Class 0 means that no rule reads the byte at any state.

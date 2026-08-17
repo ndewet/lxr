@@ -9,10 +9,11 @@ use lxr::Lexer;
 
 /// The tokens of JSON, as RFC 8259 gives them.
 ///
-/// The pattern of [`Text`](Json::Text) reads a character that is not a quote and not a backslash,
-/// an escape of one character, or an escape of a codepoint. The pattern of
-/// [`Number`](Json::Number) reads an optional sign, an integer with no leading zero, an optional
-/// fraction, and an optional exponent.
+/// The pattern of [`Text`](Json::Text) reads a character that is not a quote, not a backslash, and
+/// not a control character, an escape of one character, or an escape of a codepoint. RFC 8259
+/// gives `unescaped = %x20-21 / %x23-5B / %x5D-10FFFF`, thus a raw newline inside a string is a
+/// fault. The pattern of [`Number`](Json::Number) reads an optional sign, an integer with no
+/// leading zero, an optional fraction, and an optional exponent.
 #[derive(Debug, PartialEq, Eq, Lexer)]
 #[lxr(skip = r"[ \t\r\n]+")]
 enum Json {
@@ -34,7 +35,7 @@ enum Json {
     False,
     #[lxr(token = "null")]
     Null,
-    #[lxr(regex = r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#)]
+    #[lxr(regex = r#""([^\x00-\x1F"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#)]
     Text,
     #[lxr(regex = r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")]
     Number,

@@ -302,6 +302,27 @@ fn only_the_rules_of_the_start_condition_match() {
 }
 
 #[test]
+fn a_rule_that_skips_leaves_the_place_of_the_last_token() {
+    let mut scan = words::Token::scan("a  ");
+
+    assert_eq!(scan.next(), Some(Ok(words::Token::Word)));
+    assert_eq!(scan.span(), 0..1);
+
+    assert_eq!(scan.next(), None);
+    assert_eq!(scan.span(), 0..1);
+    assert_eq!(scan.slice(), "a");
+    assert_eq!((scan.line(), scan.column()), (1, 1));
+}
+
+#[test]
+fn a_rule_that_skips_still_counts_the_lines_of_its_match() {
+    let mut scan = words::Token::scan("\n\na");
+
+    assert_eq!(scan.next(), Some(Ok(words::Token::Word)));
+    assert_eq!((scan.line(), scan.column()), (3, 1));
+}
+
+#[test]
 fn a_scan_reports_where_it_stopped() {
     let mut scan = words::Token::scan("aa a");
 
@@ -364,6 +385,18 @@ fn a_located_scan_reads_the_start_condition_that_it_is_under() {
         Some(Ok(Token::Quote))
     );
     assert_eq!(scan.condition(), Context::Text);
+}
+
+#[test]
+fn a_located_scan_reports_where_it_stopped() {
+    let mut scan = words::Token::scan("aa a").located();
+
+    assert_eq!(scan.offset(), 0);
+    assert_eq!(scan.remainder(), "aa a");
+
+    assert!(scan.next().is_some());
+    assert_eq!(scan.offset(), 2);
+    assert_eq!(scan.remainder(), " a");
 }
 
 #[test]

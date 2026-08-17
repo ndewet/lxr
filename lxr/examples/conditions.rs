@@ -12,6 +12,11 @@
 //! A block comment does not nest. The conditions hold no stack, thus the first `*/` ends the
 //! comment.
 //!
+//! Only a rule changes the condition, thus the end of the input closes nothing. A string that no
+//! quote closes reads the remainder of the input as one `Text`, and a block comment that no `*/`
+//! closes gives no token at all. Neither one gives a fault. The example reads the condition after
+//! the loop, which is how a parser finds such an input.
+//!
 //! Run it with `cargo run -p lxr --example conditions`.
 
 use lxr::Lexer;
@@ -32,7 +37,7 @@ enum Context {
 /// win over `\*`.
 #[derive(Debug, PartialEq, Eq, Lexer)]
 #[lxr(condition = Context::Code)]
-#[lxr(skip = r"[ \t\n]+")]
+#[lxr(skip = r"[ \t\r\n]+")]
 #[lxr(skip = "//[^\n]*")]
 #[lxr(skip = r"/\*", go = Context::Comment)]
 #[lxr(skip = r"\*/", in = [Context::Comment], go = Context::Code)]
@@ -68,7 +73,8 @@ greeting = "a // is not a comment, and a /* is not one either";
 fn main() {
     println!("{SOURCE}");
 
-    for found in Token::scan(SOURCE).located() {
+    let mut scan = Token::scan(SOURCE).located();
+    for found in scan.by_ref() {
         match found {
             Ok(found) => {
                 let kind = format!("{:?}", found.token);
@@ -81,4 +87,6 @@ fn main() {
             Err(error) => println!("error: {error}"),
         }
     }
+
+    println!("\nthe scan ends under {:?}", scan.condition());
 }

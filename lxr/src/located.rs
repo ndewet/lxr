@@ -31,7 +31,12 @@ pub struct Located<T> {
 /// One scan of an input, which gives the place of each token with the token.
 ///
 /// [`Scan::located`] makes it. The iterator gives one [`Located`] at a time, and it reports each
-/// character that no rule matches, exactly as a [`Scan`] does.
+/// fault of the input, exactly as a [`Scan`] does.
+///
+/// Each [`Located`] carries the place of its token. Thus this iterator forwards the state of the
+/// scan alone: [`condition`](Self::condition), [`offset`](Self::offset), and
+/// [`remainder`](Self::remainder). A caller that reads a stream refills its buffer with the last
+/// two, inside the loop.
 pub struct Locations<'a, T> {
     scan: Scan<'a, T>,
 }
@@ -52,6 +57,16 @@ impl<'a, T: Lexer> Locations<'a, T> {
     /// This function panics if the tables name a condition that the lexer does not hold.
     pub fn condition(&self) -> T::Condition {
         self.scan.condition()
+    }
+
+    /// Returns the offset at which the next token starts.
+    pub fn offset(&self) -> usize {
+        self.scan.offset()
+    }
+
+    /// Returns the input that the scan has not read.
+    pub fn remainder(&self) -> &'a str {
+        self.scan.remainder()
     }
 }
 
