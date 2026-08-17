@@ -1,9 +1,11 @@
 use std::fmt::{Debug, Formatter, Result as FormatResult};
+use std::iter::FusedIterator;
 use std::marker::PhantomData;
 use std::ops::Range;
 
 use crate::error::ScanError;
 use crate::lexer::Lexer;
+use crate::located::Locations;
 use crate::tables::Tables;
 
 /// One scan of an input, in progress.
@@ -11,6 +13,9 @@ use crate::tables::Tables;
 /// The scan gives one token at a time, thus it implements [`Iterator`]. It also holds where the
 /// last token is. Read [`span`](Self::span), [`slice`](Self::slice), [`line`](Self::line), and
 /// [`column`](Self::column) after each token.
+///
+/// A `for` loop takes the scan, thus the body of the loop cannot read the place of the token. Use
+/// [`located`](Self::located) for that loop, and it gives the place with the token.
 ///
 /// An offset counts bytes from the start of the input, and a token holds no borrow of the input.
 ///
@@ -56,9 +61,38 @@ impl<'a, T: Lexer> Scan<'a, T> {
 
     /// Returns the text of the last token.
     ///
-    /// The result is empty before the first token.
+    /// The result is empty before the first token. After a [`ScanError`], it is the text at fault.
     pub fn slice(&self) -> &'a str {
         &self.input[self.span.clone()]
+    }
+
+    /// Gives the place of each token with the token, in place of the token alone.
+    ///
+    /// A `for` loop takes the scan, thus the body of the loop cannot read [`span`](Self::span) or
+    /// [`line`](Self::line). Each [`Located`](crate::Located) of this iterator carries them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    ///
+    /// #[derive(Debug, PartialEq, Lexer)]
+    /// #[lxr(skip = " +")]
+    /// enum Token {
+    ///     #[lxr(regex = "[a-z]+")]
+    ///     Word,
+    /// }
+    ///
+    /// let places: Vec<_> = Token::scan("one two")
+    ///     .located()
+    ///     .map(|found| found.expect("each character belongs to a token"))
+    ///     .map(|found| (found.span, found.line, found.column))
+    ///     .collect();
+    ///
+    /// assert_eq!(places, vec![(0..3, 1, 1), (4..7, 1, 5)]);
+    /// ```
+    pub fn located(self) -> Locations<'a, T> {
+        Locations::new(self)
     }
 
     /// Returns the line at which the last token starts, counted from 1.
@@ -169,14 +203,16 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
     }
 }
 
+impl<T: Lexer> FusedIterator for Scan<'_, T> {}
+
 impl<T> Debug for Scan<'_, T> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatResult {
         formatter
             .debug_struct("Scan")
             .field("offset", &self.offset)
             .field("condition", &self.condition)
-            .field("line", &self.next_line)
-            .field("column", &self.next_column)
+            .field("line", &self.line)
+            .field("column", &self.column)
             .field("span", &self.span)
             .finish()
     }

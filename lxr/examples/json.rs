@@ -53,12 +53,13 @@ fn main() {
     println!("{DOCUMENT}\n");
 
     let mut counted = 0;
-    let mut scan = Json::scan(DOCUMENT);
-    while let Some(found) = scan.next() {
+    for found in Json::scan(DOCUMENT).located() {
         match found {
-            Ok(token) => {
+            Ok(found) => {
                 counted += 1;
-                println!("{:<12} {:?}", format!("{token:?}"), scan.slice());
+                let kind = format!("{:?}", found.token);
+
+                println!("{kind:<12} {:?}", &DOCUMENT[found.span]);
             }
             Err(error) => println!("error: {error}"),
         }

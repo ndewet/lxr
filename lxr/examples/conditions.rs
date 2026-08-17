@@ -68,15 +68,16 @@ greeting = "a // is not a comment, and a /* is not one either";
 fn main() {
     println!("{SOURCE}");
 
-    let mut scan = Token::scan(SOURCE);
-    while let Some(found) = scan.next() {
+    for found in Token::scan(SOURCE).located() {
         match found {
-            Ok(token) => println!(
-                "line {:<3} {:<10} {:?}",
-                scan.line(),
-                format!("{token:?}"),
-                scan.slice()
-            ),
+            Ok(found) => {
+                let kind = format!("{:?}", found.token);
+
+                println!(
+                    "line {:<3} {kind:<10} {:?}",
+                    found.line, &SOURCE[found.span]
+                );
+            }
             Err(error) => println!("error: {error}"),
         }
     }

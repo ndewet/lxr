@@ -9,7 +9,7 @@
 //!
 //! Run it with `cargo run -p lxr --example tokens`.
 
-use lxr::Lexer;
+use lxr::{Lexer, Located};
 
 /// The tokens of a language of an assignment and an arithmetic expression.
 ///
@@ -42,16 +42,21 @@ fn main() {
     println!("{source}\n");
     println!("SPAN     TOKEN            PLACE  TEXT");
 
-    let mut scan = Token::scan(source);
-    while let Some(found) = scan.next() {
-        let span = scan.span();
-        let range = format!("{}..{}", span.start, span.end);
-        let place = format!("{}:{}", scan.line(), scan.column());
-        let (kind, text) = match found {
-            Ok(token) => (format!("{token:?}"), format!("{:?}", scan.slice())),
-            Err(error) => ("error".to_owned(), error.to_string()),
-        };
+    for found in Token::scan(source).located() {
+        match found {
+            Ok(Located {
+                token,
+                span,
+                line,
+                column,
+            }) => {
+                let range = format!("{}..{}", span.start, span.end);
+                let kind = format!("{token:?}");
+                let place = format!("{line}:{column}");
 
-        println!("{range:<8} {kind:<16} {place:<6} {text}");
+                println!("{range:<8} {kind:<16} {place:<6} {:?}", &source[span]);
+            }
+            Err(error) => println!("error: {error}"),
+        }
     }
 }

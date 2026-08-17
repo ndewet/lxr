@@ -15,6 +15,7 @@
 mod action;
 mod error;
 mod lexer;
+mod located;
 mod scan;
 mod tables;
 
@@ -22,6 +23,7 @@ pub use self::{
     action::Action,
     error::{ScanError, ScanErrorKind},
     lexer::Lexer,
+    located::{Located, Locations},
     scan::Scan,
     tables::Tables,
 };
