@@ -47,10 +47,11 @@ emit() {
 	fi
 }
 
-# The version inside [package], ignoring any version keys in other tables.
+# The version inside [workspace.package], ignoring any version keys in other
+# tables. Every crate of the workspace inherits that one version.
 package_version() {
 	awk '
-		/^\[/       { in_pkg = ($0 ~ /^\[package\]/) }
+		/^\[/       { in_pkg = ($0 ~ /^\[workspace\.package\]/) }
 		in_pkg && /^[[:space:]]*version[[:space:]]*=/ {
 			gsub(/^[^=]*=[[:space:]]*"|"[[:space:]]*$/, "")
 			print

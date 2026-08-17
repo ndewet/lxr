@@ -10,7 +10,7 @@ on:
     # The review reads only the Rust sources. A pull request that changes no
     # other file starts no run, thus it costs nothing.
     paths:
-      - "src/**/*.rs"
+      - "**/src/**/*.rs"
 
 # One review per pull request. A new push replaces the run in progress.
 concurrency:
@@ -50,7 +50,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if git diff --unified=0 "${BASE_SHA}...HEAD" -- ':(glob)src/**/*.rs' \
+          if git diff --unified=0 "${BASE_SHA}...HEAD" -- ':(glob)**/src/**/*.rs' \
             | grep -vE '^\+\+\+' \
             | grep -qE '^\+.*(//|panic!|unreachable!|todo!|assert|expect\(|format!|write!)'
           then
@@ -97,7 +97,7 @@ jobs:
             ## Scope
 
             Examine only the added lines and the modified lines of the diff, in
-            the files that match `src/**/*.rs`.
+            the files that match `**/src/**/*.rs`.
 
             In those lines, examine only prose:
 
