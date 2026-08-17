@@ -3,7 +3,14 @@ name = "lxr"
 version.workspace = true
 edition.workspace = true
 
+# A user crate compiles this crate, thus it holds no dependency of its own. The
+# derive macro is the one exception, and it builds for the host.
 [dependencies]
+lxr-derive = { workspace = true, optional = true }
+
+[features]
+default = ["derive"]
+derive = ["dep:lxr-derive"]
 
 [lints]
 workspace = true
