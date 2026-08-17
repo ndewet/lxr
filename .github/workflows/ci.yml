@@ -64,12 +64,16 @@ jobs:
       # that a panic fails the build. Cargo names each example target, thus a
       # new example needs no change here, and one that lives in a directory
       # counts as well.
+      #
+      # `jq` on the Windows runner is a native binary, thus it ends each line
+      # with a carriage return. `tr` removes it, and cargo then reads the name.
       - name: Examples
         run: |
           cargo build --workspace --all-features --examples
           names="$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.name == "lxr") | .targets[]
-                     | select(.kind[] == "example") | .name')"
+                     | select(.kind[] == "example") | .name' \
+            | tr -d '\r')"
           for name in $names; do
             echo "--- $name"
             cargo run --quiet --package lxr --example "$name" >/dev/null
