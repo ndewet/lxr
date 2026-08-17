@@ -6,6 +6,10 @@
 //!
 //! [`Lexer`] is the trait that the macro implements. [`Lexer::scan`] starts a [`Scan`], which gives
 //! one token at a time and reports each character that no rule matches.
+//! [`Scan::located`] gives the place of each token with the token.
+//!
+//! [`syntax`] holds the reference of the rules: each attribute, the sequence of the rules, the
+//! pattern language, and each limit.
 //!
 //! `lxr-codegen` holds the parser, the automata, and the emitter.
 //!
@@ -18,6 +22,8 @@ mod lexer;
 mod located;
 mod scan;
 mod tables;
+
+pub mod syntax;
 
 pub use self::{
     action::Action,
@@ -36,12 +42,9 @@ pub use self::{
 /// A rule holds one pattern. `token` matches a literal, `regex` matches a regular expression, and
 /// `skip` reads the match and gives no token. Write `skip` on the enum.
 ///
-/// `in` gives the start conditions of a rule, and `go` changes the condition after the match. One
-/// condition needs no list, thus `in = Context::Text` and `in = [Context::Text]` give the same
-/// rule. Write `condition` on the enum to name the condition at which the scan begins. The type of
-/// the conditions is that path without its last segment.
-///
-/// Each variant needs a rule, and each attribute names each option one time.
+/// `in` gives the start conditions of a rule, and `go` changes the condition after the match. Write
+/// `condition` on the enum to name the condition at which the scan begins. The type of the
+/// conditions is that path without its last segment.
 ///
 /// The longest match wins, and the earliest rule wins a tie.
 ///
@@ -49,6 +52,8 @@ pub use self::{
 /// through [`FromStr`](std::str::FromStr), thus `Name(String)` holds the text and `Int(u64)` holds
 /// the number. A text that the field does not hold gives a [`ScanError`] of the kind
 /// [`Value`](ScanErrorKind::Value).
+///
+/// [`syntax`] holds each attribute, the pattern language, and each limit.
 ///
 /// # Examples
 ///

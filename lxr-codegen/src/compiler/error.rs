@@ -80,8 +80,11 @@ impl BuildErrorKind {
     /// the compiler.
     pub fn help(&self) -> &'static str {
         match self {
-            Self::NoCondition => "Give the rule at least one start condition.",
-            Self::UnknownCondition { .. } => "Declare the start condition in this lexicon.",
+            Self::NoCondition => "Name at least one start condition of the rule in `in`.",
+            Self::UnknownCondition { .. } => {
+                "Name the start condition in `condition` on the enum, or in `in` or `go` on a \
+                 rule."
+            }
             Self::MatchesEmpty => {
                 "Each part of the pattern can match nothing. Write `+` in \
                  place of `*`, or remove a `?`."
@@ -162,7 +165,7 @@ mod tests {
         );
         assert_eq!(
             error.kind.help(),
-            "Give the rule at least one start condition."
+            "Name at least one start condition of the rule in `in`."
         );
     }
 
