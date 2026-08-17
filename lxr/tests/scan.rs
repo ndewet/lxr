@@ -62,10 +62,6 @@ mod words {
         }
 
         fn condition(_index: u16) {}
-
-        fn index(_condition: Self::Condition) -> u16 {
-            0
-        }
     }
 }
 
@@ -154,13 +150,6 @@ mod strings {
                 0 => Context::Code,
                 1 => Context::Text,
                 other => panic!("condition {other} is not a condition of the lexer"),
-            }
-        }
-
-        fn index(condition: Context) -> u16 {
-            match condition {
-                Context::Code => 0,
-                Context::Text => 1,
             }
         }
     }
