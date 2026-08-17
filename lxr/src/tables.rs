@@ -42,16 +42,6 @@ pub struct Tables<'a> {
 }
 
 impl Tables<'_> {
-    /// Returns the number of the states, the dead state included.
-    pub fn state_count(&self) -> usize {
-        self.accept.len()
-    }
-
-    /// Returns the number of the start conditions.
-    pub fn condition_count(&self) -> usize {
-        self.start.len()
-    }
-
     /// Returns the state at which `state` reads `byte`, or 0 if the scan stops there.
     ///
     /// # Panics

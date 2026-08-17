@@ -3,7 +3,7 @@
 //! The derive macro builds a table from an automaton. This test builds one directly, thus it
 //! specifies the runtime and it needs no macro.
 
-use lxr::{Action, Lexer, Tables};
+use lxr::{Action, Lexer, Located, Tables};
 
 /// A lexer of one condition. It reads a word of the letter `a`, and it skips a space and a newline.
 ///
@@ -311,4 +311,66 @@ fn a_scan_reports_where_it_stopped() {
     assert_eq!(scan.next(), Some(Ok(words::Token::Word)));
     assert_eq!(scan.offset(), 2);
     assert_eq!(scan.remainder(), " a");
+}
+
+#[test]
+fn a_located_scan_gives_the_place_of_each_token_with_the_token() {
+    let found: Vec<_> = words::Token::scan("aa\n a")
+        .located()
+        .map(|found| found.expect("each character of the input belongs to a token"))
+        .collect();
+
+    assert_eq!(
+        found,
+        vec![
+            Located {
+                token: words::Token::Word,
+                span: 0..2,
+                line: 1,
+                column: 1,
+            },
+            Located {
+                token: words::Token::Word,
+                span: 4..5,
+                line: 2,
+                column: 2,
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_located_scan_reports_each_character_that_no_rule_matches() {
+    let found: Vec<_> = words::Token::scan("aZa").located().collect();
+
+    assert_eq!(found.len(), 3);
+    assert_eq!(found[0].as_ref().map(|found| found.span.clone()), Ok(0..1));
+    assert_eq!(
+        found[1].as_ref().map_err(|error| error.span.clone()),
+        Err(1..2)
+    );
+    assert_eq!(found[2].as_ref().map(|found| found.span.clone()), Ok(2..3));
+}
+
+#[test]
+fn a_located_scan_reads_the_start_condition_that_it_is_under() {
+    use strings::{Context, Token};
+
+    let mut scan = Token::scan("\"ab").located();
+
+    assert_eq!(scan.condition(), Context::Code);
+    assert_eq!(
+        scan.next().map(|found| found.map(|found| found.token)),
+        Some(Ok(Token::Quote))
+    );
+    assert_eq!(scan.condition(), Context::Text);
+}
+
+#[test]
+fn a_scan_gives_no_token_after_the_end_of_the_input() {
+    let mut scan = words::Token::scan("a");
+
+    assert_eq!(scan.next(), Some(Ok(words::Token::Word)));
+    assert_eq!(scan.next(), None);
+    assert_eq!(scan.next(), None);
 }

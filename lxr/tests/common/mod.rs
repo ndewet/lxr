@@ -22,17 +22,13 @@ pub enum Step<T> {
 
 /// Returns each token and each fault of a scan of `input`.
 pub fn steps<T: Lexer>(input: &str) -> Vec<Step<T>> {
-    let mut scan = T::scan(input);
-    let mut found = Vec::new();
-
-    while let Some(result) = scan.next() {
-        match result {
-            Ok(token) => found.push(Step::Token(token, scan.span())),
-            Err(error) => found.push(Step::Fault(error.span)),
-        }
-    }
-
-    found
+    T::scan(input)
+        .located()
+        .map(|result| match result {
+            Ok(found) => Step::Token(found.token, found.span),
+            Err(error) => Step::Fault(error.span),
+        })
+        .collect()
 }
 
 /// Returns the tokens of a scan of `input`.

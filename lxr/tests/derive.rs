@@ -127,6 +127,32 @@ fn a_scan_gives_the_text_the_span_and_the_place_of_each_token() {
 }
 
 #[test]
+fn a_for_loop_reads_the_place_of_each_token_with_the_token() {
+    let source = "let x9\n= 12";
+    let mut places = Vec::new();
+
+    for found in Token::scan(source).located() {
+        let found = found.expect("each character of the input belongs to a token");
+        places.push((
+            found.token,
+            source[found.span].to_owned(),
+            found.line,
+            found.column,
+        ));
+    }
+
+    assert_eq!(
+        places,
+        vec![
+            (Token::Let, "let".to_owned(), 1, 1),
+            (Token::Word, "x9".to_owned(), 1, 5),
+            (Token::Equals, "=".to_owned(), 2, 1),
+            (Token::Number, "12".to_owned(), 2, 3),
+        ]
+    );
+}
+
+#[test]
 fn a_character_that_no_rule_matches_gives_an_error_and_the_scan_reads_on() {
     let found: Vec<_> = Token::scan("fn % fn").collect();
 
