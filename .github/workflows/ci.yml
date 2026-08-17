@@ -40,12 +40,27 @@ jobs:
           rustup default stable
           rustc --version
 
-      # --all-targets covers lib/bins/tests/benches but skips doctests, so run those separately.
+      # --all-targets covers lib/bins/tests/benches/examples but skips doctests,
+      # so run those separately.
       - name: Test
         run: cargo test --workspace --all-features --all-targets
 
       - name: Doc tests
         run: cargo test --workspace --all-features --doc
+
+      # An example is documentation, thus it must keep working. The step above
+      # compiles each one. This step compiles them again on their own, so that a
+      # change to the test command cannot drop them, and it runs each one, so
+      # that a panic fails the build. The loop reads the directory, thus a new
+      # example needs no change here.
+      - name: Examples
+        run: |
+          cargo build --workspace --all-features --examples
+          for path in lxr/examples/*.rs; do
+            name="$(basename "$path" .rs)"
+            echo "--- $name"
+            cargo run --quiet --package lxr --example "$name" >/dev/null
+          done
 
   lint:
     name: Lint
