@@ -165,7 +165,9 @@ fn an_error_of_a_value_states_the_correction() {
         .expect("the scan gives one result")
         .expect_err("999 does not fit a u8");
 
-    assert!(error.help().contains("wider type"));
+    let help = error.help();
+    assert!(help.contains("Correct the input"), "{help}");
+    assert!(help.contains("wider field"), "{help}");
     assert_eq!(
         error.to_string(),
         "the text does not fit the field of its token at line 1, column 1"

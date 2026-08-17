@@ -67,8 +67,8 @@
 //! scan to find such an input.
 //!
 //! Each of `in`, `go`, and `condition` names the type of the conditions before the name of the
-//! condition. Write `Context::Text`, and not `Text` after a `use`. Two spellings of one condition
-//! read as two conditions, thus the macro rejects the second form.
+//! condition. Write `Context::Text`, and not `Text` after a `use`. The name of the type is enough,
+//! thus `ctx::Context::Text` and `Context::Text` name one condition and not two.
 //!
 //! # The syntax of a regular expression
 //!

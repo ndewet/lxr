@@ -95,8 +95,8 @@ fn parts(input: &DeriveInput) -> syn::Result<Read> {
     if !input.generics.params.is_empty() {
         return Err(syn::Error::new(
             input.generics.span(),
-            "lxr derives a lexer from an enum that holds no generic parameter. A token holds no \
-             borrow of the input, thus each field owns its value",
+            "lxr derives a lexer from an enum that holds no generic parameter. The rules name no \
+             parameter, and a token holds no borrow of the input",
         ));
     }
 
@@ -310,7 +310,8 @@ fn options(attrs: &[syn::Attribute]) -> syn::Result<Vec<Attribute>> {
 /// `initial` is the condition at which the scan begins. Each other condition takes the next index,
 /// in the sequence in which the rules name it.
 ///
-/// Each condition names the type that `initial` names, thus one condition has one text.
+/// Each condition is a variant of the type that `initial` names, thus the name of the variant
+/// identifies the condition.
 ///
 /// # Errors
 ///
@@ -335,14 +336,15 @@ fn number(
     };
 
     let kind = kind(initial)?;
+    let owner = owner(initial).expect("the first start condition holds two segments or more");
     let mut names = vec![initial.to_token_stream()];
-    let mut texts = vec![text(initial)];
+    let mut texts = vec![variant(initial)];
 
     for (attribute, _) in rules {
         for path in named(attribute) {
-            belongs(path, &kind)?;
-            if !texts.contains(&text(path)) {
-                texts.push(text(path));
+            belongs(path, owner)?;
+            if !texts.contains(&variant(path)) {
+                texts.push(variant(path));
                 names.push(path.to_token_stream());
             }
         }
@@ -370,27 +372,37 @@ fn kind(path: &Path) -> syn::Result<TokenStream> {
     })
 }
 
-/// Returns an error if `path` does not name a start condition of the type `kind`.
+/// Returns the name of the type of the variant that `path` names.
 ///
-/// A comparison of two conditions reads the text of the path. Thus `Text` after a `use` and
-/// `Context::Text` read as two conditions, and the lexer then holds one condition that no rule
-/// matches under. The scan reaches that condition and it stops at each byte.
+/// The name is the segment before the last one, thus `ctx::Context::Text` gives `Context`. A rule
+/// reads that type through a `use`, thus it writes fewer segments than the enum does.
+fn owner(path: &Path) -> Option<&Ident> {
+    let count = path.segments.len();
+    count
+        .checked_sub(2)
+        .map(|index| &path.segments[index].ident)
+}
+
+/// Returns an error if `path` does not name a variant of the type `owner`.
+///
+/// A comparison of two conditions reads the name of the variant. Thus a bare `Text` after a `use`
+/// names no type, and `Other::Text` names another one. Each one reads as a second condition that
+/// no rule matches under, and the scan reaches that condition and stops at each byte.
 ///
 /// # Errors
 ///
-/// This function returns an error if `path` holds one segment, or if the segments before the last
-/// one do not give the text of `kind`.
-fn belongs(path: &Path, kind: &TokenStream) -> syn::Result<()> {
-    let held = prefix(path).map(|held| held.to_string());
-    if held.as_deref() == Some(&kind.to_string()) {
+/// This function returns an error if `path` holds one segment, or if the segment before the last
+/// one is not `owner`.
+fn belongs(path: &Path, owner: &Ident) -> syn::Result<()> {
+    if self::owner(path).is_some_and(|held| held == owner) {
         return Ok(());
     }
 
     Err(syn::Error::new(
         path.span(),
         format!(
-            "a start condition of this lexer is a variant of `{kind}`. Write that type before the \
-             name of the condition"
+            "a start condition of this lexer is a variant of `{owner}`. Write `{owner}::` and then \
+             the name of the condition"
         ),
     ))
 }
@@ -415,9 +427,15 @@ fn prefix(path: &Path) -> Option<TokenStream> {
     )
 }
 
-/// Returns the text of `path`, for a comparison of two conditions.
-fn text(path: &Path) -> String {
-    path.to_token_stream().to_string()
+/// Returns the name of the condition that `path` names, for a comparison of two conditions.
+///
+/// [`belongs`] holds each path to one type. Thus the last segment identifies the condition, and
+/// `ctx::Context::Text` and `Context::Text` name one condition and not two.
+fn variant(path: &Path) -> String {
+    match path.segments.last() {
+        Some(segment) => segment.ident.to_string(),
+        None => path.to_token_stream().to_string(),
+    }
 }
 
 /// Returns the rule of `attribute`, which gives the variant of `gives`.
@@ -480,7 +498,7 @@ fn index(path: &Path, conditions: &Option<Numbered>) -> syn::Result<usize> {
 
     texts
         .iter()
-        .position(|held| held == &text(path))
+        .position(|held| held == &variant(path))
         .ok_or_else(|| syn::Error::new(path.span(), "the lexer does not hold this start condition"))
 }
 
@@ -648,10 +666,56 @@ mod tests {
         ] {
             let message = fault(source);
             assert!(
-                message.contains("is a variant of `Context`"),
+                message.contains("is a variant of `Context`. Write `Context::`"),
                 "{source}: {message}"
             );
         }
+    }
+
+    #[test]
+    fn the_correction_names_the_type_of_a_condition_of_a_module() {
+        let message = fault(
+            r#"
+            #[lxr(condition = ctx::Context::Code)]
+            enum Token {
+                #[lxr(regex = "[a-z]+", in = [Other::Text])]
+                Word,
+            }
+            "#,
+        );
+
+        assert!(
+            message.contains("a variant of `Context`. Write `Context::`"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn two_spellings_of_one_start_condition_give_one_condition() {
+        let specification = lexer(
+            r#"
+            #[lxr(condition = ctx::Context::Code)]
+            enum Token {
+                #[lxr(token = "\"", go = Context::Text)]
+                Quote,
+                #[lxr(regex = "[^\"]+", in = [ctx::Context::Text])]
+                Body,
+                #[lxr(token = "\"", in = [Context::Text], go = ctx::Context::Code)]
+                End,
+            }
+            "#,
+        )
+        .specification;
+        let conditions = specification
+            .conditions
+            .expect("the lexer names its start conditions");
+
+        assert_eq!(conditions.names.len(), 2);
+        assert_eq!(conditions.kind.to_string(), "ctx :: Context");
+        assert_eq!(specification.rules[0].go, Some(1));
+        assert_eq!(specification.rules[1].conditions, vec![1]);
+        assert_eq!(specification.rules[2].conditions, vec![1]);
+        assert_eq!(specification.rules[2].go, Some(0));
     }
 
     #[test]

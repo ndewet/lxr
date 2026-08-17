@@ -74,8 +74,8 @@ impl ScanErrorKind {
                  add a rule that skips it."
             }
             Self::Value => {
-                "The text is outside the range of the field. Correct the input, or give the token \
-                 a field of a wider type."
+                "The text does not fit the field. Correct the input, or give the token a wider \
+                 field or a pattern that matches only the text that fits."
             }
         }
     }
