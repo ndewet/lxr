@@ -8,6 +8,8 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashSet;
+
 use proc_macro2::{Ident, TokenStream};
 
 use crate::automata::Overflow;
@@ -110,6 +112,9 @@ pub enum GenerateErrorKind {
         /// The maximum number of the rules.
         maximum: usize,
     },
+    /// A rule can never win a match, thus it gives no token. An earlier rule matches each text
+    /// that this rule matches, and the earliest rule wins a tie.
+    NeverWins,
 }
 
 impl GenerateErrorKind {
@@ -135,6 +140,10 @@ impl GenerateErrorKind {
             Self::Pattern(error) => error.kind.help(),
             Self::Rule(kind) => Some(kind.help()),
             Self::TooManyRules { .. } => Some("Divide the lexer into two lexers."),
+            Self::NeverWins => Some(
+                "An earlier rule matches each text that this rule matches. Put this rule \
+                 before that one, or write a pattern that only this rule matches.",
+            ),
         }
     }
 }
@@ -148,6 +157,7 @@ impl std::fmt::Display for GenerateErrorKind {
                 formatter,
                 "the lexer holds {count} rules, above the limit of {maximum}"
             ),
+            Self::NeverWins => write!(formatter, "the rule can never win a match"),
         }
     }
 }
@@ -168,7 +178,8 @@ impl std::error::Error for GenerateError {}
 /// # Errors
 ///
 /// This function returns one [`GenerateError`] for each fault. A pattern that the parser cannot
-/// read, a rule that the lexicon rejects, and a lexer above a limit each give one.
+/// read, a rule that the lexicon rejects, a rule that can never win a match, and a lexer above a
+/// limit each give one.
 pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<GenerateError>> {
     let nodes = parse(&specification.rules)?;
     let lexicon = build(specification, nodes)?;
@@ -177,6 +188,7 @@ pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<Genera
     let determinization = nfa.determinize().map_err(overflow)?;
     let accepts = accepts.determinized(&determinization.subsets);
     let tables = Tables::new(&determinization.dfa, &accepts).map_err(overflow)?;
+    reachable(&tables, specification.rules.len())?;
 
     Ok(emit(&Emission {
         token: specification.token.clone(),
@@ -274,6 +286,37 @@ fn build(
 
     if errors.is_empty() {
         Ok(lexicon)
+    } else {
+        Err(errors)
+    }
+}
+
+/// Reports each rule of `count` rules that can never win a match.
+///
+/// A state of the tables holds the rule of the highest precedence of the rules that accept there.
+/// Thus a rule that no state holds loses each match to an earlier rule, and no input gives it. Such
+/// a rule is a mistake in the sequence of the rules, and not a rule of the language.
+///
+/// # Errors
+///
+/// This function returns one error for each rule that no accept of `tables` names.
+fn reachable(tables: &Tables, count: usize) -> Result<(), Vec<GenerateError>> {
+    let winners: HashSet<u16> = tables
+        .accept()
+        .iter()
+        .filter_map(|accept| accept.checked_sub(1))
+        .collect();
+
+    let errors: Vec<GenerateError> = (0..count)
+        .filter(|&rule| {
+            let rule = u16::try_from(rule).expect("the count is at most MAX_RULES");
+            !winners.contains(&rule)
+        })
+        .map(|rule| GenerateErrorKind::NeverWins.in_rule(rule))
+        .collect();
+
+    if errors.is_empty() {
+        Ok(())
     } else {
         Err(errors)
     }
@@ -431,6 +474,106 @@ mod tests {
             errors(&specification)[0].kind,
             GenerateErrorKind::Rule(BuildErrorKind::MatchesEmpty)
         );
+    }
+
+    #[test]
+    fn a_rule_that_an_earlier_rule_shadows_names_its_rule() {
+        let found = errors(&lexer(vec![rule("[a-z]+", "Word"), rule("let", "Let")]));
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rule, Some(1));
+        assert_eq!(found[0].kind, GenerateErrorKind::NeverWins);
+        assert_eq!(found[0].to_string(), "the rule can never win a match");
+        assert!(
+            found[0]
+                .kind
+                .help()
+                .is_some_and(|help| help.starts_with("An earlier rule"))
+        );
+    }
+
+    #[test]
+    fn two_rules_of_one_pattern_report_the_later_one() {
+        let found = errors(&lexer(vec![rule("a", "One"), rule("a", "Two")]));
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rule, Some(1));
+    }
+
+    #[test]
+    fn each_rule_that_can_never_win_gives_its_own_error() {
+        let found = errors(&lexer(vec![
+            rule("[a-z]+", "Word"),
+            rule("let", "Let"),
+            rule("fn", "Fn"),
+        ]));
+
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].rule, Some(1));
+        assert_eq!(found[1].rule, Some(2));
+    }
+
+    #[test]
+    fn a_rule_that_skips_under_a_rule_that_shadows_it_names_its_rule() {
+        let found = errors(&lexer(vec![
+            rule("[a-z]+", "Word"),
+            Rule {
+                pattern: Pattern::Regex("[a-z]+".to_owned()),
+                token: None,
+                value: None,
+                conditions: Vec::new(),
+                go: None,
+            },
+        ]));
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rule, Some(1));
+    }
+
+    #[test]
+    fn a_keyword_before_the_rule_of_a_name_wins_its_own_match() {
+        let source = generate(&lexer(vec![rule("let", "Let"), rule("[a-z]+", "Word")]));
+
+        assert!(source.is_ok());
+    }
+
+    #[test]
+    fn a_rule_of_a_longer_match_leaves_an_earlier_rule_its_own_match() {
+        let source = generate(&lexer(vec![
+            rule("[a-z]", "One"),
+            rule("[a-z][a-z]+", "Many"),
+        ]));
+
+        assert!(source.is_ok());
+    }
+
+    #[test]
+    fn a_rule_that_only_another_start_condition_holds_wins_its_own_match() {
+        let specification = Specification {
+            token: name("Token"),
+            conditions: Some(Conditions {
+                kind: quote!(Context),
+                names: vec![quote!(Context::Code), quote!(Context::Text)],
+            }),
+            rules: vec![
+                Rule {
+                    pattern: Pattern::Regex("[a-z]+".to_owned()),
+                    token: Some(name("Word")),
+                    value: None,
+                    conditions: vec![0],
+                    go: None,
+                },
+                Rule {
+                    pattern: Pattern::Regex("[a-z]+".to_owned()),
+                    token: Some(name("Body")),
+                    value: None,
+                    conditions: vec![1],
+                    go: None,
+                },
+            ],
+        };
+
+        assert!(generate(&specification).is_ok());
     }
 
     #[test]
