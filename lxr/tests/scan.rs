@@ -54,9 +54,9 @@ mod words {
             actions: &ACTIONS,
         };
 
-        fn token(rule: u16) -> Self {
+        fn token(rule: u16, _text: &str) -> Option<Self> {
             match rule {
-                0 => Token::Word,
+                0 => Some(Token::Word),
                 other => panic!("rule {other} gives no token"),
             }
         }
@@ -140,11 +140,11 @@ mod strings {
             actions: &ACTIONS,
         };
 
-        fn token(rule: u16) -> Self {
+        fn token(rule: u16, _text: &str) -> Option<Self> {
             match rule {
-                0 | 1 => Token::Quote,
-                2 => Token::Text,
-                3 => Token::Word,
+                0 | 1 => Some(Token::Quote),
+                2 => Some(Token::Text),
+                3 => Some(Token::Word),
                 other => panic!("rule {other} gives no token"),
             }
         }

@@ -43,12 +43,17 @@ impl Pattern {
 }
 
 /// One rule of a lexer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Rule {
     /// The pattern that the rule matches.
     pub pattern: Pattern,
     /// The variant that the rule gives, or `None` if the rule skips its match.
     pub token: Option<Ident>,
+    /// The type of the field of that variant, or `None` if the variant holds no field.
+    ///
+    /// The token reads the field from the text of the match with
+    /// [`FromStr`](std::str::FromStr).
+    pub value: Option<TokenStream>,
     /// The indexes of the start conditions of the rule. An empty list means the first condition.
     pub conditions: Vec<usize>,
     /// The index of the start condition that the scan changes to after the match.
@@ -188,6 +193,7 @@ pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<Genera
             .iter()
             .map(|rule| emit::Rule {
                 token: rule.token.clone(),
+                value: rule.value.clone(),
                 go: rule.go,
             })
             .collect(),
@@ -300,6 +306,7 @@ mod tests {
         Rule {
             pattern: Pattern::Regex(pattern.to_owned()),
             token: Some(name(token)),
+            value: None,
             conditions: Vec::new(),
             go: None,
         }
@@ -397,6 +404,7 @@ mod tests {
             rules: vec![Rule {
                 pattern: Pattern::Literal("a+b".to_owned()),
                 token: Some(name("Plus")),
+                value: None,
                 conditions: Vec::new(),
                 go: None,
             }],
@@ -413,6 +421,7 @@ mod tests {
             rules: vec![Rule {
                 pattern: Pattern::Literal(String::new()),
                 token: Some(name("Nothing")),
+                value: None,
                 conditions: Vec::new(),
                 go: None,
             }],
@@ -436,12 +445,14 @@ mod tests {
                 Rule {
                     pattern: Pattern::Literal("\"".to_owned()),
                     token: Some(name("Quote")),
+                    value: None,
                     conditions: vec![0],
                     go: Some(1),
                 },
                 Rule {
                     pattern: Pattern::Regex("[^\"]+".to_owned()),
                     token: Some(name("Text")),
+                    value: None,
                     conditions: vec![1],
                     go: None,
                 },
@@ -463,6 +474,7 @@ mod tests {
             Rule {
                 pattern: Pattern::Regex("[ ]+".to_owned()),
                 token: None,
+                value: None,
                 conditions: Vec::new(),
                 go: None,
             },

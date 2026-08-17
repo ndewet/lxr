@@ -1,7 +1,11 @@
-//! Reads a small language into tokens.
+//! Reads a small language into tokens that carry their values.
 //!
 //! This example shows the parts that each lexer needs: a literal, a regular expression, a rule
 //! that skips, and the place of each token.
+//!
+//! It also shows a token that carries a value. A variant that holds one field takes that field
+//! from the text of the match. `Number(u64)` holds the number, and `Name(String)` holds the text.
+//! A variant that holds no field carries nothing.
 //!
 //! Run it with `cargo run -p lxr --example tokens`.
 
@@ -27,16 +31,16 @@ enum Token {
     #[lxr(token = ")")]
     Close,
     #[lxr(regex = "[0-9]+")]
-    Number,
+    Number(u64),
     #[lxr(regex = "[a-zA-Z_][a-zA-Z0-9_]*")]
-    Name,
+    Name(String),
 }
 
 fn main() {
     let source = "let total = (price + 3) * 42";
 
     println!("{source}\n");
-    println!("SPAN     TOKEN      PLACE  TEXT");
+    println!("SPAN     TOKEN            PLACE  TEXT");
 
     let mut scan = Token::scan(source);
     while let Some(found) = scan.next() {
@@ -48,6 +52,6 @@ fn main() {
             Err(error) => ("error".to_owned(), error.to_string()),
         };
 
-        println!("{range:<8} {kind:<10} {place:<6} {text}");
+        println!("{range:<8} {kind:<16} {place:<6} {text}");
     }
 }

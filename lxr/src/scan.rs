@@ -146,7 +146,7 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
                 &self.input.as_bytes()[self.offset..],
             ) else {
                 self.take(self.character());
-                return Some(Err(ScanError::new(
+                return Some(Err(ScanError::no_rule(
                     self.span.clone(),
                     self.line,
                     self.column,
@@ -159,7 +159,11 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
                 self.condition = condition;
             }
             if !action.skip {
-                return Some(Ok(T::token(rule)));
+                let value = T::token(rule, self.slice());
+                return Some(
+                    value
+                        .ok_or_else(|| ScanError::value(self.span.clone(), self.line, self.column)),
+                );
             }
         }
     }

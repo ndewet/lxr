@@ -35,6 +35,11 @@ mod specification;
 /// The rules are in the sequence of precedence. The longest match wins, and the earliest rule wins
 /// a tie. A rule of a variant comes before a rule that skips.
 ///
+/// A variant that holds one unnamed field carries a value. The field takes the text of the match
+/// through [`FromStr`](std::str::FromStr), thus `Name(String)` holds the text and `Int(u64)` holds
+/// the number. A text that the field does not hold gives a `ScanError`, and the scan reads on. A
+/// variant that holds no field carries nothing.
+///
 /// # Examples
 ///
 /// ```ignore
