@@ -43,6 +43,7 @@ impl<R> Lexicon<R> {
     /// Returns the start condition that each lexicon has.
     ///
     /// A lexer that needs one condition needs only this one.
+    #[cfg(test)]
     pub fn initial(&self) -> usize {
         0
     }
