@@ -5,8 +5,13 @@ derive macro builds the automaton that reads them.
 
 The macro does the work at compile time. It parses each pattern, it builds one
 deterministic automaton of each rule together, and it emits that automaton as
-tables in the read only data of the program. Thus a scan makes no allocation, it
-reads each byte one time, and the crate of the author compiles no regex engine.
+tables in the read only data of the program. Thus a scan of an input that the
+rules match makes no allocation, it reads each byte one time, and the crate of
+the author compiles no regex engine.
+
+A region that no rule ends is different. The scan reads such a region again at
+each start position, thus it records the states that gave no accept. The record
+holds one megabyte at most, and the scan makes one allocation for it.
 
 ## Install
 

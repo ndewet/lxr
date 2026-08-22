@@ -6,7 +6,6 @@ use std::ops::Range;
 use crate::error::ScanError;
 use crate::lexer::Lexer;
 use crate::located::Locations;
-use crate::tables::Tables;
 
 /// One scan of an input, in progress.
 ///
@@ -22,6 +21,12 @@ use crate::tables::Tables;
 ///
 /// An offset counts bytes from the start of the input, and a token holds no borrow of the input.
 ///
+/// A scan of an input that the rules match makes no allocation, and it reads each byte one time. A
+/// region that no rule ends is different. The scan reads such a region again at each start
+/// position, thus it records the states that gave no accept, and it stops at a state that it
+/// recorded. The record needs memory, thus a scan of such a region makes one allocation of one
+/// megabyte at most.
+///
 /// To make a `Scan`, use [`Lexer::scan`].
 pub struct Scan<'a, T> {
     input: &'a str,
@@ -36,8 +41,32 @@ pub struct Scan<'a, T> {
     next_line: u32,
     /// The column at which the next token starts.
     next_column: u32,
+    /// One bit for each state at each position, or empty until a region needs the record.
+    memo: Vec<u64>,
+    /// The offset that the first position of [`memo`](Self::memo) holds.
+    base: usize,
+    /// The number of the words of one position of [`memo`](Self::memo).
+    words: usize,
+    /// The furthest offset that a match of this scan reached.
+    furthest: usize,
     token: PhantomData<fn() -> T>,
 }
+
+/// The number of the bytes that a scan reads again before it makes the record of its states.
+///
+/// A scan of an input that each rule matches stays below this limit, thus it makes no allocation.
+#[cfg(not(test))]
+const MEMO_THRESHOLD: usize = 4096;
+
+/// The record starts after the first match of a test, thus each test reads both paths.
+#[cfg(test)]
+const MEMO_THRESHOLD: usize = 1;
+
+/// The maximum number of the bytes of the record of the states.
+///
+/// A region above this size gives the record a new base, and the record then holds the region that
+/// follows that base.
+const MEMO_LIMIT: usize = 1 << 20;
 
 impl<'a, T: Lexer> Scan<'a, T> {
     /// Creates a scan of `input` under the first start condition.
@@ -51,6 +80,10 @@ impl<'a, T: Lexer> Scan<'a, T> {
             span: 0..0,
             next_line: 1,
             next_column: 1,
+            memo: Vec::new(),
+            base: 0,
+            words: 0,
+            furthest: 0,
             token: PhantomData,
         }
     }
@@ -168,6 +201,121 @@ impl<'a, T: Lexer> Scan<'a, T> {
         self.span = self.offset..self.offset + length;
         self.bump(length);
     }
+
+    /// Returns the rule of the longest match at the offset of the scan, and the length of it.
+    ///
+    /// The scan keeps the last accept that it reached, thus a rule that matches a longer input
+    /// wins, and the earliest rule wins a tie. Each rule of a lexer matches at least one byte,
+    /// thus a match of no length gives `None`.
+    ///
+    /// The scan stops at the dead state, at the end of the input, or at a state that a match of an
+    /// earlier offset recorded. A record states that the same state at the same position gave no
+    /// accept after it, thus the rest of that scan gives no accept here.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
+    fn longest_match(&mut self) -> Option<(u16, usize)> {
+        let tables = T::TABLES;
+        let start = tables.start[usize::from(self.condition)];
+        self.prepare();
+
+        let mut state = start;
+        let mut best = None;
+        let mut read = 0;
+
+        for (index, &byte) in self.input.as_bytes()[self.offset..].iter().enumerate() {
+            state = tables.step(state, byte);
+            if state == 0 {
+                break;
+            }
+            read = index + 1;
+            if let Some(rule) = tables.accepts(state) {
+                best = Some((rule, read));
+            }
+            if self.recorded(state, self.offset + read) {
+                break;
+            }
+        }
+
+        self.furthest = self.furthest.max(self.offset + read);
+        self.record(start, best.map_or(0, |(_, length)| length), read);
+        best
+    }
+
+    /// Makes the record of the states, or moves it, if the scan reads a region a second time.
+    ///
+    /// The record holds [`MEMO_LIMIT`] bytes at most, and the input needs no more than one
+    /// position for each byte. An offset outside the record moves the base to that offset, and the
+    /// record then holds the region that follows it.
+    fn prepare(&mut self) {
+        if self.furthest.saturating_sub(self.offset) < MEMO_THRESHOLD {
+            return;
+        }
+
+        if self.memo.is_empty() {
+            self.words = T::TABLES.accept.len().div_ceil(64).max(1);
+            let limit = MEMO_LIMIT / (self.words * 8);
+            let positions = limit.min(self.input.len() - self.offset + 1).max(1);
+            self.memo = vec![0; positions * self.words];
+            self.base = self.offset;
+        } else if !self.holds(self.offset) {
+            self.memo.fill(0);
+            self.base = self.offset;
+        }
+    }
+
+    /// Returns whether the record holds `position`.
+    fn holds(&self, position: usize) -> bool {
+        self.words != 0
+            && position >= self.base
+            && (position - self.base) * self.words < self.memo.len()
+    }
+
+    /// Returns the word of `state` at `position`, and the bit of that state in the word.
+    fn bit(&self, state: u16, position: usize) -> Option<(usize, u64)> {
+        if !self.holds(position) {
+            return None;
+        }
+
+        let state = usize::from(state);
+        let word = (position - self.base) * self.words + state / 64;
+        Some((word, 1 << (state % 64)))
+    }
+
+    /// Returns whether a match of an earlier offset reached `state` at `position` and gave no
+    /// accept after it.
+    fn recorded(&self, state: u16, position: usize) -> bool {
+        self.bit(state, position)
+            .is_some_and(|(word, mask)| self.memo[word] & mask != 0)
+    }
+
+    /// Records each state that the match of `read` bytes from `start` reached after `keep` bytes.
+    ///
+    /// The match gave its last accept at `keep` bytes, thus each state after that one gave no
+    /// accept. The match reads the same bytes a second time, because it holds the states of the
+    /// first time nowhere.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
+    fn record(&mut self, start: u16, keep: usize, read: usize) {
+        if self.memo.is_empty() || read <= keep {
+            return;
+        }
+
+        let tables = T::TABLES;
+        let mut state = start;
+        for index in 0..read {
+            state = tables.step(state, self.input.as_bytes()[self.offset + index]);
+            if index < keep {
+                continue;
+            }
+            if let Some((word, mask)) = self.bit(state, self.offset + index + 1) {
+                self.memo[word] |= mask;
+            }
+        }
+    }
 }
 
 impl<T: Lexer> Iterator for Scan<'_, T> {
@@ -181,11 +329,7 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
                 return None;
             }
 
-            let Some((rule, length)) = longest_match(
-                &tables,
-                tables.start[usize::from(self.condition)],
-                &self.input.as_bytes()[self.offset..],
-            ) else {
+            let Some((rule, length)) = self.longest_match() else {
                 self.take(self.character());
                 return Some(Err(ScanError::no_rule(
                     self.span.clone(),
@@ -227,29 +371,123 @@ impl<T> Debug for Scan<'_, T> {
     }
 }
 
-/// Returns the rule of the longest match at the start of `input`, and the length of that match.
-///
-/// The scan reads each byte one time, and it keeps the last accept that it reached. Thus a rule
-/// that matches a longer input wins, and the earliest rule wins a tie.
-///
-/// Each rule of a lexer matches at least one byte, thus a match of no length gives `None`.
-///
-/// # Panics
-///
-/// This function panics if `tables` disagrees with the conditions of [`Tables`].
-fn longest_match(tables: &Tables<'_>, start: u16, input: &[u8]) -> Option<(u16, usize)> {
-    let mut state = start;
-    let mut best = None;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::action::Action;
+    use crate::tables::Tables;
 
-    for (index, &byte) in input.iter().enumerate() {
-        state = tables.step(state, byte);
-        if state == 0 {
-            break;
-        }
-        if let Some(rule) = tables.accepts(state) {
-            best = Some((rule, index + 1));
-        }
+    /// The token of the lexer of the tests.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Token {
+        /// One `a`.
+        One,
+        /// A run of `a` that a `b` ends.
+        Many,
     }
 
-    best
+    /// The class of each byte: 1 for `a`, 2 for `b`, and 0 for each other byte.
+    static CLASSES: [u16; 256] = {
+        let mut classes = [0; 256];
+        classes[b'a' as usize] = 1;
+        classes[b'b' as usize] = 2;
+        classes
+    };
+
+    /// The states of the rules `a` and `a+b`.
+    ///
+    /// State 1 is the start. State 2 reads the first `a`, and it accepts the rule `a`. State 4
+    /// reads each `a` after that one, and it accepts nothing. State 3 reads the `b` that ends the
+    /// run, and it accepts the rule `a+b`.
+    static NEXT: [u16; 15] = [
+        0, 0, 0, //
+        0, 2, 0, //
+        0, 4, 3, //
+        0, 0, 0, //
+        0, 4, 3,
+    ];
+
+    static ACCEPT: [u16; 5] = [0, 0, 1, 2, 0];
+    static START: [u16; 1] = [1];
+    static ACTIONS: [Action; 2] = [Action::token(), Action::token()];
+
+    impl Lexer for Token {
+        type Condition = ();
+
+        const TABLES: Tables<'static> = Tables {
+            classes: &CLASSES,
+            next: &NEXT,
+            width: 3,
+            accept: &ACCEPT,
+            start: &START,
+            actions: &ACTIONS,
+        };
+
+        fn token(rule: u16, _text: &str) -> Option<Self> {
+            match rule {
+                0 => Some(Self::One),
+                1 => Some(Self::Many),
+                other => panic!("the lexer holds no rule {other}"),
+            }
+        }
+
+        fn condition(_index: u16) {}
+    }
+
+    /// Returns each token of a scan of `input`, and `None` for each fault.
+    fn steps(input: &str) -> Vec<Option<Token>> {
+        Token::scan(input).map(Result::ok).collect()
+    }
+
+    #[test]
+    fn a_run_that_no_b_ends_gives_one_token_for_each_a() {
+        let input = "a".repeat(2000);
+
+        let found = steps(&input);
+
+        assert_eq!(found.len(), 2000);
+        assert!(
+            found
+                .iter()
+                .all(|token| token.as_ref() == Some(&Token::One))
+        );
+    }
+
+    #[test]
+    fn a_run_that_a_b_ends_gives_one_token_of_the_whole_run() {
+        let mut input = "a".repeat(2000);
+        input.push('b');
+
+        assert_eq!(steps(&input), vec![Some(Token::Many)]);
+    }
+
+    #[test]
+    fn a_run_of_a_reads_the_b_of_a_later_run() {
+        let input = format!("{}b{}b", "a".repeat(500), "a".repeat(500));
+
+        assert_eq!(steps(&input), vec![Some(Token::Many), Some(Token::Many)]);
+    }
+
+    #[test]
+    fn a_byte_that_no_rule_matches_gives_a_fault_between_two_runs() {
+        let input = format!("{}c{}b", "a".repeat(300), "a".repeat(300));
+
+        let found = steps(&input);
+
+        assert_eq!(found.len(), 302);
+        assert_eq!(found[300], None);
+        assert_eq!(found[301], Some(Token::Many));
+    }
+
+    #[test]
+    fn the_record_holds_the_states_of_a_region_that_the_scan_reads_again() {
+        let input = "a".repeat(3000);
+        let mut scan = Token::scan(&input);
+
+        assert!(scan.next().is_some());
+        assert!(scan.memo.is_empty());
+
+        assert!(scan.next().is_some());
+        assert!(!scan.memo.is_empty());
+    }
 }
