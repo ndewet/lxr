@@ -101,6 +101,13 @@ language, the constructions that lxr rejects, and each limit.
 | `conditions` | A comment and a string, with start conditions. |
 | `errors` | A report of each fault, in the manner of a compiler. |
 
+## The benchmark
+
+`lxr/benches/scan.rs` measures the scan of a document of JSON and of a document
+of source code. It scans each one with a lexer of lxr and with a lexer of
+[logos](https://crates.io/crates/logos), thus a reader sees the cost of one byte
+and the two lexers together. Run it with `cargo bench -p lxr`.
+
 ## The crates
 
 | Crate | What it holds |
