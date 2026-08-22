@@ -8,9 +8,24 @@ edition.workspace = true
 [dependencies]
 lxr-derive = { workspace = true, optional = true }
 
+# The benchmark alone holds these crates. `logos` gives the second lexer of the
+# comparison, thus a reader sees the two lexers together. criterion holds no
+# default feature here, thus the build needs no plot library and no thread pool.
+[dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = [
+    "cargo_bench_support",
+] }
+logos = "0.16"
+
 [features]
 default = ["derive"]
 derive = ["dep:lxr-derive"]
+
+# `benches/scan.rs` measures the scan with criterion, thus it holds its own main
+# and it needs no harness of the test runner.
+[[bench]]
+name = "scan"
+harness = false
 
 [lints]
 workspace = true
