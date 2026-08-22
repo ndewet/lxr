@@ -2,6 +2,13 @@
 name = "lxr"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A lexer generator. Write the tokens of a language as an enum, and a derive macro builds the automaton that reads them."
+readme = "../README.md"
+keywords = ["lexer", "lexing", "tokenizer", "regex", "derive"]
+categories = ["parsing", "text-processing"]
 
 # A user crate compiles this crate, thus it holds no dependency of its own. The
 # derive macro is the one exception, and it builds for the host.

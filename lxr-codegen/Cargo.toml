@@ -2,6 +2,13 @@
 name = "lxr-codegen"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The regex parser, the automata, and the emitter of lxr. Read the `lxr` crate, and do not hold this one."
+readme = "../README.md"
+keywords = ["lexer", "lexing", "tokenizer", "regex", "codegen"]
+categories = ["parsing", "development-tools::procedural-macro-helpers"]
 
 # A derive macro calls this crate, thus it emits a `TokenStream`. CONTRIBUTING.md
 # holds the rule on the dependencies.
