@@ -122,9 +122,9 @@ fn a_text_that_the_field_does_not_hold_gives_an_error() {
         .expect("the scan gives one result")
         .expect_err("999 does not fit a u8");
 
-    assert_eq!(error.kind, ScanErrorKind::Value);
-    assert_eq!(error.span, 0..3);
-    assert_eq!((error.line, error.column), (1, 1));
+    assert_eq!(error.kind(), ScanErrorKind::Value);
+    assert_eq!(error.span(), 0..3);
+    assert_eq!((error.line(), error.column()), (1, 1));
 }
 
 #[test]
@@ -133,8 +133,12 @@ fn the_error_of_a_value_covers_the_whole_match() {
 
     assert_eq!(found[0], Ok(Small::Byte(1)));
     let error = found[1].as_ref().expect_err("300 does not fit a u8");
-    assert_eq!(error.span, 2..5, "the span covers each digit of the match");
-    assert_eq!(error.kind, ScanErrorKind::Value);
+    assert_eq!(
+        error.span(),
+        2..5,
+        "the span covers each digit of the match"
+    );
+    assert_eq!(error.kind(), ScanErrorKind::Value);
 }
 
 #[test]
@@ -152,7 +156,7 @@ fn a_value_and_a_missing_rule_give_two_kinds_of_error() {
 
     let kinds: Vec<ScanErrorKind> = found
         .iter()
-        .filter_map(|result| result.as_ref().err().map(|error: &ScanError| error.kind))
+        .filter_map(|result| result.as_ref().err().map(|error: &ScanError| error.kind()))
         .collect();
 
     assert_eq!(kinds, vec![ScanErrorKind::Value, ScanErrorKind::NoRule]);

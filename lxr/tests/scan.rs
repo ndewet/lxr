@@ -242,8 +242,8 @@ fn a_column_counts_a_character_and_not_a_byte() {
         .next()
         .expect("the scan gives one result")
         .expect_err("no rule matches é");
-    assert_eq!(error.span, 0..2);
-    assert_eq!((error.line, error.column), (1, 1));
+    assert_eq!(error.span(), 0..2);
+    assert_eq!((error.line(), error.column()), (1, 1));
 
     assert_eq!(scan.next(), Some(Ok(words::Token::Word)));
     assert_eq!((scan.line(), scan.column()), (1, 2));
@@ -267,9 +267,9 @@ fn an_error_names_the_bytes_of_the_character_at_fault() {
         .expect("the scan gives one result")
         .expect_err("no rule matches Z");
 
-    assert_eq!(error.span, 0..1);
-    assert_eq!(error.line, 1);
-    assert_eq!(error.column, 1);
+    assert_eq!(error.span(), 0..1);
+    assert_eq!(error.line(), 1);
+    assert_eq!(error.column(), 1);
     assert_eq!(
         error.to_string(),
         "no rule matches the input at line 1, column 1"
@@ -378,10 +378,7 @@ fn a_located_scan_reports_each_character_that_no_rule_matches() {
 
     assert_eq!(found.len(), 3);
     assert_eq!(found[0].as_ref().map(|found| found.span.clone()), Ok(0..1));
-    assert_eq!(
-        found[1].as_ref().map_err(|error| error.span.clone()),
-        Err(1..2)
-    );
+    assert_eq!(found[1].as_ref().map_err(|error| error.span()), Err(1..2));
     assert_eq!(found[2].as_ref().map(|found| found.span.clone()), Ok(2..3));
 }
 

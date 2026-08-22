@@ -1,8 +1,9 @@
-//! Emits the source of a lexer from its tables.
+//! Emits the source of a lexer from its automaton.
 //!
 //! [`emit`] gives the `impl` of the [`Lexer`] trait of the runtime crate. It holds the tables as
-//! statics, and it maps each number of a table onto the name that the author wrote. The derive
-//! macro places the result in the crate of the lexer author.
+//! statics, it holds the scan that [`code`](crate::code) writes, and it maps each number of a
+//! table onto the name that the author wrote. The derive macro places the result in the crate of
+//! the lexer author.
 //!
 //! The emitted source names the runtime as `::lxr`, thus it does not depend on what the author
 //! imported.
@@ -51,6 +52,11 @@ pub struct Emission {
     pub rules: Vec<Rule>,
     /// The automaton of the lexer.
     pub tables: Tables,
+    /// The scan of the lexer as code, or `None` if the lexer scans the tables.
+    ///
+    /// [`code::find`](crate::code::find) writes it. A lexer of many states gets `None`, and the
+    /// runtime then scans [`tables`](Self::tables).
+    pub find: Option<TokenStream>,
 }
 
 /// Emits the `impl` of the runtime trait for the token enum of `lexer`.
@@ -88,6 +94,7 @@ pub fn emit(lexer: &Emission) -> TokenStream {
     let condition = condition_type(lexer);
     let of_index = of_index(lexer);
     let of_rule = of_rule(lexer);
+    let find = lexer.find.clone().unwrap_or_default();
     let reads_text = lexer.rules.iter().any(|rule| rule.value.is_some());
 
     quote! {
@@ -117,6 +124,7 @@ pub fn emit(lexer: &Emission) -> TokenStream {
 
                 const READS_TEXT: bool = #reads_text;
 
+                #find
                 #of_rule
                 #of_index
             }
@@ -351,6 +359,7 @@ mod tests {
                     go: None,
                 },
             ],
+            find: None,
             tables: tables(
                 2,
                 &[
@@ -374,6 +383,7 @@ mod tests {
                 value: None,
                 go: None,
             }],
+            find: None,
             tables: tables(1, &[("[a-z]+", &[0])]),
         }
     }
@@ -516,6 +526,7 @@ mod tests {
                 value: Some(quote!(u64)),
                 go: None,
             }],
+            find: None,
             tables: tables(1, &[("[0-9]+", &[0])]),
         }
     }

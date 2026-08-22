@@ -101,6 +101,10 @@ enum Code {
     Open,
     #[lxr(token = ")")]
     Close,
+    #[lxr(token = "{")]
+    OpenBlock,
+    #[lxr(token = "}")]
+    CloseBlock,
     #[lxr(regex = "[a-zA-Z_][a-zA-Z0-9_]*")]
     Name,
     #[lxr(regex = "[0-9]+")]
@@ -135,6 +139,10 @@ enum LogosCode {
     Open,
     #[token(")")]
     Close,
+    #[token("{")]
+    OpenBlock,
+    #[token("}")]
+    CloseBlock,
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Name,
     #[regex("[0-9]+")]

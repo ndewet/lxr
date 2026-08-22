@@ -1,4 +1,5 @@
 use crate::action::Action;
+use crate::matched::Matched;
 
 /// The automaton of a lexer, as the tables that a scan reads.
 ///
@@ -69,6 +70,68 @@ pub struct Tables<'a> {
 }
 
 impl Tables<'_> {
+    /// Returns the longest match of `input` at `at`, under the start condition at `condition`.
+    ///
+    /// This is the scan that reads the tables. [`Lexer::find`](crate::Lexer::find) gives it to a
+    /// lexer that emits no scan of its own.
+    ///
+    /// A step that gives the state that it started from is the start of a run. A rule that reads a
+    /// run, for example a name or the text of a string, spends most of its bytes in one such
+    /// state. The function then reads the rest of the run in one loop with
+    /// [`repeats`](Self::repeats), and it reads no table for those bytes.
+    ///
+    /// The state of a run gives one accept for the whole run, because a longer run gives a longer
+    /// match of the same rule. Thus the loop writes the accept one time, and not one time for each
+    /// byte.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `condition` is not a start condition of the tables, or if the
+    /// tables disagree with the conditions of [`Tables`].
+    // The tables are a constant of each lexer. A call would hide that constant from the caller,
+    // and each step would then read the width and each pointer from memory.
+    #[inline(always)]
+    pub fn find(&self, input: &[u8], at: usize, condition: u16) -> Matched {
+        let mut state = self.start[usize::from(condition)];
+        let mut read = at;
+        let mut accept = 0;
+        let mut length = 0;
+
+        while let Some(&byte) = input.get(read) {
+            let next = self.step(state, byte);
+            if next == 0 {
+                break;
+            }
+            read += 1;
+
+            if next == state {
+                let repeats = self.repeats(state);
+                while let Some(&byte) = input.get(read) {
+                    if repeats[usize::from(byte >> 6)] >> (byte & 63) & 1 == 0 {
+                        break;
+                    }
+                    read += 1;
+                }
+            } else {
+                state = next;
+            }
+
+            if let Some(rule) = self.accepts(state) {
+                accept = rule + 1;
+                length = read - at;
+                if self.leaf(state) {
+                    break;
+                }
+            }
+        }
+
+        Matched {
+            accept,
+            length,
+            read: read - at,
+        }
+    }
+
     /// Returns the state at which `state` reads `byte`, or 0 if the scan stops there.
     ///
     /// # Panics

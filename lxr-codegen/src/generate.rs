@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use proc_macro2::{Ident, TokenStream};
 
 use crate::automata::{Automaton, Overflow};
+use crate::code;
 use crate::compiler::{BuildErrorKind, Bytes, Lexicon, compile};
 use crate::emit::{self, Emission, emit};
 use crate::regex::{CharSet, Node, ParseError};
@@ -212,6 +213,7 @@ pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<Genera
     let accepts = accepts.minimized(&minimization.states, minimization.dfa.state_count());
     let tables = Tables::new(&minimization.dfa, &accepts).map_err(overflow)?;
     reachable(&tables, specification.rules.len())?;
+    let find = code::find(&minimization.dfa, &accepts);
 
     Ok(emit(&Emission {
         token: specification.token.clone(),
@@ -233,6 +235,7 @@ pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<Genera
             })
             .collect(),
         tables,
+        find,
     }))
 }
 

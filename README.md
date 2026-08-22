@@ -5,9 +5,14 @@ derive macro builds the automaton that reads them.
 
 The macro does the work at compile time. It parses each pattern, it builds one
 deterministic automaton of each rule together, and it emits that automaton as
-tables in the read only data of the program. Thus a scan of an input that the
-rules match makes no allocation, it reads each byte one time, and the crate of
-the author compiles no regex engine.
+code: each state becomes one arm, and each label becomes a comparison on the
+byte. Thus a step of the automaton reads no table, a scan of an input that the
+rules match makes no allocation, and the crate of the author compiles no regex
+engine.
+
+The macro also emits the automaton as tables. A lexer of many states keeps the
+tables alone, because the source of the code costs more compile time than the
+scan saves.
 
 A region that no rule ends is different. The scan reads such a region again at
 each start position, thus it records the states that gave no accept. The record
@@ -114,7 +119,7 @@ and the two lexers together. Run it with `cargo bench -p lxr`.
 | --- | --- |
 | `lxr` | The runtime, and the re-export of the macro. A user crate holds this one. |
 | `lxr-derive` | The derive macro. It reads the attributes with `syn`. |
-| `lxr-codegen` | The regex parser, the automata, the tables, and the emitter. It builds for the host. |
+| `lxr-codegen` | The regex parser, the automata, the tables, the code, and the emitter. It builds for the host. |
 
 `lxr` holds no dependency of its own.
 

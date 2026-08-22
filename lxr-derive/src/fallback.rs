@@ -33,6 +33,8 @@ pub fn fallback(input: &DeriveInput, condition: Option<&TokenStream>) -> TokenSt
         const _: () = {
             static CLASSES: [u16; 256] = [0; 256];
             static NEXT: [u16; 1] = [0];
+            static REPEATS: [u64; 4] = [0; 4];
+            static LEAVES: [u64; 1] = [0];
             static ACCEPT: [u16; 1] = [0];
             static START: [u16; 1] = [0];
             static ACTIONS: [::lxr::Action; 0] = [];
@@ -44,6 +46,8 @@ pub fn fallback(input: &DeriveInput, condition: Option<&TokenStream>) -> TokenSt
                 const TABLES: ::lxr::Tables<'static> = ::lxr::Tables {
                     classes: &CLASSES,
                     next: &NEXT,
+                    repeats: &REPEATS,
+                    leaves: &LEAVES,
                     width: 1,
                     accept: &ACCEPT,
                     start: &START,
