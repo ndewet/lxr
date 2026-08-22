@@ -5,6 +5,11 @@ resolver = "3"
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
+# Edition 2024 needs this version of the compiler. The CI job `MSRV` builds
+# each crate with it, thus a later feature cannot land without a bump here.
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/ndewet/lxr"
 
 [workspace.dependencies]
 lxr-codegen = { version = "0.2.0", path = "lxr-codegen" }

@@ -148,6 +148,20 @@ jobs:
           git push origin "$TAG"
           gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
 
+      # crates.io holds the release as well as GitHub. `--workspace` publishes
+      # lxr-codegen, then lxr-derive, then lxr, and it waits for each one to
+      # reach the index before it publishes the crate that depends on it.
+      #
+      # Caution: a publish cannot be undone. The step runs after the tag, thus
+      # a failure here leaves the tag alone and the fix is `cargo publish
+      # --workspace` by hand. The secret CARGO_REGISTRY_TOKEN holds the token
+      # of the crates.io account.
+      - name: Publish to crates.io
+        if: steps.plan.outputs.release == 'true' && steps.plan.outputs.needs_bump == 'false' && !inputs.dry_run
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --workspace --locked
+
       - name: Summary
         if: always() && steps.plan.conclusion == 'success'
         env:

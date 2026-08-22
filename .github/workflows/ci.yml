@@ -79,6 +79,33 @@ jobs:
             cargo run --quiet --package lxr --example "$name" >/dev/null
           done
 
+  # `rust-version` in the workspace manifest is a promise to the user, and
+  # crates.io shows it. This job holds the crates to that promise, thus a
+  # feature of a later compiler fails here and not in a user crate.
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the minimum version
+        id: msrv
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "lxr") | .rust_version')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust (${{ steps.msrv.outputs.version }})
+        run: |
+          rustup toolchain install "${{ steps.msrv.outputs.version }}" --profile minimal --no-self-update
+          rustup default "${{ steps.msrv.outputs.version }}"
+          rustc --version
+
+      # The tests of the workspace need the derive macro, thus this job builds
+      # each target. It runs no test; the Test job above covers that.
+      - name: Build
+        run: cargo build --workspace --all-features --all-targets
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
