@@ -19,8 +19,6 @@
 //! Each identifier comes from lxr, and not from a lexer author. Thus a function panics for an
 //! identifier that its automaton does not hold. A full automaton gives an [`Overflow`].
 
-#![allow(dead_code)]
-
 mod arena;
 mod automaton;
 mod determinize;

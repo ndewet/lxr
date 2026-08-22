@@ -13,6 +13,7 @@ use super::execution::Execution;
 /// A nondeterministic automaton and a deterministic automaton implement this trait. Thus a lexer
 /// scans either of them with the same code. The two differ in the cost of one step, and not in the
 /// input that they accept.
+#[allow(dead_code, reason = "the tests scan an automaton with this API")]
 pub trait Scanner: Automaton {
     /// One symbol of the alphabet that the automaton reads.
     type Symbol: Copy;

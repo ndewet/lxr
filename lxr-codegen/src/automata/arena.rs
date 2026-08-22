@@ -38,6 +38,7 @@ impl<T> Arena<T> {
     }
 
     /// Returns each item of the arena, the items of the first group first.
+    #[cfg(test)]
     pub fn items(&self) -> &[T] {
         &self.items
     }

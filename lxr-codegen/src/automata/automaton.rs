@@ -57,6 +57,7 @@ pub trait Automaton {
     /// # Panics
     ///
     /// This function panics if `start` is not a start state of this automaton.
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     fn start_state(&self, start: usize) -> StateId {
         let starts = self.start_states();
         *starts.get(start).unwrap_or_else(|| {
