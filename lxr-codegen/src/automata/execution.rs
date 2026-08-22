@@ -1,6 +1,7 @@
 use super::id::StateId;
 
 /// A match that [`Execution::longest_match`] found.
+#[allow(dead_code, reason = "the tests scan an automaton with this API")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Match<T> {
     /// The value that `select` gave for the states at the end of the match.
@@ -29,12 +30,14 @@ pub trait Execution {
     /// # Panics
     ///
     /// This function panics if `start` is not a start state of the automaton.
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     fn restart(&mut self, start: usize);
 
     /// Reads `symbol`, then moves the execution.
     ///
     /// Returns `false` if the execution reaches no state. The execution then accepts nothing, and
     /// each later step also gives `false`. To scan again, use [`restart`](Self::restart).
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     fn step(&mut self, symbol: Self::Symbol) -> bool;
 
     /// Returns the states that the execution is in.
@@ -47,6 +50,7 @@ pub trait Execution {
     ///
     /// The automaton says which states accept. The caller reads
     /// [`states`](Self::states) to get the meaning of the accept.
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     fn accepts(&self) -> bool;
 
     /// Returns the longest match at the start of `input` under `start`.
@@ -70,6 +74,7 @@ pub trait Execution {
     /// # Panics
     ///
     /// This function panics if `start` is not a start state of the automaton.
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     fn longest_match<T>(
         &mut self,
         start: usize,
@@ -91,6 +96,7 @@ pub trait Execution {
 }
 
 /// Returns the match of `length` that `execution` reached, or `None` if it accepts nothing.
+#[allow(dead_code, reason = "the tests scan an automaton with this API")]
 fn accepted<E: Execution + ?Sized, T>(
     execution: &E,
     select: &impl Fn(&[StateId]) -> T,

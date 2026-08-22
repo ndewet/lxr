@@ -22,6 +22,7 @@ pub trait Label: Clone {
     /// A deterministic automaton holds the transitions of one state in ascending sequence. Thus
     /// [`step`](super::DeterministicFiniteAutomaton::step) finds the transition of a symbol with a
     /// binary search, and it reads no other transition.
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     fn below(&self, symbol: Self::Symbol) -> bool;
 
     /// Divides `labels` into disjoint classes, then returns each class with one of its symbols.

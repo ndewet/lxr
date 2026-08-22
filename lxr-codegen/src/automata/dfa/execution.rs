@@ -11,6 +11,7 @@ use crate::automata::label::Label;
 ///
 /// To make a `DeterministicExecution`, use [`Scanner::execute`](crate::automata::Scanner::execute).
 #[derive(Debug)]
+#[allow(dead_code, reason = "the tests scan an automaton with this API")]
 pub struct DeterministicExecution<'a, L> {
     dfa: &'a DeterministicFiniteAutomaton<L>,
     state: Option<StateId>,
@@ -18,6 +19,7 @@ pub struct DeterministicExecution<'a, L> {
 
 impl<'a, L> DeterministicExecution<'a, L> {
     /// Creates an execution of `dfa` that is in no state.
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     pub(super) fn new(dfa: &'a DeterministicFiniteAutomaton<L>) -> Self {
         Self { dfa, state: None }
     }

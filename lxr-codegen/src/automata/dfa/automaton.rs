@@ -63,6 +63,7 @@ impl<L: Label> DeterministicFiniteAutomaton<L> {
     /// # Panics
     ///
     /// This function panics if `from` is not in the state arena.
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     pub fn step(&self, from: StateId, symbol: L::Symbol) -> Option<StateId> {
         let transitions = self.transitions(from);
         let index = transitions.partition_point(|transition| transition.label.below(symbol));
