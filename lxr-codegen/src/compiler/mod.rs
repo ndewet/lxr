@@ -22,8 +22,6 @@
 //! [nondeterministic automaton]:
 //!     crate::automata::NondeterministicFiniteAutomaton
 
-#![allow(dead_code)]
-
 mod accepts;
 mod alphabet;
 mod bytes;
