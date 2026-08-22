@@ -36,7 +36,7 @@ jobs:
     # A pull request from a fork gets no secrets, thus the action cannot run.
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # The review reads the diff against the base branch.
           fetch-depth: 0
