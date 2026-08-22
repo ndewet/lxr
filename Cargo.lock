@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "lxr"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "lxr-derive",
 ]
 
 [[package]]
 name = "lxr-codegen"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "lxr-derive"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "lxr-codegen",
  "proc-macro2",

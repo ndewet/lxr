@@ -3,12 +3,12 @@ members = ["lxr", "lxr-codegen", "lxr-derive"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 
 [workspace.dependencies]
-lxr-codegen = { version = "0.1.1", path = "lxr-codegen" }
-lxr-derive = { version = "0.1.1", path = "lxr-derive" }
+lxr-codegen = { version = "0.2.0", path = "lxr-codegen" }
+lxr-derive = { version = "0.2.0", path = "lxr-derive" }
 
 # The lints mechanise the error handling standard in CONTRIBUTING.md.
 [workspace.lints.rust]
