@@ -58,6 +58,51 @@ impl<A> Accepts<A> {
     }
 }
 
+impl<A: Clone + PartialEq> Accepts<A> {
+    /// Returns the accepts of the automaton that minimization made, in a table
+    /// of `count` states.
+    ///
+    /// `states` holds the state of that automaton that each state of this
+    /// table belongs to.
+    /// [`Minimization`](crate::automata::Minimization) gives it. Two states
+    /// join only if they accept the same, thus each state of the result takes
+    /// the accept of the states that it stands for.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `states` does not hold one state for each state
+    /// of the table, if a state of `states` is at or above `count`, if a state
+    /// of the result stands for no state, or if two states that joined hold a
+    /// different accept.
+    pub fn minimized(&self, states: &[StateId], count: usize) -> Self {
+        assert_eq!(
+            states.len(),
+            self.accepts.len(),
+            "a table of {} states needs one state for each of them, and not {}",
+            self.accepts.len(),
+            states.len()
+        );
+
+        let mut joined: Vec<Option<Option<A>>> = Vec::with_capacity(count);
+        joined.resize_with(count, || None);
+        for (accept, state) in self.accepts.iter().zip(states) {
+            let slot = joined
+                .get_mut(state.index())
+                .unwrap_or_else(|| state.outside(count));
+            match slot {
+                Some(held) => assert!(held == accept, "state {} holds two accepts", state.index()),
+                None => *slot = Some(accept.clone()),
+            }
+        }
+
+        let accepts = joined
+            .into_iter()
+            .map(|slot| slot.expect("a state of the result stands for at least one state"))
+            .collect();
+        Self { accepts }
+    }
+}
+
 impl<A: Ord + Clone> Accepts<A> {
     /// Returns the lowest accept of the states in `states`, or `None` if no
     /// state of `states` accepts.
@@ -156,6 +201,34 @@ mod tests {
         assert_eq!(accepts.lowest(&[state(1)]), Some(7));
         assert_eq!(accepts.lowest(&[state(0), state(2)]), None);
         assert_eq!(accepts.lowest(&[]), None);
+    }
+
+    #[test]
+    fn minimization_gives_the_accept_of_the_states_that_joined() {
+        let accepts = accepts().minimized(&[state(0), state(1), state(0), state(2)], 3);
+
+        assert_eq!(accepts.state_count(), 3);
+        assert_eq!(accepts.get(state(0)), None);
+        assert_eq!(accepts.get(state(1)), Some(&7));
+        assert_eq!(accepts.get(state(2)), Some(&3));
+    }
+
+    #[test]
+    #[should_panic(expected = "state 0 holds two accepts")]
+    fn two_states_of_a_different_accept_that_joined_panic() {
+        accepts().minimized(&[state(0), state(0), state(0), state(0)], 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "a table of 4 states needs one state for each of them, and not 2")]
+    fn a_state_for_each_state_of_the_table_is_needed() {
+        accepts().minimized(&[state(0), state(1)], 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "state 5 is outside an arena of 2 states")]
+    fn a_state_outside_the_result_panics() {
+        accepts().minimized(&[state(0), state(5), state(0), state(1)], 2);
     }
 
     #[test]
