@@ -6,8 +6,6 @@
 //! The derive macro supplies a [`Specification`], and it holds the span of each rule. Thus this
 //! module reports the index of the rule at fault, and the macro turns that index into a span.
 
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 
 use proc_macro2::{Ident, TokenStream};
