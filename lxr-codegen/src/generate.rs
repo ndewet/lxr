@@ -1,7 +1,7 @@
 //! Builds the source of a lexer from the rules that a lexer author wrote.
 //!
 //! [`generate`] joins each part of the crate. It parses each pattern, it builds the automaton, it
-//! determinizes the automaton, it makes the tables, and it emits the source.
+//! determinizes the automaton, it minimizes it, it makes the tables, and it emits the source.
 //!
 //! The derive macro supplies a [`Specification`], and it holds the span of each rule. Thus this
 //! module reports the index of the rule at fault, and the macro turns that index into a span.
@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 use proc_macro2::{Ident, TokenStream};
 
-use crate::automata::Overflow;
+use crate::automata::{Automaton, Overflow};
 use crate::compiler::{BuildErrorKind, Bytes, Lexicon, compile};
 use crate::emit::{self, Emission, emit};
 use crate::regex::{CharSet, Node, ParseError};
@@ -208,7 +208,9 @@ pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<Genera
     let (nfa, accepts) = compile(Bytes, lexicon).map_err(|error| vec![failed(error.kind)])?;
     let determinization = nfa.determinize().map_err(overflow)?;
     let accepts = accepts.determinized(&determinization.subsets);
-    let tables = Tables::new(&determinization.dfa, &accepts).map_err(overflow)?;
+    let minimization = determinization.dfa.minimize(|id| accepts.get(id).copied());
+    let accepts = accepts.minimized(&minimization.states, minimization.dfa.state_count());
+    let tables = Tables::new(&minimization.dfa, &accepts).map_err(overflow)?;
     reachable(&tables, specification.rules.len())?;
 
     Ok(emit(&Emission {

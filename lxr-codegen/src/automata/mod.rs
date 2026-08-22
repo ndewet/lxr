@@ -16,6 +16,10 @@
 //! of its states. It divides the labels with [`Label::divide`], thus it needs no alphabet of its
 //! own.
 //!
+//! [`DeterministicFiniteAutomaton::minimize`] joins the states that read the same input into one
+//! state. It divides the labels in the same manner, and the caller gives the meaning of each
+//! accept. Thus two states that accept a different rule stay apart.
+//!
 //! Each identifier comes from lxr, and not from a lexer author. Thus a function panics for an
 //! identifier that its automaton does not hold. A full automaton gives an [`Overflow`].
 
@@ -26,6 +30,7 @@ mod dfa;
 mod execution;
 mod id;
 mod label;
+mod minimize;
 mod nfa;
 mod overflow;
 mod range;
@@ -43,6 +48,7 @@ pub use self::{
     execution::{Execution, Match},
     id::StateId,
     label::Label,
+    minimize::Minimization,
     nfa::{NfaBuilder, NondeterministicExecution, NondeterministicFiniteAutomaton},
     overflow::{Overflow, Part},
     range::Range,
