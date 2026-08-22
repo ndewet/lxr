@@ -18,6 +18,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod automata;
+mod code;
 mod compiler;
 mod emit;
 mod generate;

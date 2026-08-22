@@ -169,8 +169,8 @@ fn an_error_names_the_place_of_the_character_at_fault() {
         .expect("the scan gives two results")
         .expect_err("no rule matches the percent sign");
 
-    assert_eq!(error.span, 3..4);
-    assert_eq!((error.line, error.column), (2, 1));
+    assert_eq!(error.span(), 3..4);
+    assert_eq!((error.line(), error.column()), (2, 1));
 }
 
 #[test]

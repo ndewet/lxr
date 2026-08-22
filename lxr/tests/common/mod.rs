@@ -26,7 +26,7 @@ pub fn steps<T: Lexer>(input: &str) -> Vec<Step<T>> {
         .located()
         .map(|result| match result {
             Ok(found) => Step::Token(found.token, found.span),
-            Err(error) => Step::Fault(error.span),
+            Err(error) => Step::Fault(error.span()),
         })
         .collect()
 }

@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::fmt::{Debug, Formatter, Result as FormatResult};
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
@@ -6,6 +7,7 @@ use std::ops::Range;
 use crate::error::ScanError;
 use crate::lexer::Lexer;
 use crate::located::Locations;
+use crate::matched::Matched;
 
 /// One scan of an input, in progress.
 ///
@@ -21,8 +23,13 @@ use crate::located::Locations;
 ///
 /// An offset counts bytes from the start of the input, and a token holds no borrow of the input.
 ///
-/// A scan of an input that the rules match makes no allocation, and it reads each byte one time. A
-/// region that no rule ends is different. The scan reads such a region again at each start
+/// A scan of an input that the rules match makes no allocation, and it reads each byte one time.
+/// [`line`](Self::line) and [`column`](Self::column) count the characters before the last token,
+/// thus a caller that reads them reads those bytes a second time. The scan holds the place that it
+/// counted, and it counts each byte of the input one time however many tokens the caller places.
+/// That record is a [`Cell`], thus a `Scan` is not [`Sync`].
+///
+/// A region that no rule ends is different. The scan reads such a region again at each start
 /// position, thus it records the states that gave no accept, and it stops at a state that it
 /// recorded. The record needs memory, thus a scan of such a region makes one allocation of one
 /// megabyte at most.
@@ -32,15 +39,9 @@ pub struct Scan<'a, T> {
     input: &'a str,
     offset: usize,
     condition: u16,
-    /// The line at which the last token starts.
-    line: u32,
-    /// The column at which the last token starts.
-    column: u32,
     span: Range<usize>,
-    /// The line at which the next token starts.
-    next_line: u32,
-    /// The column at which the next token starts.
-    next_column: u32,
+    /// The place of one offset of the input, which [`Scan::place`] moves forward.
+    place: Cell<Cursor>,
     /// One bit for each state at each position, or empty until a region needs the record.
     memo: Vec<u64>,
     /// The offset that the first position of [`memo`](Self::memo) holds.
@@ -52,42 +53,20 @@ pub struct Scan<'a, T> {
     token: PhantomData<fn() -> T>,
 }
 
-/// The place at which the input after a match starts.
+/// The line and the column of one offset of the input.
 ///
-/// The scan counts the line and the column while it steps the automaton, thus it carries the place
-/// of a match with that match. A [`Scan`] holds no other line and no other column of the input.
+/// The scan counts no place while it matches. It holds the place of one offset instead, and it
+/// counts forward from that offset when a caller asks for the place of a token. A token comes
+/// after the token before it, thus the offset only moves forward and the scan counts each byte of
+/// the input one time.
 #[derive(Debug, Clone, Copy)]
-struct Place {
+struct Cursor {
+    /// The offset that the line and the column belong to.
+    offset: usize,
     /// The line, counted from 1.
     line: u32,
     /// The column in characters, counted from 1.
     column: u32,
-}
-
-impl Place {
-    /// Counts `byte` into the place.
-    ///
-    /// A byte of the form `10xxxxxx` continues a character, thus the column does not count it.
-    #[inline]
-    fn read(&mut self, byte: u8) {
-        if byte == b'\n' {
-            self.line += 1;
-            self.column = 1;
-        } else if byte & 0xC0 != 0x80 {
-            self.column += 1;
-        }
-    }
-}
-
-/// The rule that won the longest match, the bytes of that match, and the place after it.
-#[derive(Debug, Clone, Copy)]
-struct Matched {
-    /// The index of the rule that matched.
-    rule: u16,
-    /// The number of the bytes of the match.
-    length: usize,
-    /// The place at which the input after the match starts.
-    place: Place,
 }
 
 /// The number of the bytes that a scan reads again before it makes the record of its states.
@@ -106,26 +85,7 @@ const MEMO_THRESHOLD: usize = 1;
 /// follows that base.
 const MEMO_LIMIT: usize = 1 << 20;
 
-impl<'a, T: Lexer> Scan<'a, T> {
-    /// Creates a scan of `input` under the first start condition.
-    pub(crate) fn new(input: &'a str) -> Self {
-        Self {
-            input,
-            offset: 0,
-            condition: 0,
-            line: 1,
-            column: 1,
-            span: 0..0,
-            next_line: 1,
-            next_column: 1,
-            memo: Vec::new(),
-            base: 0,
-            words: 0,
-            furthest: 0,
-            token: PhantomData,
-        }
-    }
-
+impl<'a, T> Scan<'a, T> {
     /// Returns the bytes of the last token, counted from the start of the input.
     ///
     /// The result is `0..0` before the first token.
@@ -138,6 +98,75 @@ impl<'a, T: Lexer> Scan<'a, T> {
     /// The result is empty before the first token. After a [`ScanError`], it is the text at fault.
     pub fn slice(&self) -> &'a str {
         &self.input[self.span.clone()]
+    }
+
+    /// Returns the line at which the last token starts, counted from 1.
+    ///
+    /// The scan counts the characters before the last token, thus it reads those bytes a second
+    /// time. It counts each byte of the input one time however many tokens a caller places.
+    pub fn line(&self) -> u32 {
+        self.place().0
+    }
+
+    /// Returns the column at which the last token starts, counted from 1.
+    ///
+    /// The column counts characters, and not bytes. Thus a character above ASCII counts as one.
+    pub fn column(&self) -> u32 {
+        self.place().1
+    }
+
+    /// Returns the offset at which the next token starts.
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Returns the input that the scan has not read.
+    pub fn remainder(&self) -> &'a str {
+        &self.input[self.offset..]
+    }
+
+    /// Returns the line and the column at which the last token starts.
+    ///
+    /// The scan counts forward from the place that it holds, then it keeps the new place. A token
+    /// comes after the token before it, thus the count reads each byte of the input one time.
+    fn place(&self) -> (u32, u32) {
+        let mut cursor = self.place.get();
+        if cursor.offset < self.span.start {
+            for &byte in &self.input.as_bytes()[cursor.offset..self.span.start] {
+                if byte == b'\n' {
+                    cursor.line += 1;
+                    cursor.column = 1;
+                } else if byte & 0xC0 != 0x80 {
+                    cursor.column += 1;
+                }
+            }
+            cursor.offset = self.span.start;
+            self.place.set(cursor);
+        }
+
+        (cursor.line, cursor.column)
+    }
+}
+
+impl<'a, T: Lexer> Scan<'a, T> {
+    /// Creates a scan of `input` under the first start condition.
+    pub(crate) fn new(input: &'a str) -> Self {
+        Self {
+            input,
+            offset: 0,
+            condition: 0,
+            span: 0..0,
+            place: Cell::new(Cursor {
+                offset: 0,
+                line: 1,
+                column: 1,
+            }),
+            memo: Vec::new(),
+            base: 0,
+            words: 0,
+            furthest: 0,
+            token: PhantomData,
+        }
     }
 
     /// Gives the place of each token with the token, in place of the token alone.
@@ -170,18 +199,6 @@ impl<'a, T: Lexer> Scan<'a, T> {
         Locations::new(self)
     }
 
-    /// Returns the line at which the last token starts, counted from 1.
-    pub fn line(&self) -> u32 {
-        self.line
-    }
-
-    /// Returns the column at which the last token starts, counted from 1.
-    ///
-    /// The column counts characters, and not bytes. Thus a character above ASCII counts as one.
-    pub fn column(&self) -> u32 {
-        self.column
-    }
-
     /// Returns the start condition under which the scan reads the next token.
     ///
     /// A rule changes the condition after it matches. Thus this is the condition of the next token,
@@ -194,159 +211,80 @@ impl<'a, T: Lexer> Scan<'a, T> {
         T::condition(self.condition)
     }
 
-    /// Returns the offset at which the next token starts.
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-
-    /// Returns the input that the scan has not read.
-    pub fn remainder(&self) -> &'a str {
-        &self.input[self.offset..]
-    }
-
-    /// Moves the scan forward by `length` bytes, and puts the next token at `place`.
-    ///
-    /// [`longest_match`](Self::longest_match) counts the place while it steps the automaton, thus
-    /// this function reads no byte.
-    fn bump(&mut self, length: usize, place: Place) {
+    /// Moves the scan forward by `length` bytes.
+    fn bump(&mut self, length: usize) {
         self.offset += length;
-        self.next_line = place.line;
-        self.next_column = place.column;
     }
 
-    /// Returns the number of the bytes of the character at the offset of the scan, and the place
-    /// of the input after that character.
+    /// Returns the number of the bytes of the character at the offset of the scan.
     ///
-    /// The scan calls this function for a character that no rule matches. That character is one
-    /// column, or it is a newline.
+    /// The scan calls this function for a character that no rule matches.
     ///
     /// # Panics
     ///
     /// This function panics if the offset of the scan is at the end of the input.
-    fn faulted(&self) -> (usize, Place) {
+    fn faulted(&self) -> usize {
         let bytes = self.input.as_bytes();
         let mut length = 1;
         while self.offset + length < bytes.len() && bytes[self.offset + length] & 0xC0 == 0x80 {
             length += 1;
         }
-
-        let place = if bytes[self.offset] == b'\n' {
-            Place {
-                line: self.next_line + 1,
-                column: 1,
-            }
-        } else {
-            Place {
-                line: self.next_line,
-                column: self.next_column + 1,
-            }
-        };
-        (length, place)
+        length
     }
 
     /// Records the last token as the `length` bytes at the offset of the scan, then moves forward.
     ///
     /// A rule that skips its match gives no token. Thus it calls [`bump`](Self::bump) alone, and
     /// the place of the last token stays where it is.
-    fn take(&mut self, length: usize, place: Place) {
-        self.line = self.next_line;
-        self.column = self.next_column;
+    fn take(&mut self, length: usize) {
         self.span = self.offset..self.offset + length;
-        self.bump(length, place);
+        self.bump(length);
     }
 
-    /// Returns the longest match at the offset of the scan.
+    /// Returns the rule that won the longest match at the offset of the scan, and the bytes of
+    /// that match.
     ///
     /// The scan keeps the last accept that it reached, thus a rule that matches a longer input
     /// wins, and the earliest rule wins a tie. Each rule of a lexer matches at least one byte,
     /// thus a match of no length gives `None`.
     ///
-    /// The function counts the line and the column of each byte that it steps, and it keeps the
-    /// place of the last accept with that accept. Thus the scan reads each byte of a match one
-    /// time, and [`bump`](Self::bump) reads none of them again.
-    ///
-    /// The scan stops at the dead state, at the end of the input, or at a state that a match of an
-    /// earlier offset recorded. A record states that the same state at the same position gave no
-    /// accept after it, thus the rest of that scan gives no accept here.
+    /// [`Lexer::find`] holds the scan, and the derive macro emits it as code. The scan of a region
+    /// that no rule ends reads the tables instead, because that path stops at a state that it
+    /// recorded.
     ///
     /// # Panics
     ///
     /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
-    fn longest_match(&mut self) -> Option<Matched> {
-        let tables = T::TABLES;
-        let start = tables.start[usize::from(self.condition)];
-
-        self.prepare();
-        let (best, read) = if self.memo.is_empty() {
-            self.run_match(start)
+    #[inline]
+    fn longest_match(&mut self) -> Option<(u16, usize)> {
+        let matched = if self.furthest.saturating_sub(self.offset) < MEMO_THRESHOLD {
+            T::find(self.input.as_bytes(), self.offset, self.condition)
         } else {
-            self.recorded_match(start)
+            self.deep_match()
         };
 
-        self.furthest = self.furthest.max(self.offset + read);
-        self.record(start, best.map_or(0, |matched| matched.length), read);
-        best
+        self.furthest = self.furthest.max(self.offset + matched.read);
+        matched.rule().map(|rule| (rule, matched.length))
     }
 
-    /// Returns the longest match from `start`, and the number of the bytes that it read.
+    /// Returns the longest match at the offset of the scan, in a region that the scan reads a
+    /// second time.
     ///
-    /// A step that gives the state that it started from is the start of a run. A rule that reads a
-    /// run, for example a name or the text of a string, spends most of its bytes in one such
-    /// state. The function then reads the rest of the run in one loop with
-    /// [`Tables::repeats`](crate::Tables::repeats), and it reads no table for those bytes.
-    ///
-    /// The state of a run gives one accept for the whole run, because a longer run gives a longer
-    /// match of the same rule. Thus the loop writes the accept one time, and not one time for each
-    /// byte.
-    ///
-    /// The record of the states is empty here. [`recorded_match`](Self::recorded_match) reads a
-    /// region that needs that record.
+    /// The scan reaches this function when a match of an earlier offset read [`MEMO_THRESHOLD`]
+    /// bytes past this offset. It then reads the tables, because that path stops at a state that
+    /// it recorded, and it records the states of this match for the offsets that follow.
     ///
     /// # Panics
     ///
     /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
-    fn run_match(&self, start: u16) -> (Option<Matched>, usize) {
-        let tables = T::TABLES;
-        let bytes = self.input.as_bytes();
-        let mut state = start;
-        let mut read = self.offset;
-        let mut best = None;
-        let mut place = self.place();
+    #[cold]
+    fn deep_match(&mut self) -> Matched {
+        self.prepare();
 
-        while let Some(&byte) = bytes.get(read) {
-            let next = tables.step(state, byte);
-            if next == 0 {
-                break;
-            }
-            place.read(byte);
-            read += 1;
-
-            if next == state {
-                let repeats = tables.repeats(state);
-                while let Some(&byte) = bytes.get(read) {
-                    if repeats[usize::from(byte >> 6)] >> (byte & 63) & 1 == 0 {
-                        break;
-                    }
-                    place.read(byte);
-                    read += 1;
-                }
-            } else {
-                state = next;
-            }
-
-            if let Some(rule) = tables.accepts(state) {
-                best = Some(Matched {
-                    rule,
-                    length: read - self.offset,
-                    place,
-                });
-                if tables.leaf(state) {
-                    break;
-                }
-            }
-        }
-
-        (best, read - self.offset)
+        let start = T::TABLES.start[usize::from(self.condition)];
+        let matched = self.recorded_match(start);
+        self.record(start, matched.length, matched.read);
+        matched
     }
 
     /// Returns the longest match from `start`, and the number of the bytes that it read.
@@ -358,53 +296,41 @@ impl<'a, T: Lexer> Scan<'a, T> {
     /// # Panics
     ///
     /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
-    fn recorded_match(&self, start: u16) -> (Option<Matched>, usize) {
+    fn recorded_match(&self, start: u16) -> Matched {
         let tables = T::TABLES;
         let mut state = start;
-        let mut best = None;
+        let mut accept = 0;
+        let mut length = 0;
         let mut read = 0;
-        let mut place = self.place();
 
         for (index, &byte) in self.input.as_bytes()[self.offset..].iter().enumerate() {
             state = tables.step(state, byte);
             if state == 0 {
                 break;
             }
-            place.read(byte);
             read = index + 1;
             if let Some(rule) = tables.accepts(state) {
-                best = Some(Matched {
-                    rule,
-                    length: read,
-                    place,
-                });
+                accept = rule + 1;
+                length = read;
             }
             if self.recorded(state, self.offset + read) {
                 break;
             }
         }
 
-        (best, read)
-    }
-
-    /// Returns the place at which the next token starts.
-    fn place(&self) -> Place {
-        Place {
-            line: self.next_line,
-            column: self.next_column,
+        Matched {
+            accept,
+            length,
+            read,
         }
     }
 
-    /// Makes the record of the states, or moves it, if the scan reads a region a second time.
+    /// Makes the record of the states, or moves it.
     ///
     /// The record holds [`MEMO_LIMIT`] bytes at most, and the input needs no more than one
     /// position for each byte. An offset outside the record moves the base to that offset, and the
     /// record then holds the region that follows it.
     fn prepare(&mut self) {
-        if self.furthest.saturating_sub(self.offset) < MEMO_THRESHOLD {
-            return;
-        }
-
         if self.memo.is_empty() {
             self.words = T::TABLES.accept.len().div_ceil(64).max(1);
             let limit = MEMO_LIMIT / (self.words * 8);
@@ -444,6 +370,17 @@ impl<'a, T: Lexer> Scan<'a, T> {
 
     /// Records each state that the match of `read` bytes from `start` reached after `keep` bytes.
     ///
+    /// A scan that holds no record writes none, thus this function holds the test alone and
+    /// [`write`](Self::write) holds the work.
+    #[inline]
+    fn record(&mut self, start: u16, keep: usize, read: usize) {
+        if !self.memo.is_empty() && read > keep {
+            self.write(start, keep, read);
+        }
+    }
+
+    /// Records each state that the match of `read` bytes from `start` reached after `keep` bytes.
+    ///
     /// The match gave its last accept at `keep` bytes, thus each state after that one gave no
     /// accept. The match reads the same bytes a second time, because it holds the states of the
     /// first time nowhere.
@@ -451,11 +388,8 @@ impl<'a, T: Lexer> Scan<'a, T> {
     /// # Panics
     ///
     /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
-    fn record(&mut self, start: u16, keep: usize, read: usize) {
-        if self.memo.is_empty() || read <= keep {
-            return;
-        }
-
+    #[cold]
+    fn write(&mut self, start: u16, keep: usize, read: usize) {
         let tables = T::TABLES;
         let mut state = start;
         for index in 0..read {
@@ -481,31 +415,28 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
                 return None;
             }
 
-            let Some(matched) = self.longest_match() else {
-                let (length, place) = self.faulted();
-                self.take(length, place);
-                return Some(Err(ScanError::no_rule(
-                    self.span.clone(),
-                    self.line,
-                    self.column,
-                )));
+            let Some((rule, length)) = self.longest_match() else {
+                self.take(self.faulted());
+                let (line, column) = self.place();
+                return Some(Err(ScanError::no_rule(self.span.clone(), line, column)));
             };
 
-            let action = tables.actions[usize::from(matched.rule)];
+            let action = tables.actions[usize::from(rule)];
             if let Some(condition) = action.go {
                 self.condition = condition;
             }
             if action.skip {
-                self.bump(matched.length, matched.place);
+                self.bump(length);
                 continue;
             }
 
-            self.take(matched.length, matched.place);
+            self.take(length);
             let text = if T::READS_TEXT { self.slice() } else { "" };
-            let value = T::token(matched.rule, text);
-            return Some(
-                value.ok_or_else(|| ScanError::value(self.span.clone(), self.line, self.column)),
-            );
+            let value = T::token(rule, text);
+            return Some(value.ok_or_else(|| {
+                let (line, column) = self.place();
+                ScanError::value(self.span.clone(), line, column)
+            }));
         }
     }
 }
@@ -514,12 +445,13 @@ impl<T: Lexer> FusedIterator for Scan<'_, T> {}
 
 impl<T> Debug for Scan<'_, T> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatResult {
+        let (line, column) = self.place();
         formatter
             .debug_struct("Scan")
             .field("offset", &self.offset)
             .field("condition", &self.condition)
-            .field("line", &self.line)
-            .field("column", &self.column)
+            .field("line", &line)
+            .field("column", &column)
             .field("span", &self.span)
             .finish()
     }
@@ -656,7 +588,7 @@ mod tests {
             .next()
             .expect("the scan gives one result for the newline")
             .expect_err("no rule matches a newline");
-        assert_eq!((error.line, error.column), (1, 2));
+        assert_eq!((error.line(), error.column()), (1, 2));
 
         assert_eq!(scan.next(), Some(Ok(Token::One)));
         assert_eq!((scan.line(), scan.column()), (2, 1));

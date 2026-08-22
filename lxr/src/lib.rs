@@ -1,8 +1,9 @@
 //! The runtime of a lexer that lxr generates.
 //!
-//! A derive macro reads an enum of tokens, and it emits the tables of a deterministic automaton.
-//! This crate holds the scan that reads those tables. Thus a user crate compiles the runtime alone,
-//! and it does not compile the regex parser or the automata.
+//! A derive macro reads an enum of tokens, and it emits a deterministic automaton as code and as
+//! tables. This crate holds the iterator that calls that code, and the scan of the tables that a
+//! lexer of many states keeps. Thus a user crate compiles the runtime alone, and it does not
+//! compile the regex parser or the automata.
 //!
 //! [`Lexer`] is the trait that the macro implements. [`Lexer::scan`] starts a [`Scan`], which gives
 //! one token at a time and reports each fault of the input.
@@ -20,6 +21,7 @@ mod action;
 mod error;
 mod lexer;
 mod located;
+mod matched;
 mod scan;
 mod tables;
 
@@ -30,6 +32,7 @@ pub use self::{
     error::{ScanError, ScanErrorKind},
     lexer::Lexer,
     located::{Located, Locations},
+    matched::Matched,
     scan::Scan,
     tables::Tables,
 };

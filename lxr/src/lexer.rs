@@ -1,3 +1,4 @@
+use crate::matched::Matched;
 use crate::scan::Scan;
 use crate::tables::Tables;
 
@@ -57,6 +58,23 @@ pub trait Lexer: Sized {
     /// The derive macro sets this. A lexer that gives no value leaves it at `true`, and the scan
     /// then builds a text that [`token`](Self::token) does not read.
     const READS_TEXT: bool = true;
+
+    /// Returns the longest match of `input` at `at`, under the start condition at `condition`.
+    ///
+    /// The derive macro emits one scan for each lexer, thus a step of the automaton is a
+    /// comparison on the byte and not a read of a table. A lexer of many states emits no scan,
+    /// because the source of it costs more than the scan saves. The default reads
+    /// [`TABLES`](Self::TABLES), thus such a lexer scans the tables.
+    ///
+    /// `at` is at or below the length of `input`. The result holds the rule that won, the bytes of
+    /// the match, and the bytes that the scan read.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `condition` is not a start condition of the lexer.
+    fn find(input: &[u8], at: usize, condition: u16) -> Matched {
+        Self::TABLES.find(input, at, condition)
+    }
 
     /// Returns the token of the rule at `rule`, which matched `text`.
     ///
