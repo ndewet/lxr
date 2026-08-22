@@ -9,8 +9,6 @@
 //!
 //! [`Lexer`]: https://docs.rs/lxr/latest/lxr/trait.Lexer.html
 
-#![allow(dead_code)]
-
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::quote;
 

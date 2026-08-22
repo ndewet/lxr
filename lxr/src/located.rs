@@ -35,8 +35,7 @@ pub struct Located<T> {
 ///
 /// Each [`Located`] carries the place of its token. Thus this iterator forwards the state of the
 /// scan alone: [`condition`](Self::condition), [`offset`](Self::offset), and
-/// [`remainder`](Self::remainder). A caller that reads a stream refills its buffer with the last
-/// two, inside the loop.
+/// [`remainder`](Self::remainder).
 pub struct Locations<'a, T> {
     scan: Scan<'a, T>,
 }
