@@ -48,6 +48,16 @@ pub trait Lexer: Sized {
     /// The automaton of the lexer.
     const TABLES: Tables<'static>;
 
+    /// Whether a rule of the lexer reads the text of its match.
+    ///
+    /// A variant that holds a field takes that field from the text, thus such a lexer needs the
+    /// text of each match. A lexer whose variants hold no field reads no text, and the scan then
+    /// gives [`token`](Self::token) an empty text and builds no slice.
+    ///
+    /// The derive macro sets this. A lexer that gives no value leaves it at `true`, and the scan
+    /// then builds a text that [`token`](Self::token) does not read.
+    const READS_TEXT: bool = true;
+
     /// Returns the token of the rule at `rule`, which matched `text`.
     ///
     /// A variant that holds a field takes its value from `text`, through

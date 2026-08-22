@@ -64,6 +64,21 @@ struct Place {
     column: u32,
 }
 
+impl Place {
+    /// Counts `byte` into the place.
+    ///
+    /// A byte of the form `10xxxxxx` continues a character, thus the column does not count it.
+    #[inline]
+    fn read(&mut self, byte: u8) {
+        if byte == b'\n' {
+            self.line += 1;
+            self.column = 1;
+        } else if byte & 0xC0 != 0x80 {
+            self.column += 1;
+        }
+    }
+}
+
 /// The rule that won the longest match, the bytes of that match, and the place after it.
 #[derive(Debug, Clone, Copy)]
 struct Matched {
@@ -260,27 +275,102 @@ impl<'a, T: Lexer> Scan<'a, T> {
     fn longest_match(&mut self) -> Option<Matched> {
         let tables = T::TABLES;
         let start = tables.start[usize::from(self.condition)];
-        self.prepare();
 
+        self.prepare();
+        let (best, read) = if self.memo.is_empty() {
+            self.run_match(start)
+        } else {
+            self.recorded_match(start)
+        };
+
+        self.furthest = self.furthest.max(self.offset + read);
+        self.record(start, best.map_or(0, |matched| matched.length), read);
+        best
+    }
+
+    /// Returns the longest match from `start`, and the number of the bytes that it read.
+    ///
+    /// A step that gives the state that it started from is the start of a run. A rule that reads a
+    /// run, for example a name or the text of a string, spends most of its bytes in one such
+    /// state. The function then reads the rest of the run in one loop with
+    /// [`Tables::repeats`](crate::Tables::repeats), and it reads no table for those bytes.
+    ///
+    /// The state of a run gives one accept for the whole run, because a longer run gives a longer
+    /// match of the same rule. Thus the loop writes the accept one time, and not one time for each
+    /// byte.
+    ///
+    /// The record of the states is empty here. [`recorded_match`](Self::recorded_match) reads a
+    /// region that needs that record.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
+    fn run_match(&self, start: u16) -> (Option<Matched>, usize) {
+        let tables = T::TABLES;
+        let bytes = self.input.as_bytes();
+        let mut state = start;
+        let mut read = self.offset;
+        let mut best = None;
+        let mut place = self.place();
+
+        while let Some(&byte) = bytes.get(read) {
+            let next = tables.step(state, byte);
+            if next == 0 {
+                break;
+            }
+            place.read(byte);
+            read += 1;
+
+            if next == state {
+                let repeats = tables.repeats(state);
+                while let Some(&byte) = bytes.get(read) {
+                    if repeats[usize::from(byte >> 6)] >> (byte & 63) & 1 == 0 {
+                        break;
+                    }
+                    place.read(byte);
+                    read += 1;
+                }
+            } else {
+                state = next;
+            }
+
+            if let Some(rule) = tables.accepts(state) {
+                best = Some(Matched {
+                    rule,
+                    length: read - self.offset,
+                    place,
+                });
+                if tables.leaf(state) {
+                    break;
+                }
+            }
+        }
+
+        (best, read - self.offset)
+    }
+
+    /// Returns the longest match from `start`, and the number of the bytes that it read.
+    ///
+    /// The function reads one byte at a time, and it stops at a state that a match of an earlier
+    /// offset recorded. A record states that the same state at the same position gave no accept
+    /// after it, thus the rest of that scan gives no accept here.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
+    fn recorded_match(&self, start: u16) -> (Option<Matched>, usize) {
+        let tables = T::TABLES;
         let mut state = start;
         let mut best = None;
         let mut read = 0;
-        let mut place = Place {
-            line: self.next_line,
-            column: self.next_column,
-        };
+        let mut place = self.place();
 
         for (index, &byte) in self.input.as_bytes()[self.offset..].iter().enumerate() {
             state = tables.step(state, byte);
             if state == 0 {
                 break;
             }
-            if byte == b'\n' {
-                place.line += 1;
-                place.column = 1;
-            } else if byte & 0xC0 != 0x80 {
-                place.column += 1;
-            }
+            place.read(byte);
             read = index + 1;
             if let Some(rule) = tables.accepts(state) {
                 best = Some(Matched {
@@ -294,9 +384,15 @@ impl<'a, T: Lexer> Scan<'a, T> {
             }
         }
 
-        self.furthest = self.furthest.max(self.offset + read);
-        self.record(start, best.map_or(0, |matched| matched.length), read);
-        best
+        (best, read)
+    }
+
+    /// Returns the place at which the next token starts.
+    fn place(&self) -> Place {
+        Place {
+            line: self.next_line,
+            column: self.next_column,
+        }
     }
 
     /// Makes the record of the states, or moves it, if the scan reads a region a second time.
@@ -405,7 +501,8 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
             }
 
             self.take(matched.length, matched.place);
-            let value = T::token(matched.rule, self.slice());
+            let text = if T::READS_TEXT { self.slice() } else { "" };
+            let value = T::token(matched.rule, text);
             return Some(
                 value.ok_or_else(|| ScanError::value(self.span.clone(), self.line, self.column)),
             );
@@ -464,6 +561,16 @@ mod tests {
         0, 4, 3,
     ];
 
+    /// State 4 reads the letter `a` into itself, thus a run of `a` after the first one is one run.
+    static REPEATS: [u64; 20] = {
+        let mut repeats = [0; 20];
+        repeats[4 * 4 + 1] = 1 << (b'a' & 63);
+        repeats
+    };
+
+    /// State 3 reads no byte, thus a scan that reaches it has the whole run.
+    static LEAVES: [u64; 1] = [1 << 3];
+
     static ACCEPT: [u16; 5] = [0, 0, 1, 2, 0];
     static START: [u16; 1] = [1];
     static ACTIONS: [Action; 2] = [Action::token(), Action::token()];
@@ -474,6 +581,8 @@ mod tests {
         const TABLES: Tables<'static> = Tables {
             classes: &CLASSES,
             next: &NEXT,
+            repeats: &REPEATS,
+            leaves: &LEAVES,
             width: 3,
             accept: &ACCEPT,
             start: &START,

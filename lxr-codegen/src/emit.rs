@@ -70,12 +70,16 @@ pub fn emit(lexer: &Emission) -> TokenStream {
 
     let classes = array(tables.classes());
     let next = array(tables.next());
+    let repeats = words(tables.repeats());
+    let leaves = words(tables.leaves());
     let accept = array(tables.accept());
     let start = array(tables.start());
     let actions = actions(&lexer.rules);
 
     let class_count = count(tables.classes().len());
     let next_count = count(tables.next().len());
+    let repeat_count = count(tables.repeats().len());
+    let leaf_count = count(tables.leaves().len());
     let accept_count = count(tables.accept().len());
     let start_count = count(tables.start().len());
     let action_count = count(lexer.rules.len());
@@ -84,11 +88,14 @@ pub fn emit(lexer: &Emission) -> TokenStream {
     let condition = condition_type(lexer);
     let of_index = of_index(lexer);
     let of_rule = of_rule(lexer);
+    let reads_text = lexer.rules.iter().any(|rule| rule.value.is_some());
 
     quote! {
         const _: () = {
             static CLASSES: [u16; #class_count] = [#(#classes),*];
             static NEXT: [u16; #next_count] = [#(#next),*];
+            static REPEATS: [u64; #repeat_count] = [#(#repeats),*];
+            static LEAVES: [u64; #leaf_count] = [#(#leaves),*];
             static ACCEPT: [u16; #accept_count] = [#(#accept),*];
             static START: [u16; #start_count] = [#(#start),*];
             static ACTIONS: [::lxr::Action; #action_count] = [#(#actions),*];
@@ -100,11 +107,15 @@ pub fn emit(lexer: &Emission) -> TokenStream {
                 const TABLES: ::lxr::Tables<'static> = ::lxr::Tables {
                     classes: &CLASSES,
                     next: &NEXT,
+                    repeats: &REPEATS,
+                    leaves: &LEAVES,
                     width: #width,
                     accept: &ACCEPT,
                     start: &START,
                     actions: &ACTIONS,
                 };
+
+                const READS_TEXT: bool = #reads_text;
 
                 #of_rule
                 #of_index
@@ -159,6 +170,14 @@ fn array(values: &[u16]) -> Vec<Literal> {
     values
         .iter()
         .map(|&value| Literal::u16_unsuffixed(value))
+        .collect()
+}
+
+/// Returns the literal of each word of `words`.
+fn words(words: &[u64]) -> Vec<Literal> {
+    words
+        .iter()
+        .map(|&word| Literal::u64_unsuffixed(word))
         .collect()
 }
 
@@ -410,6 +429,45 @@ mod tests {
                 "{table}"
             );
         }
+
+        for (table, values) in [("REPEATS", tables.repeats()), ("LEAVES", tables.leaves())] {
+            let table = name(table);
+            let length = count(values.len());
+            let values = words(values);
+            assert!(
+                holds(
+                    &source,
+                    &quote!(static #table: [u64; #length] = [#(#values),*];)
+                ),
+                "{table}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lexer_that_gives_no_value_reads_no_text() {
+        let source = emit(&lexer());
+
+        assert!(holds(
+            &source,
+            &quote!(
+                const READS_TEXT: bool = false;
+            )
+        ));
+    }
+
+    #[test]
+    fn a_lexer_that_gives_a_value_reads_the_text() {
+        let mut lexer = lexer();
+        lexer.rules[0].value = Some(quote!(u32));
+        let source = emit(&lexer);
+
+        assert!(holds(
+            &source,
+            &quote!(
+                const READS_TEXT: bool = true;
+            )
+        ));
     }
 
     #[test]
@@ -423,6 +481,8 @@ mod tests {
             &quote!(const TABLES: ::lxr::Tables<'static> = ::lxr::Tables {
                 classes: &CLASSES,
                 next: &NEXT,
+                repeats: &REPEATS,
+                leaves: &LEAVES,
                 width: #width,
                 accept: &ACCEPT,
                 start: &START,

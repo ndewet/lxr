@@ -38,6 +38,13 @@ mod words {
         0, 0, 0,
     ];
 
+    /// State 2 reads the letter `a` into itself, thus a word of many letters is one run.
+    static REPEATS: [u64; 16] = {
+        let mut repeats = [0; 16];
+        repeats[2 * 4 + 1] = 1 << (b'a' & 63);
+        repeats
+    };
+
     static ACCEPT: [u16; 4] = [0, 0, 1, 2];
     static START: [u16; 1] = [1];
     static ACTIONS: [Action; 2] = [Action::token(), Action::skip()];
@@ -48,6 +55,8 @@ mod words {
         const TABLES: Tables<'static> = Tables {
             classes: &CLASSES,
             next: &NEXT,
+            repeats: &REPEATS,
+            leaves: &[],
             width: 3,
             accept: &ACCEPT,
             start: &START,
@@ -130,6 +139,9 @@ mod strings {
         const TABLES: Tables<'static> = Tables {
             classes: &CLASSES,
             next: &NEXT,
+            // The masks of the runs are empty, thus this lexer reads one byte at a time.
+            repeats: &[],
+            leaves: &[],
             width: 3,
             accept: &ACCEPT,
             start: &START,
