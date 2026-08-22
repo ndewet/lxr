@@ -14,6 +14,11 @@ use crate::action::Action;
 /// state = next[state * width + classes[byte]]
 /// ```
 ///
+/// [`repeats`](Self::repeats) and [`leaves`](Self::leaves) cut that work. A scan reads a run of the
+/// bytes that one state reads into itself without a step, and it stops at a state that reads no
+/// byte. Each one is a property of the transitions, thus a table without them gives the same
+/// tokens.
+///
 /// # Panics
 ///
 /// The fields are public, because the emitted source builds a `Tables` in a `static`. lxr builds
@@ -23,6 +28,8 @@ use crate::action::Action;
 ///
 /// - `width` is not 0.
 /// - `next` holds `width` values for each state, thus its length is a multiple of `width`.
+/// - `repeats` holds four words for each state, or it is empty.
+/// - `leaves` holds one bit for each state, or it is empty.
 /// - `accept` holds one value for each state.
 /// - Each value of `classes` is below `width`, and each value of `next` is below the state count.
 /// - Each value of `accept` is at most the length of `actions`.
@@ -34,6 +41,23 @@ pub struct Tables<'a> {
     pub classes: &'a [u16; 256],
     /// The state that each state and each class goes to, one row of `width` values for each state.
     pub next: &'a [u16],
+    /// The bytes that each state reads into itself, as four words for each state, or empty.
+    ///
+    /// The mask of the state `s` starts at `s * 4`. The bit `b % 64` of the word `b / 64` is 1 if
+    /// the state reads the byte `b` into itself. A scan reads a run of such bytes in one loop, and
+    /// it reads [`classes`](Self::classes) and [`next`](Self::next) for none of them.
+    ///
+    /// An empty list holds no bit for any state. The scan then reads one byte at a time, and it
+    /// gives the same tokens.
+    pub repeats: &'a [u64],
+    /// The states that read no byte, as one bit for each state, or empty.
+    ///
+    /// The bit `s % 64` of the word `s / 64` is 1 if the state `s` reads each byte into the dead
+    /// state. The scan stops at such a state, thus it reads no byte to learn that the match ends.
+    ///
+    /// An empty list holds no bit for any state. The scan then reads one byte more at the end of a
+    /// match, and it gives the same tokens.
+    pub leaves: &'a [u64],
     /// The number of the columns of one row of [`next`](Self::next).
     pub width: usize,
     /// The rule that each state accepts, plus one, or 0 if the state does not accept.
@@ -56,6 +80,50 @@ impl Tables<'_> {
         self.next[usize::from(state) * self.width + class]
     }
 
+    /// Returns the bytes that `state` reads into itself, as a mask of 256 bits.
+    ///
+    /// The scan reads a run of those bytes in one loop. Thus it holds the mask in registers, and
+    /// it reads no table until the run ends.
+    ///
+    /// The result holds no bit if [`repeats`](Self::repeats) is empty. The scan then reads one
+    /// byte at a time.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `state` is not a state of the tables.
+    pub fn repeats(&self, state: u16) -> [u64; 4] {
+        if self.repeats.is_empty() {
+            return [0; 4];
+        }
+
+        let start = usize::from(state) * 4;
+        [
+            self.repeats[start],
+            self.repeats[start + 1],
+            self.repeats[start + 2],
+            self.repeats[start + 3],
+        ]
+    }
+
+    /// Returns `true` if `state` reads each byte into the dead state.
+    ///
+    /// A scan that reaches such a state has the whole match. Thus it stops, and it reads no byte
+    /// to learn that the match ends.
+    ///
+    /// The result is `false` for each state if [`leaves`](Self::leaves) is empty.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `state` is not a state of the tables.
+    pub fn leaf(&self, state: u16) -> bool {
+        if self.leaves.is_empty() {
+            return false;
+        }
+
+        let state = usize::from(state);
+        self.leaves[state / 64] >> (state % 64) & 1 != 0
+    }
+
     /// Returns the rule that `state` accepts, or `None` if the state does not accept.
     ///
     /// # Panics
@@ -66,5 +134,67 @@ impl Tables<'_> {
             0 => None,
             rule => Some(rule - 1),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static CLASSES: [u16; 256] = [0; 256];
+    static NEXT: [u16; 4] = [0, 0, 0, 0];
+    static ACCEPT: [u16; 2] = [0, 1];
+    static START: [u16; 1] = [1];
+    static ACTIONS: [Action; 1] = [Action::token()];
+
+    /// State 1 reads the bytes 64 and 66 into itself, and it reads no other byte.
+    static REPEATS: [u64; 8] = [0, 0, 0, 0, 0, 0b101, 0, 0];
+
+    /// State 1 reads no byte.
+    static LEAVES: [u64; 1] = [0b10];
+
+    /// Returns tables that hold the masks of the runs and the leaves.
+    fn tables() -> Tables<'static> {
+        Tables {
+            classes: &CLASSES,
+            next: &NEXT,
+            repeats: &REPEATS,
+            leaves: &LEAVES,
+            width: 2,
+            accept: &ACCEPT,
+            start: &START,
+            actions: &ACTIONS,
+        }
+    }
+
+    /// Returns tables that hold neither mask.
+    fn bare() -> Tables<'static> {
+        Tables {
+            repeats: &[],
+            leaves: &[],
+            ..tables()
+        }
+    }
+
+    #[test]
+    fn a_state_gives_the_bytes_that_it_reads_into_itself() {
+        assert_eq!(tables().repeats(1), [0, 0b101, 0, 0]);
+        assert_eq!(tables().repeats(0), [0; 4]);
+    }
+
+    #[test]
+    fn a_table_of_no_run_gives_no_byte() {
+        assert_eq!(bare().repeats(1), [0; 4]);
+    }
+
+    #[test]
+    fn a_state_that_reads_no_byte_is_a_leaf() {
+        assert!(tables().leaf(1));
+        assert!(!tables().leaf(0));
+    }
+
+    #[test]
+    fn a_table_of_no_leaf_gives_no_leaf() {
+        assert!(!bare().leaf(1));
     }
 }

@@ -57,6 +57,8 @@ pub struct Tables {
     representatives: Vec<u8>,
     width: usize,
     next: Vec<u16>,
+    repeats: Vec<u64>,
+    leaves: Vec<u64>,
     accept: Vec<u16>,
     start: Vec<u16>,
 }
@@ -114,11 +116,16 @@ impl Tables {
 
         let (classes, representatives) = divide_classes(dfa);
         let width = representatives.len() + 1;
+        let next = transitions(dfa, &representatives, width);
+        let repeats = repeats(&classes, &next, width);
+        let leaves = leaves(&next, width);
 
         Ok(Self {
-            next: transitions(dfa, &representatives, width),
             accept: marks(dfa, accepts, rules)?,
             start: starts(dfa),
+            next,
+            repeats,
+            leaves,
             classes,
             representatives,
             width,
@@ -149,6 +156,26 @@ impl Tables {
     /// The row of the state `s` starts at `s * width`, and the class `c` is at the column `c`.
     pub fn next(&self) -> &[u16] {
         &self.next
+    }
+
+    /// Returns the bytes that each state reads into itself, as four words for each state.
+    ///
+    /// The mask of the state `s` starts at `s * 4`. The bit `b % 64` of the word `b / 64` is 1 if
+    /// the state reads the byte `b` into itself.
+    ///
+    /// A scan reads a run of such bytes in one loop, and it reads no table for them. The dead state
+    /// holds no bit, because a scan stops at that state.
+    pub fn repeats(&self) -> &[u64] {
+        &self.repeats
+    }
+
+    /// Returns the states that read no byte, as one bit for each state.
+    ///
+    /// The bit `s % 64` of the word `s / 64` is 1 if the state `s` reads each byte into the dead
+    /// state. A scan that accepts at such a state stops there, thus it reads no byte to learn that
+    /// the match ends.
+    pub fn leaves(&self) -> &[u64] {
+        &self.leaves
     }
 
     /// Returns the rule that each state accepts, plus one, or 0 if the state does not accept.
@@ -237,6 +264,50 @@ fn transitions(
     }
 
     next
+}
+
+/// Returns the bytes that each state reads into itself, as four words for each state.
+///
+/// A rule that reads a run, for example `[0-9]+` or the text of a string, holds one state that
+/// reads each byte of the run into itself. A scan that knows those bytes reads the whole run in
+/// one loop, and it reads no table for them.
+///
+/// The dead state holds no bit. A scan stops at that state, thus a run of it reads nothing.
+fn repeats(classes: &[u16; 256], next: &[u16], width: usize) -> Vec<u64> {
+    let states = next.len() / width;
+    let mut repeats = vec![0; states * 4];
+
+    for state in 1..states {
+        for byte in 0..=255u8 {
+            let class = usize::from(classes[usize::from(byte)]);
+            if usize::from(next[state * width + class]) == state {
+                repeats[state * 4 + usize::from(byte >> 6)] |= 1 << (byte & 63);
+            }
+        }
+    }
+
+    repeats
+}
+
+/// Returns the states that read no byte, as one bit for each state.
+///
+/// The last state of a literal, for example the state after `{` of a lexer of JSON, reads no byte.
+/// A scan that reaches such a state has the whole match, thus it stops there and it reads no byte
+/// to learn that the next byte ends the match.
+///
+/// The dead state reads each byte into itself, thus it holds no bit.
+fn leaves(next: &[u16], width: usize) -> Vec<u64> {
+    let states = next.len() / width;
+    let mut leaves = vec![0; states.div_ceil(64)];
+
+    for state in 1..states {
+        let row = &next[state * width..(state + 1) * width];
+        if row.iter().all(|&target| target == 0) {
+            leaves[state / 64] |= 1 << (state % 64);
+        }
+    }
+
+    leaves
 }
 
 /// Returns the accept of each state of `dfa`, plus one, the dead state first.
@@ -381,6 +452,83 @@ mod tests {
         "", "l", "let", "letter", "let9", "f", "fn", "fun", "a", "z9", "9", "!", " ", "\"",
         "\"let\"", "a b", "é", "\u{80}",
     ];
+
+    /// Returns `true` if the state at `state` reads `byte` into itself.
+    fn repeated(tables: &Tables, state: usize, byte: u8) -> bool {
+        tables.repeats()[state * 4 + usize::from(byte >> 6)] >> (byte & 63) & 1 != 0
+    }
+
+    /// Returns `true` if the state at `state` reads no byte.
+    fn leaf(tables: &Tables, state: usize) -> bool {
+        tables.leaves()[state / 64] >> (state % 64) & 1 != 0
+    }
+
+    #[test]
+    fn a_state_repeats_each_byte_that_it_reads_into_itself() {
+        let tables = build(1, &[("[a-z]+", &[0])]).tables;
+        let width = tables.width();
+
+        for state in 1..tables.accept().len() {
+            for byte in 0..=255u8 {
+                let class = usize::from(tables.classes()[usize::from(byte)]);
+                let target = usize::from(tables.next()[state * width + class]);
+
+                assert_eq!(
+                    repeated(&tables, state, byte),
+                    target == state,
+                    "state {state} and the byte {byte:#04X}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_state_of_a_run_repeats_the_bytes_of_the_run() {
+        let tables = build(1, &[("[a-z]+", &[0])]).tables;
+        let state = usize::from(tables.next()[usize::from(tables.start()[0]) * tables.width() + 1]);
+
+        assert!(repeated(&tables, state, b'a'));
+        assert!(repeated(&tables, state, b'z'));
+        assert!(!repeated(&tables, state, b'0'));
+    }
+
+    #[test]
+    fn the_dead_state_repeats_no_byte() {
+        let tables = lexer().tables;
+
+        for byte in 0..=255u8 {
+            assert!(!repeated(&tables, 0, byte), "the byte {byte:#04X}");
+        }
+    }
+
+    #[test]
+    fn a_state_that_reads_no_byte_is_a_leaf() {
+        let tables = lexer().tables;
+        let width = tables.width();
+
+        for state in 1..tables.accept().len() {
+            let row = &tables.next()[state * width..(state + 1) * width];
+
+            assert_eq!(
+                leaf(&tables, state),
+                row.iter().all(|&target| target == 0),
+                "state {state}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_state_of_a_literal_is_a_leaf_and_the_state_of_a_run_is_not() {
+        let tables = build(1, &[(";", &[0]), ("[a-z]+", &[0])]).tables;
+        let width = tables.width();
+        let start = usize::from(tables.start()[0]);
+        let mark = usize::from(tables.next()[start * width + usize::from(tables.classes()[0x3B])]);
+        let word = usize::from(tables.next()[start * width + usize::from(tables.classes()[0x61])]);
+
+        assert!(leaf(&tables, mark));
+        assert!(!leaf(&tables, word));
+        assert!(!leaf(&tables, 0));
+    }
 
     #[test]
     fn the_tables_give_the_same_match_as_the_automaton() {
