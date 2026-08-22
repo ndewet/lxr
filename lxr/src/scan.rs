@@ -52,6 +52,29 @@ pub struct Scan<'a, T> {
     token: PhantomData<fn() -> T>,
 }
 
+/// The place at which the input after a match starts.
+///
+/// The scan counts the line and the column while it steps the automaton, thus it carries the place
+/// of a match with that match. A [`Scan`] holds no other line and no other column of the input.
+#[derive(Debug, Clone, Copy)]
+struct Place {
+    /// The line, counted from 1.
+    line: u32,
+    /// The column in characters, counted from 1.
+    column: u32,
+}
+
+/// The rule that won the longest match, the bytes of that match, and the place after it.
+#[derive(Debug, Clone, Copy)]
+struct Matched {
+    /// The index of the rule that matched.
+    rule: u16,
+    /// The number of the bytes of the match.
+    length: usize,
+    /// The place at which the input after the match starts.
+    place: Place,
+}
+
 /// The number of the bytes that a scan reads again before it makes the record of its states.
 ///
 /// A scan of an input that each rule matches stays below this limit, thus it makes no allocation.
@@ -166,47 +189,66 @@ impl<'a, T: Lexer> Scan<'a, T> {
         &self.input[self.offset..]
     }
 
-    /// Moves the scan forward by `length` bytes, and counts the lines and the columns of them.
+    /// Moves the scan forward by `length` bytes, and puts the next token at `place`.
     ///
-    /// A byte of the form `10xxxxxx` continues a character, thus the column does not count it.
-    fn bump(&mut self, length: usize) {
-        for &byte in &self.input.as_bytes()[self.offset..self.offset + length] {
-            if byte == b'\n' {
-                self.next_line += 1;
-                self.next_column = 1;
-            } else if byte & 0xC0 != 0x80 {
-                self.next_column += 1;
-            }
-        }
+    /// [`longest_match`](Self::longest_match) counts the place while it steps the automaton, thus
+    /// this function reads no byte.
+    fn bump(&mut self, length: usize, place: Place) {
         self.offset += length;
+        self.next_line = place.line;
+        self.next_column = place.column;
     }
 
-    /// Returns the number of the bytes of the character at the offset of the scan.
-    fn character(&self) -> usize {
+    /// Returns the number of the bytes of the character at the offset of the scan, and the place
+    /// of the input after that character.
+    ///
+    /// The scan calls this function for a character that no rule matches. That character is one
+    /// column, or it is a newline.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the offset of the scan is at the end of the input.
+    fn faulted(&self) -> (usize, Place) {
         let bytes = self.input.as_bytes();
         let mut length = 1;
         while self.offset + length < bytes.len() && bytes[self.offset + length] & 0xC0 == 0x80 {
             length += 1;
         }
-        length
+
+        let place = if bytes[self.offset] == b'\n' {
+            Place {
+                line: self.next_line + 1,
+                column: 1,
+            }
+        } else {
+            Place {
+                line: self.next_line,
+                column: self.next_column + 1,
+            }
+        };
+        (length, place)
     }
 
     /// Records the last token as the `length` bytes at the offset of the scan, then moves forward.
     ///
     /// A rule that skips its match gives no token. Thus it calls [`bump`](Self::bump) alone, and
     /// the place of the last token stays where it is.
-    fn take(&mut self, length: usize) {
+    fn take(&mut self, length: usize, place: Place) {
         self.line = self.next_line;
         self.column = self.next_column;
         self.span = self.offset..self.offset + length;
-        self.bump(length);
+        self.bump(length, place);
     }
 
-    /// Returns the rule of the longest match at the offset of the scan, and the length of it.
+    /// Returns the longest match at the offset of the scan.
     ///
     /// The scan keeps the last accept that it reached, thus a rule that matches a longer input
     /// wins, and the earliest rule wins a tie. Each rule of a lexer matches at least one byte,
     /// thus a match of no length gives `None`.
+    ///
+    /// The function counts the line and the column of each byte that it steps, and it keeps the
+    /// place of the last accept with that accept. Thus the scan reads each byte of a match one
+    /// time, and [`bump`](Self::bump) reads none of them again.
     ///
     /// The scan stops at the dead state, at the end of the input, or at a state that a match of an
     /// earlier offset recorded. A record states that the same state at the same position gave no
@@ -215,7 +257,7 @@ impl<'a, T: Lexer> Scan<'a, T> {
     /// # Panics
     ///
     /// This function panics if the tables disagree with the conditions of [`Tables`](crate::Tables).
-    fn longest_match(&mut self) -> Option<(u16, usize)> {
+    fn longest_match(&mut self) -> Option<Matched> {
         let tables = T::TABLES;
         let start = tables.start[usize::from(self.condition)];
         self.prepare();
@@ -223,15 +265,29 @@ impl<'a, T: Lexer> Scan<'a, T> {
         let mut state = start;
         let mut best = None;
         let mut read = 0;
+        let mut place = Place {
+            line: self.next_line,
+            column: self.next_column,
+        };
 
         for (index, &byte) in self.input.as_bytes()[self.offset..].iter().enumerate() {
             state = tables.step(state, byte);
             if state == 0 {
                 break;
             }
+            if byte == b'\n' {
+                place.line += 1;
+                place.column = 1;
+            } else if byte & 0xC0 != 0x80 {
+                place.column += 1;
+            }
             read = index + 1;
             if let Some(rule) = tables.accepts(state) {
-                best = Some((rule, read));
+                best = Some(Matched {
+                    rule,
+                    length: read,
+                    place,
+                });
             }
             if self.recorded(state, self.offset + read) {
                 break;
@@ -239,7 +295,7 @@ impl<'a, T: Lexer> Scan<'a, T> {
         }
 
         self.furthest = self.furthest.max(self.offset + read);
-        self.record(start, best.map_or(0, |(_, length)| length), read);
+        self.record(start, best.map_or(0, |matched| matched.length), read);
         best
     }
 
@@ -329,8 +385,9 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
                 return None;
             }
 
-            let Some((rule, length)) = self.longest_match() else {
-                self.take(self.character());
+            let Some(matched) = self.longest_match() else {
+                let (length, place) = self.faulted();
+                self.take(length, place);
                 return Some(Err(ScanError::no_rule(
                     self.span.clone(),
                     self.line,
@@ -338,17 +395,17 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
                 )));
             };
 
-            let action = tables.actions[usize::from(rule)];
+            let action = tables.actions[usize::from(matched.rule)];
             if let Some(condition) = action.go {
                 self.condition = condition;
             }
             if action.skip {
-                self.bump(length);
+                self.bump(matched.length, matched.place);
                 continue;
             }
 
-            self.take(length);
-            let value = T::token(rule, self.slice());
+            self.take(matched.length, matched.place);
+            let value = T::token(matched.rule, self.slice());
             return Some(
                 value.ok_or_else(|| ScanError::value(self.span.clone(), self.line, self.column)),
             );
@@ -477,6 +534,23 @@ mod tests {
         assert_eq!(found.len(), 302);
         assert_eq!(found[300], None);
         assert_eq!(found[301], Some(Token::Many));
+    }
+
+    #[test]
+    fn a_newline_that_no_rule_matches_moves_the_line() {
+        let mut scan = Token::scan("a\na");
+
+        assert_eq!(scan.next(), Some(Ok(Token::One)));
+        assert_eq!((scan.line(), scan.column()), (1, 1));
+
+        let error = scan
+            .next()
+            .expect("the scan gives one result for the newline")
+            .expect_err("no rule matches a newline");
+        assert_eq!((error.line, error.column), (1, 2));
+
+        assert_eq!(scan.next(), Some(Ok(Token::One)));
+        assert_eq!((scan.line(), scan.column()), (2, 1));
     }
 
     #[test]
