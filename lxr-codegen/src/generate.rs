@@ -113,6 +113,12 @@ pub enum GenerateErrorKind {
     /// A rule can never win a match, thus it gives no token. An earlier rule matches each text
     /// that this rule matches, and the earliest rule wins a tie.
     NeverWins,
+    /// The scan enters a start condition that no rule reads. The scan then gives a fault at each
+    /// byte, and it stays under that condition to the end of the input.
+    NeverRead,
+    /// A rule reads under a start condition that the scan never enters. No `go` of a rule that the
+    /// scan reaches names that condition, thus the rule never matches.
+    NeverEntered,
 }
 
 impl GenerateErrorKind {
@@ -142,6 +148,14 @@ impl GenerateErrorKind {
                 "An earlier rule matches each text that this rule matches. Put this rule \
                  before that one, or write a pattern that only this rule matches.",
             ),
+            Self::NeverRead => Some(
+                "Write a rule that reads under this start condition, or remove the `go` \
+                 that enters it.",
+            ),
+            Self::NeverEntered => Some(
+                "Write `go` and this start condition on a rule that the scan reaches, or \
+                 read this rule under another condition.",
+            ),
         }
     }
 }
@@ -156,6 +170,14 @@ impl std::fmt::Display for GenerateErrorKind {
                 "the lexer holds {count} rules, above the limit of {maximum}"
             ),
             Self::NeverWins => write!(formatter, "the rule can never win a match"),
+            Self::NeverRead => write!(
+                formatter,
+                "the scan enters a start condition that no rule reads"
+            ),
+            Self::NeverEntered => write!(
+                formatter,
+                "the rule reads under a start condition that the scan never enters"
+            ),
         }
     }
 }
@@ -176,11 +198,12 @@ impl std::error::Error for GenerateError {}
 /// # Errors
 ///
 /// This function returns one [`GenerateError`] for each fault. A pattern that the parser cannot
-/// read, a rule that the lexicon rejects, a rule that can never win a match, and a lexer above a
-/// limit each give one.
+/// read, a rule that the lexicon rejects, a start condition that the scan cannot use, a rule that
+/// can never win a match, and a lexer above a limit each give one.
 pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<GenerateError>> {
     let nodes = parse(&specification.rules)?;
     let lexicon = build(specification, nodes)?;
+    entered(specification)?;
 
     let (nfa, accepts) = compile(Bytes, lexicon).map_err(|error| vec![failed(error.kind)])?;
     let determinization = nfa.determinize().map_err(overflow)?;
@@ -289,6 +312,95 @@ fn build(
     }
 }
 
+/// Returns the start conditions that `rule` reads under.
+///
+/// An empty list means the first condition, as [`build`] reads it.
+fn under(rule: &Rule) -> &[usize] {
+    if rule.conditions.is_empty() {
+        &[0]
+    } else {
+        &rule.conditions
+    }
+}
+
+/// Reports each start condition that the scan cannot use.
+///
+/// The scan begins under the first condition. A rule that the scan reaches enters another
+/// condition with its `go`, thus the conditions that the scan enters grow from the first one. A
+/// condition that no rule reads stops the scan, because each byte under it gives a fault. A rule
+/// under a condition that the scan never enters cannot match.
+///
+/// [`build`] rejects a rule that names a condition of no lexicon, thus each index of
+/// [`conditions`](Rule::conditions) is in range here. A `go` comes from the caller, thus this
+/// function reads it with `get`.
+///
+/// # Errors
+///
+/// This function returns one error for each rule that enters a condition that no rule reads, and
+/// one error for each rule that reads under no condition that the scan enters. No rule enters the
+/// first condition, thus a first condition that no rule reads names the lexer.
+fn entered(specification: &Specification) -> Result<(), Vec<GenerateError>> {
+    let count = specification
+        .conditions
+        .as_ref()
+        .map_or(1, |conditions| conditions.names.len().max(1));
+
+    let mut read = vec![false; count];
+    for rule in &specification.rules {
+        for &condition in under(rule) {
+            read[condition] = true;
+        }
+    }
+
+    if !read[0] {
+        return Err(vec![GenerateErrorKind::NeverRead.in_lexer()]);
+    }
+
+    let mut entered = vec![false; count];
+    entered[0] = true;
+
+    let mut moved = true;
+    while moved {
+        moved = false;
+        for rule in &specification.rules {
+            let Some(go) = rule.go.map(usize::from) else {
+                continue;
+            };
+            if entered.get(go) != Some(&false) {
+                continue;
+            }
+            if under(rule).iter().any(|&condition| entered[condition]) {
+                entered[go] = true;
+                moved = true;
+            }
+        }
+    }
+
+    let errors: Vec<GenerateError> = specification
+        .rules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rule)| {
+            if !under(rule).iter().any(|&condition| entered[condition]) {
+                Some(GenerateErrorKind::NeverEntered.in_rule(index))
+            } else if rule
+                .go
+                .is_some_and(|go| read.get(usize::from(go)) != Some(&true))
+            {
+                Some(GenerateErrorKind::NeverRead.in_rule(index))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 /// Reports each rule of `count` rules that can never win a match.
 ///
 /// A state of the tables holds the rule of the highest precedence of the rules that accept there.
@@ -365,6 +477,27 @@ mod tests {
     /// Returns the errors of `specification`, which does not build.
     fn errors(specification: &Specification) -> Vec<GenerateError> {
         generate(specification).expect_err("the lexer does not build")
+    }
+
+    /// Returns a lexer of `rules` that reads under `count` start conditions.
+    fn conditioned(count: usize, rules: Vec<Rule>) -> Specification {
+        Specification {
+            token: name("Token"),
+            conditions: Some(Conditions {
+                kind: quote!(Context),
+                names: (0..count).map(|_| quote!(Context::Code)).collect(),
+            }),
+            rules,
+        }
+    }
+
+    /// Returns a rule of `pattern` that reads under `under`, and that then enters `go`.
+    fn conditional(pattern: &str, token: &str, under: Vec<usize>, go: Option<u16>) -> Rule {
+        Rule {
+            conditions: under,
+            go,
+            ..rule(pattern, token)
+        }
     }
 
     #[test]
@@ -525,6 +658,84 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_that_enters_a_condition_that_no_rule_reads_names_its_rule() {
+        let found = errors(&conditioned(
+            2,
+            vec![conditional("[a-z]+", "Word", vec![0], Some(1))],
+        ));
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rule, Some(0));
+        assert_eq!(found[0].kind, GenerateErrorKind::NeverRead);
+        assert_eq!(
+            found[0].to_string(),
+            "the scan enters a start condition that no rule reads"
+        );
+    }
+
+    #[test]
+    fn a_first_condition_that_no_rule_reads_names_the_lexer() {
+        let found = errors(&conditioned(
+            2,
+            vec![conditional("[a-z]+", "Word", vec![1], None)],
+        ));
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rule, None);
+        assert_eq!(found[0].kind, GenerateErrorKind::NeverRead);
+    }
+
+    #[test]
+    fn a_rule_under_a_condition_that_the_scan_never_enters_names_its_rule() {
+        let found = errors(&conditioned(
+            3,
+            vec![
+                conditional("[a-z]+", "Word", vec![0], Some(1)),
+                conditional("[0-9]+", "Number", vec![1], None),
+                conditional("[A-Z]+", "Name", vec![2], None),
+            ],
+        ));
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rule, Some(2));
+        assert_eq!(found[0].kind, GenerateErrorKind::NeverEntered);
+        assert_eq!(
+            found[0].to_string(),
+            "the rule reads under a start condition that the scan never enters"
+        );
+    }
+
+    #[test]
+    fn each_rule_under_a_condition_that_no_rule_enters_gives_its_own_error() {
+        let found = errors(&conditioned(
+            2,
+            vec![
+                conditional("[a-z]+", "Word", vec![0], None),
+                conditional("[0-9]+", "Number", vec![1], None),
+                conditional("[A-Z]+", "Name", vec![1], None),
+            ],
+        ));
+
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].rule, Some(1));
+        assert_eq!(found[1].rule, Some(2));
+    }
+
+    #[test]
+    fn a_chain_of_start_conditions_gives_no_error() {
+        let source = generate(&conditioned(
+            3,
+            vec![
+                conditional("[a-z]+", "Word", vec![0], Some(1)),
+                conditional("[0-9]+", "Number", vec![1], Some(2)),
+                conditional("[A-Z]+", "Name", vec![2], Some(0)),
+            ],
+        ));
+
+        assert!(source.is_ok());
+    }
+
+    #[test]
     fn a_rule_that_skips_under_a_rule_that_shadows_it_names_its_rule() {
         let found = errors(&lexer(vec![
             rule("[a-z]+", "Word"),
@@ -572,7 +783,7 @@ mod tests {
                     token: Some(name("Word")),
                     value: None,
                     conditions: vec![0],
-                    go: None,
+                    go: Some(1),
                 },
                 Rule {
                     pattern: Pattern::Regex("[a-z]+".to_owned()),
