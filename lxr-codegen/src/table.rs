@@ -13,8 +13,6 @@
 //! automaton. A state count above the capacity is a limit and not a defect, thus it gives an
 //! [`Overflow`].
 
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 
 use crate::automata::{
@@ -136,6 +134,7 @@ impl Tables {
     ///
     /// Class 0 is the dead class, and no byte belongs to it. Thus the byte of class `n` is at the
     /// index `n - 1`.
+    #[cfg(test)]
     pub fn representatives(&self) -> &[u8] {
         &self.representatives
     }
@@ -163,6 +162,7 @@ impl Tables {
     }
 
     /// Returns the number of the states of the table, the dead state included.
+    #[cfg(test)]
     pub fn state_count(&self) -> usize {
         self.accept.len()
     }
