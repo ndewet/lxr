@@ -21,10 +21,14 @@ logos = "0.16"
 default = ["derive"]
 derive = ["dep:lxr-derive"]
 
-# `benches/scan.rs` measures the scan with criterion, thus it holds its own main
-# and it needs no harness of the test runner.
+# Each lexer gets its own executable so that one implementation cannot affect
+# the optimizer or instruction cache of the other.
 [[bench]]
-name = "scan"
+name = "scan_lxr"
+harness = false
+
+[[bench]]
+name = "scan_logos"
 harness = false
 
 [lints]
