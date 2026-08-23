@@ -5,6 +5,26 @@ use super::lexicon::Lexicon;
 use super::thompson;
 use crate::automata::{Automaton, NfaBuilder, NondeterministicFiniteAutomaton, StateId};
 
+/// The automaton of a lexer, and what each of its states means.
+///
+/// [`compile`](compile()) gives it.
+#[derive(Debug, Clone)]
+pub struct Compilation<L, R> {
+    /// The automaton of each rule together.
+    pub nfa: NondeterministicFiniteAutomaton<L>,
+    /// The accept of each state that accepts.
+    pub accepts: Accepts<R>,
+    /// The index of the rule that owns each state, in the sequence of the
+    /// states.
+    ///
+    /// A start state belongs to no rule, thus it holds `None`. Each other
+    /// state comes from the pattern of one rule, because the construction
+    /// makes the states of one rule at a time and joins no two rules.
+    ///
+    /// A pass that reads one rule of a state apart from the rest reads this.
+    pub owners: Vec<Option<usize>>,
+}
+
 /// Compiles the rules of a lexer into one NFA, and into the accept of each
 /// state that accepts.
 ///
@@ -36,17 +56,19 @@ use crate::automata::{Automaton, NfaBuilder, NondeterministicFiniteAutomaton, St
 pub fn compile<A: Alphabet, R>(
     alphabet: A,
     lexicon: Lexicon<R>,
-) -> Result<(NondeterministicFiniteAutomaton<A::Label>, Accepts<R>), BuildError> {
+) -> Result<Compilation<A::Label, R>, BuildError> {
     let (rules, conditions) = lexicon.into_parts();
 
     let mut builder = NfaBuilder::new();
     let starts: Vec<StateId> = (0..conditions).map(|_| builder.push()).collect();
     let mut marks = Vec::new();
+    let mut owners = vec![None; builder.state_count()];
 
-    for rule in rules {
+    for (index, rule) in rules.into_iter().enumerate() {
         let part = thompson::fragment(&rule.pattern, &alphabet, &mut builder);
         builder.accept(part.exit());
         marks.push((part.exit(), rule.accept));
+        owners.resize(builder.state_count(), Some(index));
         for condition in rule.conditions {
             let start = *starts
                 .get(condition)
@@ -59,13 +81,18 @@ pub fn compile<A: Alphabet, R>(
         .build(&starts)
         .map_err(|overflow| BuildErrorKind::from(overflow).in_lexicon())?;
     let accepts = Accepts::new(nfa.state_count(), marks);
-    Ok((nfa, accepts))
+    owners.resize(nfa.state_count(), None);
+    Ok(Compilation {
+        nfa,
+        accepts,
+        owners,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automata::{DeterministicFiniteAutomaton, Execution, Label, Scanner};
+    use crate::automata::{Execution, Scanner};
     use crate::compiler::{ByteRange, Bytes};
     use crate::regex::Node;
 
@@ -138,21 +165,6 @@ mod tests {
         }
     }
 
-    impl Lexer<NondeterministicFiniteAutomaton<ByteRange>> {
-        /// Determinizes the automaton, then maps each accept onto the states
-        /// of the result.
-        fn determinized(&self) -> Lexer<DeterministicFiniteAutomaton<ByteRange>> {
-            let determinization = self
-                .automaton
-                .determinize()
-                .expect("a test stays below the capacity");
-            Lexer {
-                accepts: self.accepts.determinized(&determinization.subsets),
-                automaton: determinization.dfa,
-            }
-        }
-    }
-
     /// Adds a rule to `lexicon`. Each rule of a test is valid.
     fn rule(lexicon: &mut Lexicon<Token>, pattern: &str, accept: Token, conditions: &[usize]) {
         let pattern: Node = pattern.parse().expect("the pattern is valid");
@@ -163,9 +175,11 @@ mod tests {
 
     /// Compiles `lexicon`. A test stays below the capacity of an automaton.
     fn compiled(lexicon: Lexicon<Token>) -> Lexer<NondeterministicFiniteAutomaton<ByteRange>> {
-        let (automaton, accepts) =
-            compile(Bytes, lexicon).expect("a test stays below the capacity");
-        Lexer { automaton, accepts }
+        let compilation = compile(Bytes, lexicon).expect("a test stays below the capacity");
+        Lexer {
+            automaton: compilation.nfa,
+            accepts: compilation.accepts,
+        }
     }
 
     /// Builds a lexer that has a code condition and a string condition.
@@ -278,78 +292,5 @@ mod tests {
             lexer.automaton.start_state(code),
             lexer.automaton.start_state(string)
         );
-    }
-
-    /// The inputs of the differential test. Each one is a token, a part of a
-    /// token, or an input that the lexer rejects.
-    const INPUTS: [&str; 18] = [
-        "", "l", "let", "letter", "let9", "f", "fn", "fun", "a", "z9", "9", "!", " ", "\"",
-        "\"let\"", "a b", "é", "\u{80}",
-    ];
-
-    #[test]
-    fn the_dfa_of_a_lexer_gives_the_same_match_as_its_nfa() {
-        let (lexer, code, string) = lexer();
-        let dfa = lexer.determinized();
-
-        for start in [code, string] {
-            for input in INPUTS {
-                assert_eq!(
-                    dfa.scan(start, input),
-                    lexer.scan(start, input),
-                    "input {input:?} under start {start}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn a_lexer_reads_each_token_of_its_input_with_a_dfa() {
-        let (lexer, code, string) = lexer();
-        let dfa = lexer.determinized();
-
-        assert_eq!(
-            dfa.tokens(code, string, "let\"let\"fn"),
-            vec![
-                Token::Keyword,
-                Token::Quote,
-                Token::Text,
-                Token::Quote,
-                Token::Keyword,
-            ],
-        );
-        assert_eq!(
-            dfa.tokens(code, string, "letter\"a b\""),
-            vec![Token::Identifier, Token::Quote, Token::Text, Token::Quote,],
-        );
-    }
-
-    #[test]
-    fn each_state_of_the_dfa_reads_one_byte_into_a_maximum_of_one_state() {
-        let (lexer, _, _) = lexer();
-        let dfa = lexer.determinized().automaton;
-
-        for index in 0..dfa.state_count() {
-            let transitions = dfa.transitions(StateId::new(index));
-            for byte in 0..=u8::MAX {
-                let count = transitions
-                    .iter()
-                    .filter(|transition| transition.label.matches(byte))
-                    .count();
-                assert!(
-                    count <= 1,
-                    "state {index} reads the byte {byte:#04X} into {count} states"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn the_dfa_keeps_one_start_state_for_each_start_condition() {
-        let (lexer, code, string) = lexer();
-        let dfa = lexer.determinized().automaton;
-
-        assert_eq!(dfa.start_count(), lexer.automaton.start_count());
-        assert_ne!(dfa.start_state(code), dfa.start_state(string));
     }
 }

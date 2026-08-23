@@ -49,11 +49,11 @@ fn main() {
 fn report(source: &str, error: &ScanError) {
     let line = source
         .lines()
-        .nth(error.line as usize - 1)
+        .nth(error.line() as usize - 1)
         .unwrap_or_default();
     let indent: String = line
         .chars()
-        .take(error.column as usize - 1)
+        .take(error.column() as usize - 1)
         .map(|character| if character == '\t' { '\t' } else { ' ' })
         .collect();
 
@@ -62,7 +62,8 @@ fn report(source: &str, error: &ScanError) {
     println!("   | {line}");
     println!(
         "   | {indent}^ the bytes {}..{}",
-        error.span.start, error.span.end
+        error.span().start,
+        error.span().end
     );
     println!("   |");
     println!("   = help: {}\n", error.help());

@@ -18,11 +18,12 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod automata;
+mod code;
 mod compiler;
 mod emit;
 mod generate;
+mod graph;
 pub mod regex;
-mod table;
 
 pub use self::generate::{
     Conditions, GenerateError, GenerateErrorKind, Pattern, Rule, Specification, generate,

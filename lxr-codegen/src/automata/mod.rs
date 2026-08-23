@@ -25,12 +25,9 @@
 
 mod arena;
 mod automaton;
-mod determinize;
-mod dfa;
 mod execution;
 mod id;
 mod label;
-mod minimize;
 mod nfa;
 mod overflow;
 mod range;
@@ -43,12 +40,9 @@ mod testing;
 pub use self::{
     arena::{Arena, ArenaBuilder},
     automaton::{Automaton, Transition},
-    determinize::{Determinization, MAX_STATES},
-    dfa::{DeterministicExecution, DeterministicFiniteAutomaton},
     execution::{Execution, Match},
     id::StateId,
     label::Label,
-    minimize::Minimization,
     nfa::{NfaBuilder, NondeterministicExecution, NondeterministicFiniteAutomaton},
     overflow::{Overflow, Part},
     range::Range,

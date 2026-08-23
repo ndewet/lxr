@@ -48,6 +48,7 @@ pub trait Automaton {
     fn start_states(&self) -> &[StateId];
 
     /// Returns the number of the start states of the automaton.
+    #[allow(dead_code, reason = "the tests scan an automaton with this API")]
     fn start_count(&self) -> usize {
         self.start_states().len()
     }

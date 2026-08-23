@@ -3,15 +3,20 @@
 A lexer generator for Rust. Write the tokens of a language as an enum, and the
 derive macro builds the automaton that reads them.
 
-The macro does the work at compile time. It parses each pattern, it builds one
-deterministic automaton of each rule together, and it emits that automaton as
-tables in the read only data of the program. Thus a scan of an input that the
-rules match makes no allocation, it reads each byte one time, and the crate of
-the author compiles no regex engine.
+The macro does the work at compile time. It parses each pattern, it builds the
+rule graph of each rule together, and it emits that graph as code. A fork reads
+one byte and it calls the node of that byte. A rope compares a whole literal at
+one time. A leaf writes the token. Thus a step reads no table, a scan makes no
+allocation, and the crate of the author compiles no regex engine.
+
+A rope survives a rule that overlaps it. The rule `let` keeps its literal beside
+the rule `[a-z]+`, because the rope reads the literal and its miss reads the
+rules that remain.
 
 A region that no rule ends is different. The scan reads such a region again at
-each start position, thus it records the states that gave no accept. The record
-holds one megabyte at most, and the scan makes one allocation for it.
+each start position. A node that reads a run of bytes keeps that run, thus the
+region costs its length. A region whose cycle spans more than one node costs the
+square of its length.
 
 ## Install
 
@@ -114,7 +119,7 @@ and the two lexers together. Run it with `cargo bench -p lxr`.
 | --- | --- |
 | `lxr` | The runtime, and the re-export of the macro. A user crate holds this one. |
 | `lxr-derive` | The derive macro. It reads the attributes with `syn`. |
-| `lxr-codegen` | The regex parser, the automata, the tables, and the emitter. It builds for the host. |
+| `lxr-codegen` | The regex parser, the automaton, the rule graph, and the emitter. It builds for the host. |
 
 `lxr` holds no dependency of its own.
 

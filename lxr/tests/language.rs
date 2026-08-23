@@ -433,3 +433,51 @@ fn the_span_of_each_token_slices_the_input_back_to_its_text() {
         "the spans hold each byte that is not a space and not a comment"
     );
 }
+
+#[test]
+fn a_run_of_any_length_gives_one_token_of_that_length() {
+    for length in 1..=70 {
+        let name = "a".repeat(length);
+        assert_eq!(
+            steps::<Token>(&name),
+            vec![Step::Token(Token::Name, 0..length)],
+            "a name of {length} bytes"
+        );
+
+        let number = "7".repeat(length);
+        assert_eq!(
+            steps::<Token>(&number),
+            vec![Step::Token(Token::Int, 0..length)],
+            "a number of {length} bytes"
+        );
+    }
+}
+
+#[test]
+fn a_run_of_any_length_stops_at_the_byte_after_it() {
+    for length in 1..=70 {
+        let input = format!("{};", "a".repeat(length));
+
+        assert_eq!(
+            steps::<Token>(&input),
+            vec![
+                Step::Token(Token::Name, 0..length),
+                Step::Token(Token::Semicolon, length..length + 1),
+            ],
+            "a name of {length} bytes and a semicolon"
+        );
+    }
+}
+
+#[test]
+fn a_keyword_that_a_run_of_any_length_follows_gives_one_name() {
+    for length in 1..=70 {
+        let input = format!("let{}", "x".repeat(length));
+
+        assert_eq!(
+            steps::<Token>(&input),
+            vec![Step::Token(Token::Name, 0..length + 3)],
+            "a keyword and {length} bytes after it"
+        );
+    }
+}

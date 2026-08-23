@@ -1,15 +1,13 @@
 use crate::scan::Scan;
-use crate::tables::Tables;
+use crate::step::Step;
 
 /// A lexer that reads an input into the tokens of `Self`.
 ///
 /// The derive macro implements this trait. It reads the rules of an enum of tokens, it builds the
-/// automaton, and it emits the tables and the map from a number of a table onto a name.
+/// rule graph, and it emits that graph as code.
 ///
-/// Derive it, and do not implement it by hand. [`TABLES`](Self::TABLES),
-/// [`token`](Self::token), and [`condition`](Self::condition) carry the automaton that the macro
-/// built, and a table that lxr did not build can make a scan panic. The conditions of [`Tables`]
-/// state what a table must obey.
+/// Derive it, and do not implement it by hand. [`step`](Self::step) carries the graph that the
+/// macro built, and a step that lxr did not build can make a scan give the wrong token or panic.
 ///
 /// A bound of `T: Lexer` reads any lexer, thus one function serves each enum of tokens.
 /// [`syntax`](crate::syntax) holds the reference of the rules.
@@ -45,33 +43,21 @@ pub trait Lexer: Sized {
     /// gives its own enum.
     type Condition: Copy;
 
-    /// The automaton of the lexer.
-    const TABLES: Tables<'static>;
-
-    /// Whether a rule of the lexer reads the text of its match.
+    /// Writes the longest match of `input` at `at` into `step`.
     ///
-    /// A variant that holds a field takes that field from the text, thus such a lexer needs the
-    /// text of each match. A lexer whose variants hold no field reads no text, and the scan then
-    /// gives [`token`](Self::token) an empty text and builds no slice.
+    /// The derive macro emits one function for each node of the rule graph, thus a step of the
+    /// scan is a comparison on the byte and not a read of a table.
     ///
-    /// The derive macro sets this. A lexer that gives no value leaves it at `true`, and the scan
-    /// then builds a text that [`token`](Self::token) does not read.
-    const READS_TEXT: bool = true;
-
-    /// Returns the token of the rule at `rule`, which matched `text`.
+    /// The step reads the start condition from [`Step::condition`], and it writes the condition of
+    /// the next step there. It writes the token, the length of the match, and the bytes that it
+    /// read.
     ///
-    /// A variant that holds a field takes its value from `text`, through
-    /// [`FromStr`](std::str::FromStr). The result is `None` if `text` does not fit that field. A
-    /// rule of `[0-9]+` matches a number of any length, thus a field of `u32` gives `None` for a
-    /// number above 4294967295.
-    ///
-    /// A variant that holds no field ignores `text`, thus it always gives a token.
+    /// `at` is below the length of `input`, and it is at the start of a character.
     ///
     /// # Panics
     ///
-    /// This function panics if `rule` is not a rule of the lexer, or if the rule skips its match
-    /// and gives no token.
-    fn token(rule: u16, text: &str) -> Option<Self>;
+    /// This function panics if [`Step::condition`] is not a start condition of the lexer.
+    fn step(input: &str, at: usize, step: &mut Step<Self>);
 
     /// Returns the start condition at `index`.
     ///

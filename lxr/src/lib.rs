@@ -1,37 +1,41 @@
 //! The runtime of a lexer that lxr generates.
 //!
-//! A derive macro reads an enum of tokens, and it emits the tables of a deterministic automaton.
-//! This crate holds the scan that reads those tables. Thus a user crate compiles the runtime alone,
-//! and it does not compile the regex parser or the automata.
+//! A derive macro reads an enum of tokens, and it emits the rule graph of those rules as code.
+//! This crate holds the iterator that calls that code. Thus a user crate compiles the runtime
+//! alone, and it does not compile the regex parser or the automata.
 //!
 //! [`Lexer`] is the trait that the macro implements. [`Lexer::scan`] starts a [`Scan`], which gives
 //! one token at a time and reports each fault of the input.
 //! [`Scan::located`] gives the place of each token with the token.
 //!
+//! [`Lexer::step`] is the seam between the runtime and the emitted source. It writes one [`Step`],
+//! which holds the [`Outcome`], the length of the match, and the start condition of the next step.
+//! Thus a step builds no value and it reads no table.
+//!
 //! [`syntax`] holds the reference of the rules: each attribute, the sequence of the rules, the
 //! pattern language, and each limit.
 //!
-//! `lxr-codegen` holds the parser, the automata, and the emitter.
+//! `lxr-codegen` holds the parser, the automata, the rule graph, and the emitter.
 //!
-//! Each table comes from lxr, thus a function of this crate panics for a table that disagrees with
-//! itself. A [`ScanError`] reports the input, and not the lexer.
+//! The emitted source comes from lxr, thus a function of this crate panics for a step that
+//! disagrees with itself. A [`ScanError`] reports the input, and not the lexer.
 
-mod action;
 mod error;
 mod lexer;
 mod located;
+mod run;
 mod scan;
-mod tables;
+mod step;
 
 pub mod syntax;
 
 pub use self::{
-    action::Action,
     error::{ScanError, ScanErrorKind},
     lexer::Lexer,
     located::{Located, Locations},
+    run::Run,
     scan::Scan,
-    tables::Tables,
+    step::{Outcome, Step},
 };
 
 /// Derives a lexer from an enum of tokens.
