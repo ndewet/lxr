@@ -120,9 +120,10 @@ fn fork_body(emitter: &Emitter<'_>, id: NodeId, fork: &Fork) -> TokenStream {
     quote! {
         let bytes = input.as_bytes();
         #run
-        let ::core::option::Option::Some(&byte) = bytes.get(index) else {
+        if index >= bytes.len() {
             #miss
-        };
+        }
+        let byte = bytes[index];
         match byte {
             #(#arms)*
             #rest
@@ -163,9 +164,10 @@ fn table_fork(emitter: &Emitter<'_>, id: NodeId, fork: &Fork, run: TokenStream) 
         const #name: [u8; 256] = [#(#table),*];
         let bytes = input.as_bytes();
         #run
-        let ::core::option::Option::Some(&byte) = bytes.get(index) else {
+        if index >= bytes.len() {
             #miss
-        };
+        }
+        let byte = bytes[index];
         match #name[byte as usize] {
             #(#choices)*
             _ => { #miss }
@@ -191,7 +193,8 @@ fn arms_count(fork: &Fork, id: NodeId) -> usize {
 fn run(emitter: &Emitter<'_>, id: NodeId, ranges: &[ByteRange], only: bool) -> TokenStream {
     let test = emitter.run_test(id).unwrap_or_else(|| test(ranges));
     let bytes_loop = quote! {
-        while let ::core::option::Option::Some(&byte) = bytes.get(index) {
+        while index < bytes.len() {
+            let byte = bytes[index];
             if #test {
                 index += 1;
             } else {
