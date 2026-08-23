@@ -31,7 +31,7 @@ let height = 4?0;
 fn main() {
     let mut faults = 0;
 
-    for found in Token::scan(SOURCE) {
+    for found in Token::scan(SOURCE).located() {
         if let Err(error) = found {
             faults += 1;
             report(SOURCE, &error);
@@ -49,11 +49,11 @@ fn main() {
 fn report(source: &str, error: &ScanError) {
     let line = source
         .lines()
-        .nth(error.line() as usize - 1)
+        .nth(error.line().unwrap_or(1) as usize - 1)
         .unwrap_or_default();
     let indent: String = line
         .chars()
-        .take(error.column() as usize - 1)
+        .take(error.column().unwrap_or(1) as usize - 1)
         .map(|character| if character == '\t' { '\t' } else { ' ' })
         .collect();
 

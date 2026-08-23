@@ -8,9 +8,8 @@
 //! one token at a time and reports each fault of the input.
 //! [`Scan::located`] gives the place of each token with the token.
 //!
-//! [`Lexer::step`] is the seam between the runtime and the emitted source. It writes one [`Step`],
-//! which holds the [`Outcome`], the length of the match, and the start condition of the next step.
-//! Thus a step builds no value and it reads no table.
+//! [`Lexer::step`] is the seam between the runtime and the emitted source. It returns one [`Match`]
+//! and updates only the state that the generated matcher needs.
 //!
 //! [`syntax`] holds the reference of the rules: each attribute, the sequence of the rules, the
 //! pattern language, and each limit.
@@ -35,7 +34,7 @@ pub use self::{
     located::{Located, Locations},
     run::Run,
     scan::Scan,
-    step::{Outcome, Step},
+    step::Match,
 };
 
 /// Derives a lexer from an enum of tokens.

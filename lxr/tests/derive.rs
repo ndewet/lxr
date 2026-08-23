@@ -165,12 +165,13 @@ fn a_character_that_no_rule_matches_gives_an_error_and_the_scan_reads_on() {
 #[test]
 fn an_error_names_the_place_of_the_character_at_fault() {
     let error = Token::scan("fn\n%")
+        .located()
         .nth(1)
         .expect("the scan gives two results")
         .expect_err("no rule matches the percent sign");
 
     assert_eq!(error.span(), 3..4);
-    assert_eq!((error.line(), error.column()), (2, 1));
+    assert_eq!((error.line(), error.column()), (Some(2), Some(1)));
 }
 
 #[test]

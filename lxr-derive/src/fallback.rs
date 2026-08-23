@@ -34,11 +34,13 @@ pub fn fallback(input: &DeriveInput, condition: Option<&TokenStream>) -> TokenSt
             #[automatically_derived]
             impl #parameters ::lxr::Lexer for #token #arguments #bounds {
                 type Condition = #kind;
+                type State = ();
 
-                fn step(_input: &str, _at: usize, step: &mut ::lxr::Step<Self>) {
-                    step.outcome = ::lxr::Outcome::None;
-                    step.length = 0;
-                    step.read = 0;
+                fn initial() {}
+                fn state_condition(_state: &()) -> u16 { 0 }
+
+                fn step(_input: &str, _at: usize, _state: &mut ()) -> ::lxr::Match<Self> {
+                    ::lxr::Match::None
                 }
 
                 #of_index
@@ -100,11 +102,7 @@ mod tests {
     fn the_step_of_the_fallback_matches_nothing() {
         let source = fallback(&simple(), None);
 
-        assert!(holds(
-            &source,
-            &quote!(step.outcome = ::lxr::Outcome::None;)
-        ));
-        assert!(holds(&source, &quote!(step.length = 0;)));
+        assert!(holds(&source, &quote!(::lxr::Match::None)));
     }
 
     #[test]
