@@ -31,13 +31,12 @@ pub fn step(arena: &Arena, rules: &[Rule], token: &Ident) -> TokenStream {
     quote! {
         #state
 
-        #[inline]
+        #[inline(always)]
         fn step(input: &str, at: usize, state: &mut Self::State) -> ::lxr::Match<Self> {
             #tables
-            let mut found = ::core::option::Option::None;
             #resume
             #(#functions)*
-            #enter
+            let mut found = #enter;
             #driver
             found.expect("the generated matcher returns a result")
         }
@@ -96,7 +95,7 @@ fn enter(emitter: &Emitter<'_>) -> TokenStream {
         .collect();
 
     if let [only] = calls.as_slice() {
-        return only.clone();
+        return quote!(#only);
     }
 
     let condition = emitter.condition();
@@ -104,7 +103,7 @@ fn enter(emitter: &Emitter<'_>) -> TokenStream {
     let indexes: Vec<Literal> = (0..arena.start_count())
         .map(Literal::usize_unsuffixed)
         .collect();
-    quote! {
+    quote! {{
         let condition = #condition;
         match condition {
             #(#indexes => { #calls })*
@@ -112,7 +111,7 @@ fn enter(emitter: &Emitter<'_>) -> TokenStream {
                 "condition {condition} is not a start condition of this lexer"
             ),
         }
-    }
+    }}
 }
 
 /// Returns the loop that reads each node at which an edge of a cycle stopped.
@@ -136,7 +135,7 @@ fn driver(emitter: &Emitter<'_>) -> TokenStream {
                 let index = resume.index;
                 #take
                 resume.node = 0;
-                #name(#input at, index, #marker state, &mut found, #carry);
+                found = #name(#input at, index, #marker state, #carry);
             }
         }
     });
@@ -175,5 +174,5 @@ fn call(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
     let input = shape.input.then(|| quote!(input,));
     let resume = shape.resume.then(|| quote!(&mut resume,));
 
-    quote!(#name(#input at, at, state, &mut found, #resume);)
+    quote!(#name(#input at, at, state, #resume))
 }

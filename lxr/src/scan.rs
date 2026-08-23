@@ -209,7 +209,7 @@ impl<'a, T: Lexer> Scan<'a, T> {
 impl<T: Lexer> Iterator for Scan<'_, T> {
     type Item = std::result::Result<T, ScanError>;
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.offset >= self.input.len() {

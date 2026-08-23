@@ -13,10 +13,9 @@ pub fn name(id: NodeId) -> Ident {
 
 /// Returns the function of the node that `id` refers to.
 ///
-/// The function takes `#[inline(always)]`. A node holds few instructions, and the compiler leaves
-/// ten of them as a call in the lexer of JSON without it. One call for each node costs 30 percent
-/// of the scan. The graph holds no cycle of calls, because each cycle carries one edge that writes
-/// the node and returns, thus the attribute terminates.
+/// A hot node takes `#[inline(always)]`, and a cold node takes `#[inline(never)]`. A node holds few
+/// instructions. The graph holds no cycle of calls, because each cycle carries one edge that
+/// writes the node and returns. Thus the attribute terminates inside the hot region.
 ///
 /// The top-level `step` function is inlined with the compact result protocol. This lets the
 /// caller remove result plumbing while this attribute removes calls between hot nodes.
@@ -38,14 +37,10 @@ pub fn function(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
         Node::Fork(fork) => fork_body(emitter, id, fork),
         Node::Rope(rope) => rope_body(emitter, rope),
         Node::Leaf(leaf) => leaf_body(emitter, *leaf),
-        Node::Fault => quote! {
-            *found = ::core::option::Option::Some(::lxr::Match::None);
-        },
+        Node::Fault => quote!(::core::option::Option::Some(::lxr::Match::None)),
     };
-    let attributes = if matches!(emitter.arena.node(id), Node::Fault) {
+    let attributes = if matches!(emitter.arena.node(id), Node::Fault) || !emitter.is_hot(id) {
         quote!(#[cold] #[inline(never)])
-    } else if emitter.arena.node_count() > LARGE_GRAPH {
-        quote!(#[inline])
     } else {
         quote!(#[inline(always)])
     };
@@ -58,9 +53,8 @@ pub fn function(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
             index: usize,
             #marker
             state: &mut <#token as ::lxr::Lexer>::State,
-            found: &mut ::core::option::Option<::lxr::Match<#token>>,
             #resume
-        ) {
+        ) -> ::core::option::Option<::lxr::Match<#token>> {
             #body
         }
     }
@@ -105,7 +99,7 @@ fn fork_body(emitter: &Emitter<'_>, id: NodeId, fork: &Fork) -> TokenStream {
         .flat_map(|arm| arm.ranges.iter().copied())
         .collect();
 
-    if emitter.arena.node_count() > LARGE_GRAPH && arms_count(fork, id) > 2 {
+    if !emitter.is_hot(id) && emitter.arena.node_count() > LARGE_GRAPH && arms_count(fork, id) > 2 {
         return table_fork(emitter, id, fork, run);
     }
 
@@ -128,7 +122,6 @@ fn fork_body(emitter: &Emitter<'_>, id: NodeId, fork: &Fork) -> TokenStream {
         #run
         let ::core::option::Option::Some(&byte) = bytes.get(index) else {
             #miss
-            return;
         };
         match byte {
             #(#arms)*
@@ -172,7 +165,6 @@ fn table_fork(emitter: &Emitter<'_>, id: NodeId, fork: &Fork, run: TokenStream) 
         #run
         let ::core::option::Option::Some(&byte) = bytes.get(index) else {
             #miss
-            return;
         };
         match #name[byte as usize] {
             #(#choices)*
@@ -349,8 +341,8 @@ fn leaf_body(emitter: &Emitter<'_>, leaf: Leaf) -> TokenStream {
 
     quote! {
         let length = #length;
-        *found = ::core::option::Option::Some(#outcome);
         #go
+        ::core::option::Option::Some(#outcome)
     }
 }
 
@@ -376,6 +368,7 @@ pub fn action(emitter: &Emitter<'_>, edge: Edge, index: &TokenStream) -> TokenSt
             resume.node = #number;
             resume.index = #index;
             #marker
+            return ::core::option::Option::None;
         };
     }
 
@@ -389,7 +382,7 @@ pub fn action(emitter: &Emitter<'_>, edge: Edge, index: &TokenStream) -> TokenSt
     });
     let resume = shape.resume.then(|| quote!(resume,));
 
-    quote!(#name(#input at, #index, #marker state, found, #resume);)
+    quote!(return #name(#input at, #index, #marker state, #resume);)
 }
 
 /// Returns the offset of the last accept that `carry` gives, or `None` if it gives none.

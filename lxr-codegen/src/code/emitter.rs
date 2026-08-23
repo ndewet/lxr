@@ -9,6 +9,9 @@ use crate::graph::{Arena, Node, NodeId};
 /// The largest graph that uses direct tests and forced inlining alone.
 pub const LARGE_GRAPH: usize = 48;
 
+/// The largest path cost that stays in the inline region of the graph.
+const HOT_PATH_COST: usize = 3;
+
 /// The parts that each node of one lexer writes with.
 ///
 /// [`step`](super::step()) makes it one time, then it writes each node of the graph with it.
@@ -27,6 +30,8 @@ pub struct Emitter<'a> {
     tables: Vec<[u8; 256]>,
     /// The table and bit of each run node.
     run_tests: Vec<Option<(usize, u8)>>,
+    /// Whether each node belongs to an inline region.
+    hot: Vec<bool>,
 }
 
 impl<'a> Emitter<'a> {
@@ -41,7 +46,13 @@ impl<'a> Emitter<'a> {
             carries: carries(arena),
             tables: runs.tables,
             run_tests: runs.tests,
+            hot: hot_nodes(arena),
         }
+    }
+
+    /// Returns whether the node belongs to an inline region.
+    pub fn is_hot(&self, id: NodeId) -> bool {
+        self.hot[id.index()]
     }
 
     /// Returns the packed lookup tables that test the runs of a large graph.
@@ -182,6 +193,64 @@ impl<'a> Emitter<'a> {
                 resume: false,
             },
         }
+    }
+}
+
+/// Finds nodes on short paths from a start node.
+///
+/// ASCII branches have a small cost. UTF-8 branches and long ropes cross the inline boundary
+/// quickly. A cycle has no additional cost, because its node reads the complete run in one loop.
+fn hot_nodes(arena: &Arena) -> Vec<bool> {
+    let mut costs = vec![usize::MAX; arena.node_count()];
+    for condition in 0..arena.start_count() {
+        costs[arena.start(condition).index()] = 0;
+    }
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (index, node) in arena.nodes().iter().enumerate() {
+            let cost = costs[index];
+            if cost > HOT_PATH_COST {
+                continue;
+            }
+            for (edge, edge_cost) in path_edges(node, NodeId::new(index)) {
+                let next = cost.saturating_add(edge_cost);
+                if next < costs[edge.target.index()] && next <= HOT_PATH_COST {
+                    costs[edge.target.index()] = next;
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    costs
+        .into_iter()
+        .map(|cost| cost <= HOT_PATH_COST)
+        .collect()
+}
+
+/// Returns the outgoing edges and their inline costs.
+fn path_edges(node: &Node, source: NodeId) -> Vec<(crate::graph::Edge, usize)> {
+    match node {
+        Node::Fork(fork) => fork
+            .arms
+            .iter()
+            .map(|arm| {
+                let non_ascii = arm.ranges.iter().any(|range| range.high >= 0x80);
+                let cost = if arm.edge.target == source {
+                    0
+                } else if non_ascii {
+                    HOT_PATH_COST + 1
+                } else {
+                    1
+                };
+                (arm.edge, cost)
+            })
+            .chain([(fork.miss, 1)])
+            .collect(),
+        Node::Rope(rope) => vec![(rope.then, rope.bytes.len().max(1)), (rope.miss, 1)],
+        Node::Leaf(_) | Node::Fault => Vec::new(),
     }
 }
 
