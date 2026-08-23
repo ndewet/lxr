@@ -388,6 +388,124 @@ pub fn action(emitter: &Emitter<'_>, edge: Edge, index: &TokenStream) -> TokenSt
     quote!(return #name(#input at, #index, #marker state, #resume);)
 }
 
+/// Returns a hot node as structured control flow in `step`.
+pub(super) fn fused_body(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
+    match emitter.arena.node(id) {
+        Node::Fork(fork) => fused_fork(emitter, id, fork),
+        Node::Rope(rope) => {
+            let count = Literal::usize_unsuffixed(rope.bytes.len());
+            let bytes = Literal::byte_string(&rope.bytes);
+            let then = fused_action(emitter, rope.then, &quote!(index + #count));
+            let miss = fused_action(emitter, rope.miss, &quote!(index));
+            quote! {
+                let bytes = input.as_bytes();
+                if bytes[index..].first_chunk::<#count>() == ::core::option::Option::Some(#bytes) {
+                    #then
+                } else {
+                    #miss
+                }
+            }
+        }
+        Node::Leaf(leaf) => {
+            let leaf = leaf_body(emitter, *leaf);
+            quote!(return { #leaf }.expect("a leaf returns a match"))
+        }
+        Node::Fault => quote!(return ::lxr::Match::None;),
+    }
+}
+
+/// Returns a fork whose outgoing hot edges are nested blocks, not calls.
+fn fused_fork(emitter: &Emitter<'_>, id: NodeId, fork: &Fork) -> TokenStream {
+    let run = fork
+        .arms
+        .iter()
+        .find(|arm| arm.edge.target == id)
+        .map(|arm| run(emitter, id, &arm.ranges, fork.arms.len() == 1))
+        .unwrap_or_default();
+    let miss = fused_action(emitter, fork.miss, &quote!(index));
+    let arms = fork
+        .arms
+        .iter()
+        .filter(|arm| arm.edge.target != id)
+        .map(|arm| {
+            let patterns = patterns(&arm.ranges);
+            let action = fused_action(emitter, arm.edge, &quote!(index + 1));
+            quote!(#patterns => { #action })
+        });
+    let ranges: Vec<ByteRange> = fork
+        .arms
+        .iter()
+        .filter(|arm| arm.edge.target != id)
+        .flat_map(|arm| arm.ranges.iter().copied())
+        .collect();
+
+    if ranges.is_empty() {
+        return quote! {
+            let bytes = input.as_bytes();
+            #run
+            #miss
+        };
+    }
+    let rest = (!covers(&ranges)).then(|| quote!(_ => { #miss }));
+    quote! {
+        let bytes = input.as_bytes();
+        #run
+        if index >= bytes.len() { #miss }
+        let byte = bytes[index];
+        match byte {
+            #(#arms)*
+            #rest
+        }
+    }
+}
+
+/// Returns one edge of a fused hot region.
+fn fused_action(emitter: &Emitter<'_>, edge: Edge, index: &TokenStream) -> TokenStream {
+    if edge.back {
+        let number = Literal::u32_unsuffixed(edge.target.number() + 1);
+        let marker = emitter.carries().then(|| {
+            let marker = carried(edge.carry).unwrap_or_else(|| quote!(0));
+            quote!(resume.marker = #marker;)
+        });
+        return quote! {
+            resume.node = #number;
+            resume.index = #index;
+            #marker
+            continue 'matcher;
+        };
+    }
+
+    if emitter.is_hot(edge.target) {
+        let marker = emitter.shape(edge.target).marker.then(|| {
+            let marker = carried(edge.carry)
+                .expect("a node that takes a marker gets one from each edge into it");
+            quote!(let marker = #marker;)
+        });
+        let body = fused_body(emitter, edge.target);
+        return quote! {{
+            #marker
+            let index = #index;
+            #body
+        }};
+    }
+
+    let shape = emitter.shape(edge.target);
+    let name = name(edge.target);
+    let input = shape.input.then(|| quote!(input,));
+    let marker = shape.marker.then(|| {
+        let marker = carried(edge.carry)
+            .expect("a node that takes a marker gets one from each edge into it");
+        quote!(#marker,)
+    });
+    let carry = shape.resume.then(|| quote!(&mut resume,));
+    quote! {
+        match #name(#input at, #index, #marker state, #carry) {
+            ::core::option::Option::Some(found) => return found,
+            ::core::option::Option::None => continue 'matcher,
+        }
+    }
+}
+
 /// Returns the offset of the last accept that `carry` gives, or `None` if it gives none.
 fn carried(carry: Carry) -> Option<TokenStream> {
     match carry {

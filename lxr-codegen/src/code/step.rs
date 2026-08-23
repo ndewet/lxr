@@ -2,16 +2,15 @@ use proc_macro2::{Ident, Literal, TokenStream};
 use quote::quote;
 
 use super::emitter::Emitter;
-use super::node::{function, name};
+use super::node::{function, fused_body, name};
 use super::rule::Rule;
 use crate::graph::{Arena, Node, NodeId};
 
 /// Returns the `step` function of the graph of `arena`.
 ///
-/// The function holds one nested function for each node. A fork reads one byte and it calls the
-/// node of that byte, a rope compares a sequence of bytes at one time, and a leaf writes the
-/// token, the length, and the start condition. Thus the state of the scan lives in the program
-/// counter, and no step reads a table.
+/// Hot nodes are emitted together as structured control flow. A fork reads one byte and enters
+/// the block of that byte, a rope compares a sequence at one time, and a leaf returns the match
+/// directly. Only paths outside the hot region retain nested helper functions.
 ///
 /// A nested function names no generic parameter. It names the enum of the tokens instead, thus
 /// the source of one lexer holds no bound of the runtime.
@@ -21,9 +20,11 @@ use crate::graph::{Arena, Node, NodeId};
 /// This function panics if `rules` holds no rule that a leaf of `arena` gives.
 pub fn step(arena: &Arena, rules: &[Rule], token: &Ident) -> TokenStream {
     let emitter = Emitter::new(arena, rules, token);
-    let functions = (0..arena.node_count()).map(|index| function(&emitter, NodeId::new(index)));
+    let functions = (0..arena.node_count())
+        .map(NodeId::new)
+        .filter(|&id| emitter.is_outlined(id))
+        .map(|id| function(&emitter, id));
     let resume = resume(&emitter);
-    let enter = enter(&emitter);
     let driver = driver(&emitter);
     let state = state(&emitter);
     let tables = emitter.tables();
@@ -36,9 +37,7 @@ pub fn step(arena: &Arena, rules: &[Rule], token: &Ident) -> TokenStream {
             #tables
             #resume
             #(#functions)*
-            let mut found = #enter;
             #driver
-            found.expect("the generated matcher returns a result")
         }
     }
 }
@@ -59,14 +58,8 @@ fn state(emitter: &Emitter<'_>) -> TokenStream {
     }
 }
 
-/// Returns the declaration of the `Resume`, and the value that the step starts with.
-///
-/// The result is empty if no edge of the graph closes a cycle.
+/// Returns the resume cursor used only after an edge closes a cycle.
 fn resume(emitter: &Emitter<'_>) -> TokenStream {
-    if !emitter.drives() {
-        return TokenStream::new();
-    }
-
     let field = emitter.carries().then(|| quote!(marker: usize,));
     let value = emitter.carries().then(|| quote!(marker: 0,));
 
@@ -81,71 +74,93 @@ fn resume(emitter: &Emitter<'_>) -> TokenStream {
     }
 }
 
-/// Returns the call that enters the graph under the start condition of the step.
-///
-/// A lexer of one start condition enters one node, thus it reads no condition.
-///
-/// # Panics
-///
-/// This function panics if the graph holds no start node.
-fn enter(emitter: &Emitter<'_>) -> TokenStream {
-    let arena = emitter.arena;
-    let calls: Vec<TokenStream> = (0..arena.start_count())
-        .map(|condition| call(emitter, arena.start(condition)))
-        .collect();
-
-    if let [only] = calls.as_slice() {
-        return quote!(#only);
-    }
-
-    let condition = emitter.condition();
-
-    let indexes: Vec<Literal> = (0..arena.start_count())
-        .map(Literal::usize_unsuffixed)
-        .collect();
-    quote! {{
-        let condition = #condition;
-        match condition {
-            #(#indexes => { #calls })*
-            condition => panic!(
-                "condition {condition} is not a start condition of this lexer"
-            ),
-        }
-    }}
-}
-
 /// Returns the loop that reads each node at which an edge of a cycle stopped.
 ///
 /// The result is empty if no edge of the graph closes a cycle.
 fn driver(emitter: &Emitter<'_>) -> TokenStream {
-    if !emitter.drives() {
-        return TokenStream::new();
-    }
-
     let arms = resumed(emitter.arena).into_iter().map(|target| {
         let number = Literal::u32_unsuffixed(target.number() + 1);
         let shape = emitter.shape(target);
-        let name = name(target);
-        let input = shape.input.then(|| quote!(input,));
         let take = shape.marker.then(|| quote!(let marker = resume.marker;));
-        let marker = shape.marker.then(|| quote!(marker,));
-        let carry = shape.resume.then(|| quote!(&mut resume,));
+        let body = if emitter.is_hot(target) {
+            fused_body(emitter, target)
+        } else {
+            let name = name(target);
+            let input = shape.input.then(|| quote!(input,));
+            let marker = shape.marker.then(|| quote!(marker,));
+            let carry = shape.resume.then(|| quote!(&mut resume,));
+            quote! {
+                match #name(#input at, index, #marker state, #carry) {
+                    ::core::option::Option::Some(found) => return found,
+                    ::core::option::Option::None => continue 'matcher,
+                }
+            }
+        };
         quote! {
             #number => {
                 let index = resume.index;
                 #take
                 resume.node = 0;
-                found = #name(#input at, index, #marker state, #carry);
+                #body
             }
         }
     });
 
+    let entries: Vec<(Literal, TokenStream)> = (0..emitter.arena.start_count())
+        .map(|condition| {
+            let target = emitter.arena.start(condition);
+            let body = entry_body(emitter, target);
+            let condition = Literal::usize_unsuffixed(condition);
+            (condition, body)
+        })
+        .collect();
+    let entry = if let [(_, only)] = entries.as_slice() {
+        quote!(#only)
+    } else {
+        let condition = emitter.condition();
+        let indexes = entries.iter().map(|(index, _)| index);
+        let bodies = entries.iter().map(|(_, body)| body);
+        quote! {
+            let condition = #condition;
+            match condition {
+                #(#indexes => { #bodies })*
+                condition => panic!(
+                    "condition {condition} is not a start condition of this lexer"
+                ),
+            }
+        }
+    };
+
     quote! {
-        while resume.node != 0 {
+        'matcher: loop {
+            if resume.node == 0 {
+                #entry
+            }
             match resume.node {
                 #(#arms)*
                 node => panic!("node {node} is not a node of this lexer"),
             }
+        }
+    }
+}
+
+/// Returns direct entry into a start node, before any resume dispatch.
+fn entry_body(emitter: &Emitter<'_>, target: NodeId) -> TokenStream {
+    if emitter.is_hot(target) {
+        let body = fused_body(emitter, target);
+        return quote! {
+            let index = at;
+            #body
+        };
+    }
+    let shape = emitter.shape(target);
+    let name = name(target);
+    let input = shape.input.then(|| quote!(input,));
+    let carry = shape.resume.then(|| quote!(&mut resume,));
+    quote! {
+        match #name(#input at, at, state, #carry) {
+            ::core::option::Option::Some(found) => return found,
+            ::core::option::Option::None => continue 'matcher,
         }
     }
 }
@@ -162,17 +177,4 @@ fn resumed(arena: &Arena) -> Vec<NodeId> {
     targets.sort_unstable();
     targets.dedup();
     targets
-}
-
-/// Returns the call that enters the node at `id` at the start of the match.
-///
-/// A start node holds no accept behind it, thus the call carries no marker. The resume lives in
-/// the step, thus this call gives a reference to it and a node hands that reference on.
-fn call(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
-    let shape = emitter.shape(id);
-    let name = name(id);
-    let input = shape.input.then(|| quote!(input,));
-    let resume = shape.resume.then(|| quote!(&mut resume,));
-
-    quote!(#name(#input at, at, state, #resume))
 }

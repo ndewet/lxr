@@ -10,7 +10,7 @@ use crate::graph::{Arena, Node, NodeId};
 pub const LARGE_GRAPH: usize = 48;
 
 /// The largest path cost that stays in the inline region of the graph.
-const HOT_PATH_COST: usize = 3;
+const HOT_PATH_COST: usize = 12;
 
 /// The parts that each node of one lexer writes with.
 ///
@@ -32,12 +32,16 @@ pub struct Emitter<'a> {
     run_tests: Vec<Option<(usize, u8)>>,
     /// Whether each node belongs to an inline region.
     hot: Vec<bool>,
+    /// Whether each node needs an outlined function for a cold path.
+    outlined: Vec<bool>,
 }
 
 impl<'a> Emitter<'a> {
     /// Creates the emitter of the lexer of `arena`.
     pub fn new(arena: &'a Arena, rules: &'a [Rule], token: &'a Ident) -> Self {
         let runs = run_tests(arena);
+        let hot = hot_nodes(arena);
+        let outlined = outlined_nodes(arena, &hot);
         Self {
             arena,
             rules,
@@ -46,13 +50,19 @@ impl<'a> Emitter<'a> {
             carries: carries(arena),
             tables: runs.tables,
             run_tests: runs.tests,
-            hot: hot_nodes(arena),
+            hot,
+            outlined,
         }
     }
 
     /// Returns whether the node belongs to an inline region.
     pub fn is_hot(&self, id: NodeId) -> bool {
         self.hot[id.index()]
+    }
+
+    /// Returns whether a cold path can enter the function of `id`.
+    pub fn is_outlined(&self, id: NodeId) -> bool {
+        self.outlined[id.index()]
     }
 
     /// Returns the packed lookup tables that test the runs of a large graph.
@@ -72,13 +82,6 @@ impl<'a> Emitter<'a> {
             let mask = Literal::u8_unsuffixed(mask);
             quote!((#name[byte as usize] & #mask) != 0)
         })
-    }
-
-    /// Returns whether the graph holds an edge that closes a cycle.
-    ///
-    /// The emitted source holds the driver of the step and the `Resume` only for such a graph.
-    pub fn drives(&self) -> bool {
-        self.arena.has_back_edge()
     }
 
     /// Returns whether an edge that closes a cycle carries the offset of an accept.
@@ -194,6 +197,27 @@ impl<'a> Emitter<'a> {
             },
         }
     }
+}
+
+/// Finds the functions retained behind cold-region boundaries.
+fn outlined_nodes(arena: &Arena, hot: &[bool]) -> Vec<bool> {
+    let mut outlined: Vec<bool> = hot.iter().map(|&is_hot| !is_hot).collect();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (index, node) in arena.nodes().iter().enumerate() {
+            if !outlined[index] {
+                continue;
+            }
+            for edge in node.edges().iter().filter(|edge| !edge.back) {
+                if !outlined[edge.target.index()] {
+                    outlined[edge.target.index()] = true;
+                    changed = true;
+                }
+            }
+        }
+    }
+    outlined
 }
 
 /// Finds nodes on short paths from a start node.

@@ -1,5 +1,5 @@
 use super::id::NodeId;
-use super::node::{Edge, Node};
+use super::node::Node;
 
 /// The nodes of a rule graph, and the node at which each start condition begins.
 ///
@@ -96,16 +96,6 @@ impl Arena {
             .markers
             .get(id.index())
             .unwrap_or_else(|| self.outside(id))
-    }
-
-    /// Returns whether any edge of the graph closes a cycle.
-    ///
-    /// The emitted source holds the driver of the step only for such a graph.
-    pub fn has_back_edge(&self) -> bool {
-        self.nodes
-            .iter()
-            .flat_map(Node::edges)
-            .any(|edge: Edge| edge.back)
     }
 
     /// Returns each rule that a leaf of the graph gives.
