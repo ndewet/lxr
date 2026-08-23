@@ -1,7 +1,7 @@
 //! Builds the source of a lexer from the rules that a lexer author wrote.
 //!
 //! [`generate`] joins each part of the crate. It parses each pattern, it builds the automaton, it
-//! determinizes the automaton, it minimizes it, it makes the tables, and it emits the source.
+//! builds the rule graph of that automaton, and it emits the graph as the source of a scan.
 //!
 //! The derive macro supplies a [`Specification`], and it holds the span of each rule. Thus this
 //! module reports the index of the rule at fault, and the macro turns that index into a span.
@@ -10,11 +10,12 @@ use std::collections::HashSet;
 
 use proc_macro2::{Ident, TokenStream};
 
-use crate::automata::{Automaton, Overflow};
+use crate::automata::Overflow;
+use crate::code;
 use crate::compiler::{BuildErrorKind, Bytes, Lexicon, compile};
-use crate::emit::{self, Emission, emit};
+use crate::emit::{Emission, MAX_RULES, emit};
+use crate::graph::{self, Arena};
 use crate::regex::{CharSet, Node, ParseError};
-use crate::table::{MAX_RULES, Tables};
 
 /// The pattern of one rule, as the author wrote it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,13 +206,20 @@ pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<Genera
     let lexicon = build(specification, nodes)?;
     entered(specification)?;
 
-    let (nfa, accepts) = compile(Bytes, lexicon).map_err(|error| vec![failed(error.kind)])?;
-    let determinization = nfa.determinize().map_err(overflow)?;
-    let accepts = accepts.determinized(&determinization.subsets);
-    let minimization = determinization.dfa.minimize(|id| accepts.get(id).copied());
-    let accepts = accepts.minimized(&minimization.states, minimization.dfa.state_count());
-    let tables = Tables::new(&minimization.dfa, &accepts).map_err(overflow)?;
-    reachable(&tables, specification.rules.len())?;
+    let compilation = compile(Bytes, lexicon).map_err(|error| vec![failed(error.kind)])?;
+    let arena = graph::build(&compilation).map_err(overflow)?;
+    reachable(&arena, specification.rules.len())?;
+
+    let rules: Vec<code::Rule> = specification
+        .rules
+        .iter()
+        .map(|rule| code::Rule {
+            token: rule.token.clone(),
+            value: rule.value.clone(),
+            go: rule.go,
+        })
+        .collect();
+    let step = code::step(&arena, &rules, &specification.token);
 
     Ok(emit(&Emission {
         token: specification.token.clone(),
@@ -223,16 +231,9 @@ pub fn generate(specification: &Specification) -> Result<TokenStream, Vec<Genera
             .conditions
             .as_ref()
             .map_or_else(Vec::new, |conditions| conditions.names.clone()),
-        rules: specification
-            .rules
-            .iter()
-            .map(|rule| emit::Rule {
-                token: rule.token.clone(),
-                value: rule.value.clone(),
-                go: rule.go,
-            })
-            .collect(),
-        tables,
+        rules,
+        starts: arena.start_count(),
+        step,
     }))
 }
 
@@ -405,19 +406,15 @@ fn entered(specification: &Specification) -> Result<(), Vec<GenerateError>> {
 
 /// Reports each rule of `count` rules that can never win a match.
 ///
-/// A state of the tables holds the rule of the highest precedence of the rules that accept there.
-/// Thus a rule that no state holds loses each match to an earlier rule, and no input gives it. Such
+/// A leaf of the graph holds the rule of the highest precedence of the rules that accept there.
+/// Thus a rule that no leaf holds loses each match to an earlier rule, and no input gives it. Such
 /// a rule is a mistake in the sequence of the rules, and not a rule of the language.
 ///
 /// # Errors
 ///
-/// This function returns one error for each rule that no accept of `tables` names.
-fn reachable(tables: &Tables, count: usize) -> Result<(), Vec<GenerateError>> {
-    let winners: HashSet<u16> = tables
-        .accept()
-        .iter()
-        .filter_map(|accept| accept.checked_sub(1))
-        .collect();
+/// This function returns one error for each rule that no leaf of `arena` names.
+fn reachable(arena: &Arena, count: usize) -> Result<(), Vec<GenerateError>> {
+    let winners: HashSet<u16> = arena.winners().into_iter().collect();
 
     let errors: Vec<GenerateError> = (0..count)
         .filter(|&rule| {
@@ -831,7 +828,7 @@ mod tests {
             .to_string();
 
         assert!(source.contains("type Condition = Context ;"));
-        assert!(source.contains("going (1)"));
+        assert!(source.contains("step . condition = 1 ;"));
     }
 
     #[test]
@@ -851,6 +848,6 @@ mod tests {
             .expect("the rules are valid")
             .to_string();
 
-        assert!(source.contains(":: lxr :: Action :: skip ()"));
+        assert!(source.contains(":: lxr :: Outcome :: Skip"));
     }
 }

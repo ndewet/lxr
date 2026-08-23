@@ -42,6 +42,15 @@ impl<L> NfaBuilder<L> {
         }
     }
 
+    /// Returns the number of the states that the builder holds.
+    ///
+    /// A caller that builds one part after another reads this before the part and after it. The
+    /// two numbers then give the states of that part, because [`push`](Self::push) adds each state
+    /// at the end of the state arena.
+    pub fn state_count(&self) -> usize {
+        self.accepts.len()
+    }
+
     /// Adds a state to the end of the state arena, then returns its identifier.
     ///
     /// The state has no transition, no epsilon transition, and no accept.

@@ -53,7 +53,7 @@ impl<'a, T: Lexer> Locations<'a, T> {
     ///
     /// # Panics
     ///
-    /// This function panics if the tables name a condition that the lexer does not hold.
+    /// This function panics if the lexer names a condition that it does not hold.
     pub fn condition(&self) -> T::Condition {
         self.scan.condition()
     }

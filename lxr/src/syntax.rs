@@ -133,7 +133,7 @@
 //! | The depth of the groups | 250 |
 //! | The nodes of one pattern | 100000 |
 //! | The rules of a lexer | 65535 |
-//! | The states of the automaton | 65535 |
+//! | The nodes of the rule graph | 2048 |
 //!
 //! A repetition makes one copy of the expression for each count. Thus a large count of a large group
 //! reaches the limit of the nodes, and the macro reports it.

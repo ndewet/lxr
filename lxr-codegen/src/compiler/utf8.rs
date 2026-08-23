@@ -31,7 +31,7 @@ const MAX_BY_LENGTH: [u32; MAX_LENGTH - 1] = [0x7F, 0x7FF, 0xFFFF];
 /// A range of bytes that matches one byte of an encoded character.
 ///
 /// Both ends are in the range.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ByteRange {
     /// The lowest byte in the range.
     pub low: u8,

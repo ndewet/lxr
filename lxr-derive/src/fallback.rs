@@ -12,8 +12,8 @@ use syn::DeriveInput;
 /// and this `impl` stands in for that enum as well, thus it names the type as the author wrote it.
 ///
 /// `condition` is the type of the start conditions of the author, or `None` if the macro did not
-/// read it. The tables hold the dead state alone. Thus a scan of them reports each character of the
-/// input, and it panics never.
+/// read it. The step matches nothing. Thus a scan reports each character of the input, and it
+/// panics never.
 pub fn fallback(input: &DeriveInput, condition: Option<&TokenStream>) -> TokenStream {
     let token = &input.ident;
     let (parameters, arguments, bounds) = input.generics.split_for_impl();
@@ -31,27 +31,14 @@ pub fn fallback(input: &DeriveInput, condition: Option<&TokenStream>) -> TokenSt
 
     quote! {
         const _: () = {
-            static CLASSES: [u16; 256] = [0; 256];
-            static NEXT: [u16; 1] = [0];
-            static ACCEPT: [u16; 1] = [0];
-            static START: [u16; 1] = [0];
-            static ACTIONS: [::lxr::Action; 0] = [];
-
             #[automatically_derived]
             impl #parameters ::lxr::Lexer for #token #arguments #bounds {
                 type Condition = #kind;
 
-                const TABLES: ::lxr::Tables<'static> = ::lxr::Tables {
-                    classes: &CLASSES,
-                    next: &NEXT,
-                    width: 1,
-                    accept: &ACCEPT,
-                    start: &START,
-                    actions: &ACTIONS,
-                };
-
-                fn token(rule: u16, _text: &str) -> ::core::option::Option<Self> {
-                    panic!("rule {rule} of this lexer gives no token")
+                fn step(_input: &str, _at: usize, step: &mut ::lxr::Step<Self>) {
+                    step.outcome = ::lxr::Outcome::None;
+                    step.length = 0;
+                    step.read = 0;
                 }
 
                 #of_index
@@ -110,22 +97,14 @@ mod tests {
     }
 
     #[test]
-    fn the_tables_of_the_fallback_hold_the_dead_state_alone() {
+    fn the_step_of_the_fallback_matches_nothing() {
         let source = fallback(&simple(), None);
 
         assert!(holds(
             &source,
-            &quote!(
-                static NEXT: [u16; 1] = [0];
-            )
+            &quote!(step.outcome = ::lxr::Outcome::None;)
         ));
-        assert!(holds(
-            &source,
-            &quote!(
-                static ACCEPT: [u16; 1] = [0];
-            )
-        ));
-        assert!(holds(&source, &quote!(width: 1)));
+        assert!(holds(&source, &quote!(step.length = 0;)));
     }
 
     #[test]
@@ -142,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn the_statics_of_the_fallback_live_inside_an_anonymous_const() {
+    fn the_impl_of_the_fallback_lives_inside_an_anonymous_const() {
         let source = fallback(&simple(), None).to_string();
 
         assert!(source.starts_with(&quote!(const _: () =).to_string()));

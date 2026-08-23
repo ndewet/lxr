@@ -10,15 +10,10 @@
 //! Thompson construction is in the compiler, and the automata module does not depend on the
 //! compiler. Thus [`literal`] makes the states of one word by hand.
 
-use super::arena::ArenaBuilder;
-use super::automaton::Transition;
-use super::dfa::DeterministicFiniteAutomaton;
-use super::execution::Execution;
 use super::id::StateId;
 use super::label::Label;
 use super::nfa::NfaBuilder;
 use super::range::Range;
-use super::scanner::Scanner;
 
 /// The test alphabet. An automaton knows no alphabet, thus a test selects one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,11 +107,6 @@ pub(super) fn builder() -> NfaBuilder<Symbols> {
     NfaBuilder::new()
 }
 
-/// Returns the state at `index`.
-pub(super) fn state(index: usize) -> StateId {
-    StateId::new(index)
-}
-
 /// Adds the states that match `text`, then makes the last state accept.
 pub(super) fn literal(builder: &mut NfaBuilder<Symbols>, text: &str) -> Path {
     let entry = builder.push();
@@ -138,61 +128,4 @@ pub(super) fn star(builder: &mut NfaBuilder<Symbols>, symbol: char) -> StateId {
     builder.transition(state, only(symbol), state);
     builder.accept(state);
     state
-}
-
-/// Builds a [`DeterministicFiniteAutomaton`] from one group of transitions for each state, the
-/// accepts, and the starts.
-///
-/// A transition is a label and the index of its target. The labels of one state are in ascending
-/// sequence. Only determinization makes a deterministic automaton outside a test, thus a test
-/// writes the transitions by hand.
-pub(super) fn dfa(
-    transitions: &[&[(Symbols, usize)]],
-    accepts: &[bool],
-    starts: &[usize],
-) -> DeterministicFiniteAutomaton<Symbols> {
-    let mut arena = ArenaBuilder::new();
-    for (state, group) in transitions.iter().enumerate() {
-        for &(label, target) in *group {
-            arena.push(
-                state,
-                Transition {
-                    label,
-                    target: StateId::new(target),
-                },
-            );
-        }
-    }
-    let arena = arena
-        .build(accepts.len())
-        .expect("a test stays below the capacity");
-    DeterministicFiniteAutomaton::new(
-        arena,
-        accepts.to_vec(),
-        starts.iter().map(|&index| StateId::new(index)).collect(),
-    )
-}
-
-/// Builds the deterministic automaton that matches `"a"` and `"ab"`.
-pub(super) fn chain() -> DeterministicFiniteAutomaton<Symbols> {
-    dfa(
-        &[&[(only('a'), 1)], &[(only('b'), 2)], &[]],
-        &[false, true, true],
-        &[0],
-    )
-}
-
-/// Returns the length of the longest match at the start of `input`, under `start`.
-///
-/// The test reads a length, and not a meaning of an accept. Thus one call compares a
-/// nondeterministic automaton with the deterministic automaton that it gives.
-pub(super) fn scan<T>(automaton: &T, start: usize, input: &str) -> Option<usize>
-where
-    T: Scanner<Symbol = char>,
-{
-    let symbols: Vec<char> = input.chars().collect();
-    automaton
-        .execute()
-        .longest_match(start, &symbols, |_| ())
-        .map(|found| found.length)
 }

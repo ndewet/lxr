@@ -38,7 +38,7 @@ pub use self::{
     accepts::Accepts,
     alphabet::Alphabet,
     bytes::Bytes,
-    compile::compile,
+    compile::{Compilation, compile},
     error::{BuildError, BuildErrorKind},
     fragment::Fragment,
     lexicon::{Lexicon, MAX_PATTERN_SIZE},

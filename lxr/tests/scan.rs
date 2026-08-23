@@ -1,73 +1,80 @@
-//! Scans an input with tables that this test builds by hand.
+//! Scans an input with a rule graph that this test writes by hand.
 //!
-//! The derive macro builds a table from an automaton. This test builds one directly, thus it
-//! specifies the runtime and it needs no macro.
+//! The derive macro writes the graph of a lexer as code. This test writes that code directly, in
+//! the shape that the macro gives. Thus it specifies the runtime and it needs no macro.
 
-use lxr::{Action, Lexer, Located, Tables};
+use lxr::{Lexer, Located, Outcome, Step};
 
 /// A lexer of one condition. It reads a word of the letter `a`, and it skips a space and a newline.
 ///
-/// | State | Meaning |
+/// | Node | Meaning |
 /// | --- | --- |
-/// | 0 | The dead state. |
-/// | 1 | The start. |
-/// | 2 | Inside a word. It accepts rule 0. |
-/// | 3 | A space or a newline. It accepts rule 1, which skips. |
+/// | `root` | The start. |
+/// | `word` | A run of the letter `a`. It gives rule 0. |
+/// | `space` | A run of a space and a newline. It gives rule 1, which skips. |
+/// | `fault` | No rule matched. |
 mod words {
-    use super::{Action, Lexer, Tables};
+    use super::{Lexer, Outcome, Step};
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum Token {
         Word,
     }
 
-    /// Class 1 is the letter `a`. Class 2 is a space or a newline.
-    static CLASSES: [u16; 256] = {
-        let mut classes = [0; 256];
-        classes[b'a' as usize] = 1;
-        classes[b' ' as usize] = 2;
-        classes[b'\n' as usize] = 2;
-        classes
-    };
-
-    #[rustfmt::skip]
-    static NEXT: [u16; 12] = [
-        0, 0, 0,
-        0, 2, 3,
-        0, 2, 0,
-        0, 0, 0,
-    ];
-
-    /// State 2 reads the letter `a` into itself, thus a word of many letters is one run.
-    static REPEATS: [u64; 16] = {
-        let mut repeats = [0; 16];
-        repeats[2 * 4 + 1] = 1 << (b'a' & 63);
-        repeats
-    };
-
-    static ACCEPT: [u16; 4] = [0, 0, 1, 2];
-    static START: [u16; 1] = [1];
-    static ACTIONS: [Action; 2] = [Action::token(), Action::skip()];
-
     impl Lexer for Token {
         type Condition = ();
 
-        const TABLES: Tables<'static> = Tables {
-            classes: &CLASSES,
-            next: &NEXT,
-            repeats: &REPEATS,
-            leaves: &[],
-            width: 3,
-            accept: &ACCEPT,
-            start: &START,
-            actions: &ACTIONS,
-        };
-
-        fn token(rule: u16, _text: &str) -> Option<Self> {
-            match rule {
-                0 => Some(Token::Word),
-                other => panic!("rule {other} gives no token"),
+        fn step(input: &str, at: usize, step: &mut Step<Self>) {
+            fn root(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
+                let bytes = input.as_bytes();
+                let Some(&byte) = bytes.get(index) else {
+                    fault(at, index, step);
+                    return;
+                };
+                match byte {
+                    b'a' => word(input, at, index + 1, step),
+                    b' ' | b'\n' => space(input, at, index + 1, step),
+                    _ => fault(at, index, step),
+                }
             }
+
+            fn word(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
+                let bytes = input.as_bytes();
+                let mut index = index;
+                while let Some(&byte) = bytes.get(index) {
+                    if byte == b'a' {
+                        index += 1;
+                    } else {
+                        break;
+                    }
+                }
+                step.outcome = Outcome::Token(Token::Word);
+                step.length = index - at;
+                step.read = index - at;
+            }
+
+            fn space(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
+                let bytes = input.as_bytes();
+                let mut index = index;
+                while let Some(&byte) = bytes.get(index) {
+                    if (byte == b' ') | (byte == b'\n') {
+                        index += 1;
+                    } else {
+                        break;
+                    }
+                }
+                step.outcome = Outcome::Skip;
+                step.length = index - at;
+                step.read = index - at;
+            }
+
+            fn fault(at: usize, index: usize, step: &mut Step<Token>) {
+                step.outcome = Outcome::None;
+                step.length = 0;
+                step.read = index - at;
+            }
+
+            root(input, at, at, step);
         }
 
         fn condition(_index: u16) {}
@@ -77,16 +84,16 @@ mod words {
 /// A lexer of two conditions. A quote changes the condition, thus the same letters give a different
 /// token inside a string.
 ///
-/// | State | Meaning |
+/// | Node | Meaning |
 /// | --- | --- |
-/// | 1 | The start of the code condition. |
-/// | 2 | The start of the text condition. |
-/// | 3 | A quote in code. It accepts rule 0, which goes to text. |
-/// | 4 | A word in code. It accepts rule 3. |
-/// | 5 | A quote in text. It accepts rule 1, which goes to code. |
-/// | 6 | Text in a string. It accepts rule 2. |
+/// | `code` | The start of the code condition. |
+/// | `text` | The start of the text condition. |
+/// | `word` | A word in code. It gives rule 3. |
+/// | `body` | The text of a string. It gives rule 2. |
+/// | `open` | A quote in code. It gives rule 0, which goes to text. |
+/// | `close` | A quote in text. It gives rule 1, which goes to code. |
 mod strings {
-    use super::{Action, Lexer, Tables};
+    use super::{Lexer, Outcome, Step};
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum Token {
@@ -101,59 +108,88 @@ mod strings {
         Text,
     }
 
-    /// Class 1 is a quote. Class 2 is a letter from `a` to `z`.
-    static CLASSES: [u16; 256] = {
-        let mut classes = [0; 256];
-        classes[b'"' as usize] = 1;
-        let mut byte = b'a';
-        while byte <= b'z' {
-            classes[byte as usize] = 2;
-            byte += 1;
-        }
-        classes
-    };
-
-    #[rustfmt::skip]
-    static NEXT: [u16; 21] = [
-        0, 0, 0,
-        0, 3, 4,
-        0, 5, 6,
-        0, 0, 0,
-        0, 0, 4,
-        0, 0, 0,
-        0, 0, 6,
-    ];
-
-    static ACCEPT: [u16; 7] = [0, 0, 0, 1, 4, 2, 3];
-    static START: [u16; 2] = [1, 2];
-    static ACTIONS: [Action; 4] = [
-        Action::token().going(1),
-        Action::token().going(0),
-        Action::token(),
-        Action::token(),
-    ];
-
     impl Lexer for Token {
         type Condition = Context;
 
-        const TABLES: Tables<'static> = Tables {
-            classes: &CLASSES,
-            next: &NEXT,
-            // The masks of the runs are empty, thus this lexer reads one byte at a time.
-            repeats: &[],
-            leaves: &[],
-            width: 3,
-            accept: &ACCEPT,
-            start: &START,
-            actions: &ACTIONS,
-        };
+        fn step(input: &str, at: usize, step: &mut Step<Self>) {
+            fn code(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
+                let bytes = input.as_bytes();
+                let Some(&byte) = bytes.get(index) else {
+                    fault(at, index, step);
+                    return;
+                };
+                match byte {
+                    b'"' => open(at, index + 1, step),
+                    b'a'..=b'z' => word(input, at, index + 1, step),
+                    _ => fault(at, index, step),
+                }
+            }
 
-        fn token(rule: u16, _text: &str) -> Option<Self> {
-            match rule {
-                0 | 1 => Some(Token::Quote),
-                2 => Some(Token::Text),
-                3 => Some(Token::Word),
-                other => panic!("rule {other} gives no token"),
+            fn text(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
+                let bytes = input.as_bytes();
+                let Some(&byte) = bytes.get(index) else {
+                    fault(at, index, step);
+                    return;
+                };
+                match byte {
+                    b'"' => close(at, index + 1, step),
+                    b'a'..=b'z' => body(input, at, index + 1, step),
+                    _ => fault(at, index, step),
+                }
+            }
+
+            fn word(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
+                let index = letters(input, index);
+                step.outcome = Outcome::Token(Token::Word);
+                step.length = index - at;
+                step.read = index - at;
+            }
+
+            fn body(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
+                let index = letters(input, index);
+                step.outcome = Outcome::Token(Token::Text);
+                step.length = index - at;
+                step.read = index - at;
+            }
+
+            fn letters(input: &str, index: usize) -> usize {
+                let bytes = input.as_bytes();
+                let mut index = index;
+                while let Some(&byte) = bytes.get(index) {
+                    if byte.wrapping_sub(b'a') <= 25 {
+                        index += 1;
+                    } else {
+                        break;
+                    }
+                }
+                index
+            }
+
+            fn open(at: usize, index: usize, step: &mut Step<Token>) {
+                step.outcome = Outcome::Token(Token::Quote);
+                step.length = index - at;
+                step.read = index - at;
+                step.condition = 1;
+            }
+
+            fn close(at: usize, index: usize, step: &mut Step<Token>) {
+                step.outcome = Outcome::Token(Token::Quote);
+                step.length = index - at;
+                step.read = index - at;
+                step.condition = 0;
+            }
+
+            fn fault(at: usize, index: usize, step: &mut Step<Token>) {
+                step.outcome = Outcome::None;
+                step.length = 0;
+                step.read = index - at;
+            }
+
+            let condition = step.condition;
+            match condition {
+                0 => code(input, at, at, step),
+                1 => text(input, at, at, step),
+                condition => panic!("condition {condition} is not a condition of the lexer"),
             }
         }
 
@@ -242,8 +278,8 @@ fn a_column_counts_a_character_and_not_a_byte() {
         .next()
         .expect("the scan gives one result")
         .expect_err("no rule matches é");
-    assert_eq!(error.span, 0..2);
-    assert_eq!((error.line, error.column), (1, 1));
+    assert_eq!(error.span(), 0..2);
+    assert_eq!((error.line(), error.column()), (1, 1));
 
     assert_eq!(scan.next(), Some(Ok(words::Token::Word)));
     assert_eq!((scan.line(), scan.column()), (1, 2));
@@ -267,9 +303,9 @@ fn an_error_names_the_bytes_of_the_character_at_fault() {
         .expect("the scan gives one result")
         .expect_err("no rule matches Z");
 
-    assert_eq!(error.span, 0..1);
-    assert_eq!(error.line, 1);
-    assert_eq!(error.column, 1);
+    assert_eq!(error.span(), 0..1);
+    assert_eq!(error.line(), 1);
+    assert_eq!(error.column(), 1);
     assert_eq!(
         error.to_string(),
         "no rule matches the input at line 1, column 1"
@@ -378,10 +414,7 @@ fn a_located_scan_reports_each_character_that_no_rule_matches() {
 
     assert_eq!(found.len(), 3);
     assert_eq!(found[0].as_ref().map(|found| found.span.clone()), Ok(0..1));
-    assert_eq!(
-        found[1].as_ref().map_err(|error| error.span.clone()),
-        Err(1..2)
-    );
+    assert_eq!(found[1].as_ref().map_err(|error| error.span()), Err(1..2));
     assert_eq!(found[2].as_ref().map(|found| found.span.clone()), Ok(2..3));
 }
 
