@@ -252,7 +252,7 @@ fn specialized_run(ranges: &[ByteRange]) -> Option<TokenStream> {
 /// A wider block reads a long run faster, and it holds one test for each of its bytes. A block of
 /// 32 bytes reads a name of 40000 bytes 12 percent faster than a block of 16, and it reads a
 /// document of source code 15 percent slower.
-const BLOCK: usize = 16;
+const BLOCK: usize = 8;
 
 /// Returns the loops that read a run of bytes in blocks.
 ///
