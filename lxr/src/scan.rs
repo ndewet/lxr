@@ -106,7 +106,7 @@ impl<'a, T: Lexer> Scan<'a, T> {
     ///
     /// The scan counts forward from the place that it holds, then it keeps the new place. A token
     /// comes after the token before it, thus the count reads each byte of the input one time.
-    fn place(&self) -> (u32, u32) {
+    pub(crate) fn place(&self) -> (u32, u32) {
         let mut cursor = self.place.get();
         if cursor.offset < self.span.start {
             for &byte in &self.input.as_bytes()[cursor.offset..self.span.start] {

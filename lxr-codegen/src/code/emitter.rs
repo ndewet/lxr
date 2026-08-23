@@ -1,7 +1,13 @@
-use proc_macro2::Ident;
+use std::collections::HashMap;
+
+use proc_macro2::{Ident, Literal, TokenStream};
+use quote::quote;
 
 use super::rule::Rule;
 use crate::graph::{Arena, Node, NodeId};
+
+/// The largest graph that uses direct tests and forced inlining alone.
+pub const LARGE_GRAPH: usize = 48;
 
 /// The parts that each node of one lexer writes with.
 ///
@@ -17,18 +23,44 @@ pub struct Emitter<'a> {
     resumes: Vec<bool>,
     /// Whether an edge that closes a cycle carries the offset of an accept.
     carries: bool,
+    /// Packed byte-class tables for run nodes.
+    tables: Vec<[u8; 256]>,
+    /// The table and bit of each run node.
+    run_tests: Vec<Option<(usize, u8)>>,
 }
 
 impl<'a> Emitter<'a> {
     /// Creates the emitter of the lexer of `arena`.
     pub fn new(arena: &'a Arena, rules: &'a [Rule], token: &'a Ident) -> Self {
+        let runs = run_tests(arena);
         Self {
             arena,
             rules,
             token,
             resumes: resumes(arena),
             carries: carries(arena),
+            tables: runs.tables,
+            run_tests: runs.tests,
         }
+    }
+
+    /// Returns the packed lookup tables that test the runs of a large graph.
+    pub fn tables(&self) -> TokenStream {
+        let tables = self.tables.iter().enumerate().map(|(index, bytes)| {
+            let name = quote::format_ident!("RUN_TABLE_{index}");
+            let bytes = bytes.iter().map(|&byte| Literal::u8_unsuffixed(byte));
+            quote!(const #name: [u8; 256] = [#(#bytes),*];)
+        });
+        quote!(#(#tables)*)
+    }
+
+    /// Returns the lookup-table test for the run at `id`.
+    pub fn run_test(&self, id: NodeId) -> Option<TokenStream> {
+        self.run_tests[id.index()].map(|(table, mask)| {
+            let name = quote::format_ident!("RUN_TABLE_{table}");
+            let mask = Literal::u8_unsuffixed(mask);
+            quote!((#name[byte as usize] & #mask) != 0)
+        })
     }
 
     /// Returns whether the graph holds an edge that closes a cycle.
@@ -204,4 +236,56 @@ fn carries(arena: &Arena) -> bool {
         .iter()
         .flat_map(Node::edges)
         .any(|edge| edge.back && arena.takes_marker(edge.target))
+}
+
+/// The shared byte-class tables and the test of each run node.
+struct RunTables {
+    tables: Vec<[u8; 256]>,
+    tests: Vec<Option<(usize, u8)>>,
+}
+
+/// Builds shared byte-class tables for the run nodes of a large graph.
+fn run_tests(arena: &Arena) -> RunTables {
+    let mut tests = vec![None; arena.node_count()];
+    if arena.node_count() <= LARGE_GRAPH {
+        return RunTables {
+            tables: Vec::new(),
+            tests,
+        };
+    }
+
+    let mut classes: Vec<[bool; 256]> = Vec::new();
+    let mut indexes: HashMap<[bool; 256], usize> = HashMap::new();
+    for (index, node) in arena.nodes().iter().enumerate() {
+        let Node::Fork(fork) = node else { continue };
+        let Some(arm) = fork
+            .arms
+            .iter()
+            .find(|arm| arm.edge.target.index() == index)
+        else {
+            continue;
+        };
+        let mut class = [false; 256];
+        for range in &arm.ranges {
+            for byte in range.low..=range.high {
+                class[usize::from(byte)] = true;
+            }
+        }
+        let next = indexes.len();
+        let class_index = *indexes.entry(class).or_insert_with(|| {
+            classes.push(class);
+            next
+        });
+        tests[index] = Some((class_index / 8, 1 << (class_index % 8)));
+    }
+
+    let mut tables = vec![[0; 256]; classes.len().div_ceil(8)];
+    for (index, class) in classes.iter().enumerate() {
+        for (byte, &member) in class.iter().enumerate() {
+            if member {
+                tables[index / 8][byte] |= 1 << (index % 8);
+            }
+        }
+    }
+    RunTables { tables, tests }
 }

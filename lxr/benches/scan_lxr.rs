@@ -145,6 +145,25 @@ fn suite(criterion: &mut Criterion) {
     measure::<Json>(criterion, "realistic/json_compact", common::compact_json());
     measure::<Json>(criterion, "realistic/json_pretty", common::pretty_json());
     measure::<Code>(criterion, "realistic/rust_source", common::rust_source());
+    for (name, seed) in [
+        ("code_punctuation", "()+-*/=;"),
+        ("code_direct_punctuation", "()+*;{}[],:"),
+        ("code_braces", "{}"),
+        ("code_identifiers", "alpha beta gamma delta epsilon "),
+        ("code_keywords", "fn let mut if else while return "),
+        ("code_whitespace", "                                name\n"),
+        (
+            "code_comments",
+            "// A representative source comment with several words.\nname\n",
+        ),
+        ("code_numbers", "0 1 42 1000 12.75 99999 "),
+    ] {
+        measure::<Code>(
+            criterion,
+            &format!("diagnostic/{name}"),
+            common::repeat(seed),
+        );
+    }
     for (name, seed) in common::SYNTHETIC {
         measure::<Synthetic>(
             criterion,

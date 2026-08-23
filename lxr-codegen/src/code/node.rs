@@ -1,7 +1,7 @@
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
 
-use super::emitter::Emitter;
+use super::emitter::{Emitter, LARGE_GRAPH};
 use super::pattern::{covers, patterns, test};
 use crate::compiler::ByteRange;
 use crate::graph::{Carry, Edge, Fork, Leaf, Node, NodeId, Rope};
@@ -44,7 +44,7 @@ pub fn function(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
     };
     let attributes = if matches!(emitter.arena.node(id), Node::Fault) {
         quote!(#[cold] #[inline(never)])
-    } else if emitter.arena.node_count() > 48 {
+    } else if emitter.arena.node_count() > LARGE_GRAPH {
         quote!(#[inline])
     } else {
         quote!(#[inline(always)])
@@ -105,6 +105,10 @@ fn fork_body(emitter: &Emitter<'_>, id: NodeId, fork: &Fork) -> TokenStream {
         .flat_map(|arm| arm.ranges.iter().copied())
         .collect();
 
+    if emitter.arena.node_count() > LARGE_GRAPH && arms_count(fork, id) > 2 {
+        return table_fork(emitter, id, fork, run);
+    }
+
     if ranges.is_empty() {
         return quote! {
             let bytes = input.as_bytes();
@@ -133,6 +137,55 @@ fn fork_body(emitter: &Emitter<'_>, id: NodeId, fork: &Fork) -> TokenStream {
     }
 }
 
+/// Returns the table dispatch of a wide fork in a large graph.
+fn table_fork(emitter: &Emitter<'_>, id: NodeId, fork: &Fork, run: TokenStream) -> TokenStream {
+    let arms: Vec<&crate::graph::Arm> = fork
+        .arms
+        .iter()
+        .filter(|arm| arm.edge.target != id)
+        .collect();
+    assert!(arms.len() < 256, "a byte table holds at most 255 arms");
+
+    let mut table = [0_u8; 256];
+    for (index, arm) in arms.iter().enumerate() {
+        let value = u8::try_from(index + 1).expect("a byte table holds at most 255 arms");
+        for range in &arm.ranges {
+            for byte in range.low..=range.high {
+                table[usize::from(byte)] = value;
+            }
+        }
+    }
+    let table = table.iter().map(|&value| Literal::u8_unsuffixed(value));
+    let choices = arms.iter().enumerate().map(|(index, arm)| {
+        let value = Literal::u8_unsuffixed(
+            u8::try_from(index + 1).expect("a byte table holds at most 255 arms"),
+        );
+        let action = action(emitter, arm.edge, &quote!(index + 1));
+        quote!(#value => { #action })
+    });
+    let miss = action(emitter, fork.miss, &quote!(index));
+    let name = format_ident!("FORK_TABLE_{}", id.index());
+
+    quote! {
+        const #name: [u8; 256] = [#(#table),*];
+        let bytes = input.as_bytes();
+        #run
+        let ::core::option::Option::Some(&byte) = bytes.get(index) else {
+            #miss
+            return;
+        };
+        match #name[byte as usize] {
+            #(#choices)*
+            _ => { #miss }
+        }
+    }
+}
+
+/// Returns the number of the arms that do not read a run.
+fn arms_count(fork: &Fork, id: NodeId) -> usize {
+    fork.arms.iter().filter(|arm| arm.edge.target != id).count()
+}
+
 /// Returns the loop that reads the run of the node at `id`, which holds the bytes of `ranges`.
 ///
 /// A node that ends a match reads its run one time, because the scan goes on after that match. A
@@ -144,7 +197,7 @@ fn fork_body(emitter: &Emitter<'_>, id: NodeId, fork: &Fork) -> TokenStream {
 /// else, thus [`block`] reads that run in blocks. A node of more arms reads one byte at a time,
 /// because a block there costs each of those arms.
 fn run(emitter: &Emitter<'_>, id: NodeId, ranges: &[ByteRange], only: bool) -> TokenStream {
-    let test = test(ranges);
+    let test = emitter.run_test(id).unwrap_or_else(|| test(ranges));
     let bytes_loop = quote! {
         while let ::core::option::Option::Some(&byte) = bytes.get(index) {
             if #test {

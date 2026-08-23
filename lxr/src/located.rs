@@ -76,8 +76,7 @@ impl<T: Lexer> Iterator for Locations<'_, T> {
     fn next(&mut self) -> Option<Self::Item> {
         let found = self.scan.next()?;
 
-        let line = self.scan.line();
-        let column = self.scan.column();
+        let (line, column) = self.scan.place();
         Some(match found {
             Ok(token) => Ok(Located {
                 token,

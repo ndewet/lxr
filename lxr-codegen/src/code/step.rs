@@ -26,12 +26,14 @@ pub fn step(arena: &Arena, rules: &[Rule], token: &Ident) -> TokenStream {
     let enter = enter(&emitter);
     let driver = driver(&emitter);
     let state = state(&emitter);
+    let tables = emitter.tables();
 
     quote! {
         #state
 
         #[inline]
         fn step(input: &str, at: usize, state: &mut Self::State) -> ::lxr::Match<Self> {
+            #tables
             let mut found = ::core::option::Option::None;
             #resume
             #(#functions)*
