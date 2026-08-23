@@ -1,0 +1,122 @@
+name: Benchmarks
+
+on:
+  # This runs the workflow definition from the base branch, so a fork cannot
+  # alter the write-enabled reporting job. The benchmark job itself is
+  # read-only and receives no secrets.
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  compare:
+    name: Scanning throughput
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Install Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+      - name: Benchmark base revision
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git checkout --detach "$BASE_SHA"
+          cp .github/scripts/compare-benchmarks.py "$RUNNER_TEMP/compare-benchmarks.py"
+          cargo bench --package lxr --bench scan -- --save-baseline pr-base
+      - name: Benchmark pull request
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git checkout --detach "$HEAD_SHA"
+          cargo bench --package lxr --bench scan -- --baseline pr-base
+      - name: Analyze changes
+        id: comparison
+        env:
+          BENCHMARK_COMMENT: ${{ runner.temp }}/benchmark-comment.md
+        # Run the analyzer copied from the trusted base revision, not a script
+        # supplied by the pull request whose output the reporting job trusts.
+        run: python "$RUNNER_TEMP/compare-benchmarks.py"
+      - name: Record result
+        env:
+          RESULT_FILE: ${{ runner.temp }}/benchmark-result.txt
+          COMMENT: ${{ steps.comparison.outputs.comment }}
+          REGRESSION: ${{ steps.comparison.outputs.regression }}
+        run: printf '%s\n%s\n' "$COMMENT" "$REGRESSION" >"$RESULT_FILE"
+      - name: Save comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-comparison
+          path: |
+            ${{ runner.temp }}/benchmark-comment.md
+            ${{ runner.temp }}/benchmark-result.txt
+          retention-days: 1
+
+  report:
+    name: Report scanning throughput
+    needs: compare
+    if: always() && needs.compare.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: benchmark-comparison
+          path: ${{ runner.temp }}/comparison
+      - name: Read result
+        id: comparison
+        env:
+          RESULT_FILE: ${{ runner.temp }}/comparison/benchmark-result.txt
+        run: |
+          sed -n '1s/^/comment=/p' "$RESULT_FILE" >>"$GITHUB_OUTPUT"
+          sed -n '2s/^/regression=/p' "$RESULT_FILE" >>"$GITHUB_OUTPUT"
+      - name: Update pull request comment
+        if: steps.comparison.outputs.comment == 'true'
+        uses: actions/github-script@v8
+        env:
+          BODY_FILE: ${{ runner.temp }}/comparison/benchmark-comment.md
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- lxr-performance -->';
+            const body = fs.readFileSync(process.env.BODY_FILE, 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body.includes(marker));
+            if (previous) await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+      - name: Remove stale performance comment
+        if: steps.comparison.outputs.comment != 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const marker = '<!-- lxr-performance -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body.includes(marker));
+            if (previous) await github.rest.issues.deleteComment({ owner, repo, comment_id: previous.id });
+      - name: Reject regressions
+        if: steps.comparison.outputs.regression == 'true'
+        run: exit 1
