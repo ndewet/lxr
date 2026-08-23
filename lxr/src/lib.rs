@@ -22,6 +22,8 @@
 mod error;
 mod lexer;
 mod located;
+#[doc(hidden)]
+pub mod private;
 mod run;
 mod scan;
 mod step;

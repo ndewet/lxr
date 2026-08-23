@@ -222,6 +222,10 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
                     self.take(at, length);
                     return Some(Ok(token));
                 }
+                Match::TokenAt(token, start, length) => {
+                    self.take(start, length);
+                    return Some(Ok(token));
+                }
                 Match::Skip(length) => {
                     debug_assert!(length > 0, "a rule that reads no byte stops the scan");
                     self.offset = at + length;
@@ -230,9 +234,22 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
                     self.take(at, length);
                     return Some(Err(ScanError::value(self.span.clone())));
                 }
+                Match::ValueAt(start, length) => {
+                    self.take(start, length);
+                    return Some(Err(ScanError::value(self.span.clone())));
+                }
                 Match::None => {
                     self.take(at, self.faulted());
                     return Some(Err(ScanError::no_rule(self.span.clone())));
+                }
+                Match::NoneAt(start) => {
+                    self.offset = start;
+                    self.take(start, self.faulted());
+                    return Some(Err(ScanError::no_rule(self.span.clone())));
+                }
+                Match::End => {
+                    self.offset = self.input.len();
+                    return None;
                 }
             }
         }
@@ -285,16 +302,16 @@ mod tests {
         fn step(input: &str, at: usize, _state: &mut ()) -> Match<Self> {
             let bytes = input.as_bytes();
             if bytes.get(at) != Some(&b'a') {
-                return Match::None;
+                return Match::NoneAt(at);
             }
             let mut end = at + 1;
             while bytes.get(end) == Some(&b'a') {
                 end += 1;
             }
             if bytes.get(end) == Some(&b'b') {
-                Match::Token(Token::Many, end + 1 - at)
+                Match::TokenAt(Token::Many, at, end + 1 - at)
             } else {
-                Match::Token(Token::One, 1)
+                Match::TokenAt(Token::One, at, 1)
             }
         }
 

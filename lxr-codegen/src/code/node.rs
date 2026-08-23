@@ -192,6 +192,7 @@ fn arms_count(fork: &Fork, id: NodeId) -> usize {
 /// because a block there costs each of those arms.
 fn run(emitter: &Emitter<'_>, id: NodeId, ranges: &[ByteRange], only: bool) -> TokenStream {
     let test = emitter.run_test(id).unwrap_or_else(|| test(ranges));
+    let specialized = specialized_run(ranges);
     let bytes_loop = quote! {
         while index < bytes.len() {
             let byte = bytes[index];
@@ -202,7 +203,9 @@ fn run(emitter: &Emitter<'_>, id: NodeId, ranges: &[ByteRange], only: bool) -> T
             }
         }
     };
-    let loops = if only {
+    let loops = if let Some(scan) = specialized {
+        quote!(index = #scan;)
+    } else if only {
         block(id, &test, &bytes_loop)
     } else {
         bytes_loop
@@ -228,6 +231,19 @@ fn run(emitter: &Emitter<'_>, id: NodeId, ranges: &[ByteRange], only: bool) -> T
             #record.low = low;
             #record.high = index;
         }
+    }
+}
+
+/// Returns a hidden runtime scanner for common delimiter and whitespace classes.
+fn specialized_run(ranges: &[ByteRange]) -> Option<TokenStream> {
+    let pairs: Vec<(u8, u8)> = ranges.iter().map(|range| (range.low, range.high)).collect();
+    match pairs.as_slice() {
+        [(0, 9), (11, 255)] => Some(quote!(::lxr::private::until(bytes, index, b'\n'))),
+        [(0, 33), (35, 91), (93, 255)] => {
+            Some(quote!(::lxr::private::until2(bytes, index, b'"', b'\\')))
+        }
+        [(9, 13), (32, 32)] => Some(quote!(::lxr::private::whitespace(bytes, index))),
+        _ => None,
     }
 }
 
@@ -328,16 +344,16 @@ fn leaf_body(emitter: &Emitter<'_>, leaf: Leaf) -> TokenStream {
     let outcome = match (&rule.token, &rule.value) {
         (None, _) => quote!(::lxr::Match::Skip(length)),
         (Some(variant), None) => {
-            quote!(::lxr::Match::Token(#token::#variant, length))
+            quote!(::lxr::Match::TokenAt(#token::#variant, at, length))
         }
         (Some(variant), Some(value)) => quote! {
             match <#value as ::core::str::FromStr>::from_str(
                 &input[at..at + length]
             ) {
                 ::core::result::Result::Ok(value) => {
-                    ::lxr::Match::Token(#token::#variant(value), length)
+                    ::lxr::Match::TokenAt(#token::#variant(value), at, length)
                 }
-                ::core::result::Result::Err(_) => ::lxr::Match::Value(length),
+                ::core::result::Result::Err(_) => ::lxr::Match::ValueAt(at, length),
             }
         },
     };
@@ -407,10 +423,22 @@ pub(super) fn fused_body(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
             }
         }
         Node::Leaf(leaf) => {
-            let leaf = leaf_body(emitter, *leaf);
-            quote!(return { #leaf }.expect("a leaf returns a match"))
+            let leaf_body = leaf_body(emitter, *leaf);
+            if emitter.rule(leaf.rule).token.is_none() {
+                quote! {
+                    let ::core::option::Option::Some(::lxr::Match::<Self>::Skip(length)) = ({ #leaf_body }) else {
+                        unreachable!("a skip leaf returns a skipped match")
+                    };
+                    at += length;
+                    resume.node = 0;
+                    if at >= input.len() { return ::lxr::Match::End; }
+                    continue 'matcher;
+                }
+            } else {
+                quote!(return { #leaf_body }.expect("a leaf returns a match"))
+            }
         }
-        Node::Fault => quote!(return ::lxr::Match::None;),
+        Node::Fault => quote!(return ::lxr::Match::NoneAt(at);),
     }
 }
 

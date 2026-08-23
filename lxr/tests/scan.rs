@@ -33,7 +33,7 @@ mod words {
         fn step(input: &str, at: usize, _state: &mut ()) -> Match<Self> {
             let bytes = input.as_bytes();
             let Some(&first) = bytes.get(at) else {
-                return Match::None;
+                return Match::NoneAt(at);
             };
             let mut end = at + 1;
             match first {
@@ -41,7 +41,7 @@ mod words {
                     while bytes.get(end) == Some(&b'a') {
                         end += 1;
                     }
-                    Match::Token(Token::Word, end - at)
+                    Match::TokenAt(Token::Word, at, end - at)
                 }
                 b' ' | b'\n' => {
                     while bytes
@@ -52,7 +52,7 @@ mod words {
                     }
                     Match::Skip(end - at)
                 }
-                _ => Match::None,
+                _ => Match::NoneAt(at),
             }
         }
 
@@ -101,14 +101,14 @@ mod strings {
         fn step(input: &str, at: usize, state: &mut u16) -> Match<Self> {
             let bytes = input.as_bytes();
             let Some(&first) = bytes.get(at) else {
-                return Match::None;
+                return Match::NoneAt(at);
             };
             if first == b'"' {
                 *state ^= 1;
-                return Match::Token(Token::Quote, 1);
+                return Match::TokenAt(Token::Quote, at, 1);
             }
             if !first.is_ascii_lowercase() {
-                return Match::None;
+                return Match::NoneAt(at);
             }
             let mut end = at + 1;
             while bytes.get(end).is_some_and(u8::is_ascii_lowercase) {
@@ -119,7 +119,7 @@ mod strings {
             } else {
                 Token::Text
             };
-            Match::Token(token, end - at)
+            Match::TokenAt(token, at, end - at)
         }
 
         fn condition(index: u16) -> Context {

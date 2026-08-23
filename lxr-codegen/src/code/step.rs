@@ -37,6 +37,7 @@ pub fn step(arena: &Arena, rules: &[Rule], token: &Ident) -> TokenStream {
             #tables
             #resume
             #(#functions)*
+            let mut at = at;
             #driver
         }
     }
