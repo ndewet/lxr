@@ -18,9 +18,8 @@ pub fn name(id: NodeId) -> Ident {
 /// of the scan. The graph holds no cycle of calls, because each cycle carries one edge that writes
 /// the node and returns, thus the attribute terminates.
 ///
-/// The `step` function takes no `#[inline]`. That attribute puts the whole graph inside
-/// [`Scan::next`], which costs 20 percent of the scan of JSON and 40 percent of the scan of source
-/// code.
+/// The top-level `step` function is inlined with the compact result protocol. This lets the
+/// caller remove result plumbing while this attribute removes calls between hot nodes.
 ///
 /// [`Scan::next`]: https://docs.rs/lxr/latest/lxr/struct.Scan.html
 ///
@@ -40,20 +39,26 @@ pub fn function(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
         Node::Rope(rope) => rope_body(emitter, rope),
         Node::Leaf(leaf) => leaf_body(emitter, *leaf),
         Node::Fault => quote! {
-            step.outcome = ::lxr::Outcome::None;
-            step.length = 0;
-            step.read = index - at;
+            *found = ::core::option::Option::Some(::lxr::Match::None);
         },
+    };
+    let attributes = if matches!(emitter.arena.node(id), Node::Fault) {
+        quote!(#[cold] #[inline(never)])
+    } else if emitter.arena.node_count() > 48 {
+        quote!(#[inline])
+    } else {
+        quote!(#[inline(always)])
     };
 
     quote! {
-        #[inline(always)]
+        #attributes
         fn #name(
             #input
             at: usize,
             index: usize,
             #marker
-            step: &mut ::lxr::Step<#token>,
+            state: &mut <#token as ::lxr::Lexer>::State,
+            found: &mut ::core::option::Option<::lxr::Match<#token>>,
             #resume
         ) {
             #body
@@ -163,16 +168,17 @@ fn run(emitter: &Emitter<'_>, id: NodeId, ranges: &[ByteRange], only: bool) -> T
     }
 
     let number = Literal::u32_unsuffixed(id.number());
+    let record = emitter.run();
     quote! {
         let mut index = index;
-        if step.run.node == #number && index >= step.run.low && index <= step.run.high {
-            index = step.run.high;
+        if #record.node == #number && index >= #record.low && index <= #record.high {
+            index = #record.high;
         } else {
             let low = index;
             #loops
-            step.run.node = #number;
-            step.run.low = low;
-            step.run.high = index;
+            #record.node = #number;
+            #record.low = low;
+            #record.high = index;
         }
     }
 }
@@ -267,31 +273,30 @@ fn leaf_body(emitter: &Emitter<'_>, leaf: Leaf) -> TokenStream {
     };
     let go = rule.go.map(|condition| {
         let condition = Literal::u16_unsuffixed(condition);
-        quote!(step.condition = #condition;)
+        let place = emitter.condition_place();
+        quote!(#place = #condition;)
     });
 
     let outcome = match (&rule.token, &rule.value) {
-        (None, _) => quote!(step.outcome = ::lxr::Outcome::Skip;),
+        (None, _) => quote!(::lxr::Match::Skip(length)),
         (Some(variant), None) => {
-            quote!(step.outcome = ::lxr::Outcome::Token(#token::#variant);)
+            quote!(::lxr::Match::Token(#token::#variant, length))
         }
         (Some(variant), Some(value)) => quote! {
-            step.outcome = match <#value as ::core::str::FromStr>::from_str(
+            match <#value as ::core::str::FromStr>::from_str(
                 &input[at..at + length]
             ) {
                 ::core::result::Result::Ok(value) => {
-                    ::lxr::Outcome::Token(#token::#variant(value))
+                    ::lxr::Match::Token(#token::#variant(value), length)
                 }
-                ::core::result::Result::Err(_) => ::lxr::Outcome::Value,
-            };
+                ::core::result::Result::Err(_) => ::lxr::Match::Value(length),
+            }
         },
     };
 
     quote! {
         let length = #length;
-        step.length = length;
-        step.read = index - at;
-        #outcome
+        *found = ::core::option::Option::Some(#outcome);
         #go
     }
 }
@@ -331,7 +336,7 @@ pub fn action(emitter: &Emitter<'_>, edge: Edge, index: &TokenStream) -> TokenSt
     });
     let resume = shape.resume.then(|| quote!(resume,));
 
-    quote!(#name(#input at, #index, #marker step, #resume);)
+    quote!(#name(#input at, #index, #marker state, found, #resume);)
 }
 
 /// Returns the offset of the last accept that `carry` gives, or `None` if it gives none.

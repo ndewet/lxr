@@ -118,13 +118,14 @@ fn a_token_holds_no_borrow_of_the_input() {
 #[test]
 fn a_text_that_the_field_does_not_hold_gives_an_error() {
     let error = Small::scan("999")
+        .located()
         .next()
         .expect("the scan gives one result")
         .expect_err("999 does not fit a u8");
 
     assert_eq!(error.kind(), ScanErrorKind::Value);
     assert_eq!(error.span(), 0..3);
-    assert_eq!((error.line(), error.column()), (1, 1));
+    assert_eq!((error.line(), error.column()), (Some(1), Some(1)));
 }
 
 #[test]
@@ -165,6 +166,7 @@ fn a_value_and_a_missing_rule_give_two_kinds_of_error() {
 #[test]
 fn an_error_of_a_value_states_the_correction() {
     let error = Small::scan("999")
+        .located()
         .next()
         .expect("the scan gives one result")
         .expect_err("999 does not fit a u8");

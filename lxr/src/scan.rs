@@ -6,7 +6,7 @@ use std::ops::Range;
 use crate::error::ScanError;
 use crate::lexer::Lexer;
 use crate::located::Locations;
-use crate::step::{Outcome, Step};
+use crate::step::Match;
 
 /// One scan of an input, in progress.
 ///
@@ -35,14 +35,15 @@ use crate::step::{Outcome, Step};
 /// spans more than one node holds no such run, and it costs the square of its length.
 ///
 /// To make a `Scan`, use [`Lexer::scan`].
-pub struct Scan<'a, T> {
+pub struct Scan<'a, T: Lexer> {
     input: &'a str,
     offset: usize,
     span: Range<usize>,
     /// The place of one offset of the input, which [`Scan::place`] moves forward.
     place: Cell<Cursor>,
     /// The result of the last step, and the start condition of the next one.
-    step: Step<T>,
+    state: T::State,
+    marker: std::marker::PhantomData<T>,
 }
 
 /// The line and the column of one offset of the input.
@@ -61,7 +62,7 @@ struct Cursor {
     column: u32,
 }
 
-impl<'a, T> Scan<'a, T> {
+impl<'a, T: Lexer> Scan<'a, T> {
     /// Returns the bytes of the last token, counted from the start of the input.
     ///
     /// The result is `0..0` before the first token.
@@ -157,7 +158,8 @@ impl<'a, T: Lexer> Scan<'a, T> {
                 line: 1,
                 column: 1,
             }),
-            step: Step::new(0),
+            state: T::initial(),
+            marker: std::marker::PhantomData,
         }
     }
 
@@ -200,13 +202,14 @@ impl<'a, T: Lexer> Scan<'a, T> {
     ///
     /// This function panics if the lexer names a condition that it does not hold.
     pub fn condition(&self) -> T::Condition {
-        T::condition(self.step.condition)
+        T::condition(T::state_condition(&self.state))
     }
 }
 
 impl<T: Lexer> Iterator for Scan<'_, T> {
     type Item = std::result::Result<T, ScanError>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.offset >= self.input.len() {
@@ -214,27 +217,22 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
             }
 
             let at = self.offset;
-            T::step(self.input, at, &mut self.step);
-            let length = self.step.length;
-
-            match self.step.take() {
-                Outcome::Token(token) => {
+            match T::step(self.input, at, &mut self.state) {
+                Match::Token(token, length) => {
                     self.take(at, length);
                     return Some(Ok(token));
                 }
-                Outcome::Skip => {
+                Match::Skip(length) => {
                     debug_assert!(length > 0, "a rule that reads no byte stops the scan");
                     self.offset = at + length;
                 }
-                Outcome::Value => {
+                Match::Value(length) => {
                     self.take(at, length);
-                    let (line, column) = self.place();
-                    return Some(Err(ScanError::value(self.span.clone(), line, column)));
+                    return Some(Err(ScanError::value(self.span.clone())));
                 }
-                Outcome::None => {
+                Match::None => {
                     self.take(at, self.faulted());
-                    let (line, column) = self.place();
-                    return Some(Err(ScanError::no_rule(self.span.clone(), line, column)));
+                    return Some(Err(ScanError::no_rule(self.span.clone())));
                 }
             }
         }
@@ -243,13 +241,13 @@ impl<T: Lexer> Iterator for Scan<'_, T> {
 
 impl<T: Lexer> FusedIterator for Scan<'_, T> {}
 
-impl<T> Debug for Scan<'_, T> {
+impl<T: Lexer> Debug for Scan<'_, T> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatResult {
         let (line, column) = self.place();
         formatter
             .debug_struct("Scan")
             .field("offset", &self.offset)
-            .field("condition", &self.step.condition)
+            .field("condition", &T::state_condition(&self.state))
             .field("line", &line)
             .field("column", &column)
             .field("span", &self.span)
@@ -277,78 +275,27 @@ mod tests {
     /// as its marker.
     impl Lexer for Token {
         type Condition = ();
+        type State = ();
 
-        fn step(input: &str, at: usize, step: &mut Step<Self>) {
-            fn root(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
-                let bytes = input.as_bytes();
-                let ::core::option::Option::Some(&byte) = bytes.get(index) else {
-                    fault(at, index, step);
-                    return;
-                };
-                match byte {
-                    b'a' => first(input, at, index + 1, step),
-                    _ => fault(at, index, step),
-                }
+        fn initial() {}
+        fn state_condition(_state: &()) -> u16 {
+            0
+        }
+
+        fn step(input: &str, at: usize, _state: &mut ()) -> Match<Self> {
+            let bytes = input.as_bytes();
+            if bytes.get(at) != Some(&b'a') {
+                return Match::None;
             }
-
-            fn first(input: &str, at: usize, index: usize, step: &mut Step<Token>) {
-                let bytes = input.as_bytes();
-                let ::core::option::Option::Some(&byte) = bytes.get(index) else {
-                    one(at, index, step);
-                    return;
-                };
-                match byte {
-                    b'a' => run(input, at, index + 1, index, step),
-                    b'b' => many(at, index + 1, step),
-                    _ => one(at, index, step),
-                }
+            let mut end = at + 1;
+            while bytes.get(end) == Some(&b'a') {
+                end += 1;
             }
-
-            fn run(input: &str, at: usize, index: usize, marker: usize, step: &mut Step<Token>) {
-                let bytes = input.as_bytes();
-                let mut index = index;
-                while let ::core::option::Option::Some(&byte) = bytes.get(index) {
-                    if byte == b'a' {
-                        index += 1;
-                    } else {
-                        break;
-                    }
-                }
-                let ::core::option::Option::Some(&byte) = bytes.get(index) else {
-                    carried(at, index, marker, step);
-                    return;
-                };
-                match byte {
-                    b'b' => many(at, index + 1, step),
-                    _ => carried(at, index, marker, step),
-                }
+            if bytes.get(end) == Some(&b'b') {
+                Match::Token(Token::Many, end + 1 - at)
+            } else {
+                Match::Token(Token::One, 1)
             }
-
-            fn one(at: usize, index: usize, step: &mut Step<Token>) {
-                step.outcome = Outcome::Token(Token::One);
-                step.length = index - at;
-                step.read = index - at;
-            }
-
-            fn carried(at: usize, index: usize, marker: usize, step: &mut Step<Token>) {
-                step.outcome = Outcome::Token(Token::One);
-                step.length = marker - at;
-                step.read = index - at;
-            }
-
-            fn many(at: usize, index: usize, step: &mut Step<Token>) {
-                step.outcome = Outcome::Token(Token::Many);
-                step.length = index - at;
-                step.read = index - at;
-            }
-
-            fn fault(at: usize, index: usize, step: &mut Step<Token>) {
-                step.outcome = Outcome::None;
-                step.length = 0;
-                step.read = index - at;
-            }
-
-            root(input, at, at, step);
         }
 
         fn condition(_index: u16) {}
@@ -410,20 +357,9 @@ mod tests {
             .next()
             .expect("the scan gives one result for the newline")
             .expect_err("no rule matches a newline");
-        assert_eq!((error.line(), error.column()), (1, 2));
+        assert_eq!((error.line(), error.column()), (None, None));
 
         assert_eq!(scan.next(), Some(Ok(Token::One)));
         assert_eq!((scan.line(), scan.column()), (2, 1));
-    }
-
-    #[test]
-    fn a_step_reports_the_bytes_that_it_read_past_its_match() {
-        let input = "a".repeat(2000);
-        let mut step = Step::new(0);
-
-        Token::step(&input, 0, &mut step);
-
-        assert_eq!(step.length, 1);
-        assert_eq!(step.read, 2000);
     }
 }

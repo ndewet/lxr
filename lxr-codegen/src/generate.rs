@@ -828,7 +828,7 @@ mod tests {
             .to_string();
 
         assert!(source.contains("type Condition = Context ;"));
-        assert!(source.contains("step . condition = 1 ;"));
+        assert!(source.contains("* state = 1 ;"));
     }
 
     #[test]
@@ -848,6 +848,6 @@ mod tests {
             .expect("the rules are valid")
             .to_string();
 
-        assert!(source.contains(":: lxr :: Outcome :: Skip"));
+        assert!(source.contains(":: lxr :: Match :: Skip"));
     }
 }

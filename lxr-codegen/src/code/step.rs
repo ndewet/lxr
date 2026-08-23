@@ -25,14 +25,36 @@ pub fn step(arena: &Arena, rules: &[Rule], token: &Ident) -> TokenStream {
     let resume = resume(&emitter);
     let enter = enter(&emitter);
     let driver = driver(&emitter);
+    let state = state(&emitter);
 
     quote! {
-        fn step(input: &str, at: usize, step: &mut ::lxr::Step<#token>) {
+        #state
+
+        #[inline]
+        fn step(input: &str, at: usize, state: &mut Self::State) -> ::lxr::Match<Self> {
+            let mut found = ::core::option::Option::None;
             #resume
             #(#functions)*
             #enter
             #driver
+            found.expect("the generated matcher returns a result")
         }
+    }
+}
+
+/// Returns the associated matcher state and its accessors.
+fn state(emitter: &Emitter<'_>) -> TokenStream {
+    let (kind, initial) = match (emitter.has_condition(), emitter.has_run()) {
+        (false, false) => (quote!(()), quote!({})),
+        (true, false) => (quote!(u16), quote!(0)),
+        (false, true) => (quote!(::lxr::Run), quote!(::lxr::Run::new())),
+        (true, true) => (quote!((u16, ::lxr::Run)), quote!((0, ::lxr::Run::new()))),
+    };
+    let condition = emitter.condition();
+    quote! {
+        type State = #kind;
+        fn initial() -> Self::State { #initial }
+        fn state_condition(state: &Self::State) -> u16 { #condition }
     }
 }
 
@@ -75,11 +97,13 @@ fn enter(emitter: &Emitter<'_>) -> TokenStream {
         return only.clone();
     }
 
+    let condition = emitter.condition();
+
     let indexes: Vec<Literal> = (0..arena.start_count())
         .map(Literal::usize_unsuffixed)
         .collect();
     quote! {
-        let condition = step.condition;
+        let condition = #condition;
         match condition {
             #(#indexes => { #calls })*
             condition => panic!(
@@ -110,7 +134,7 @@ fn driver(emitter: &Emitter<'_>) -> TokenStream {
                 let index = resume.index;
                 #take
                 resume.node = 0;
-                #name(#input at, index, #marker step, #carry);
+                #name(#input at, index, #marker state, &mut found, #carry);
             }
         }
     });
@@ -149,5 +173,5 @@ fn call(emitter: &Emitter<'_>, id: NodeId) -> TokenStream {
     let input = shape.input.then(|| quote!(input,));
     let resume = shape.resume.then(|| quote!(&mut resume,));
 
-    quote!(#name(#input at, at, step, #resume);)
+    quote!(#name(#input at, at, state, &mut found, #resume);)
 }

@@ -46,6 +46,46 @@ impl<'a> Emitter<'a> {
         self.carries
     }
 
+    /// Returns whether matcher state carries a start condition.
+    pub fn has_condition(&self) -> bool {
+        self.arena.start_count() > 1
+    }
+
+    /// Returns whether matcher state carries a cached run.
+    pub fn has_run(&self) -> bool {
+        self.arena.nodes().iter().enumerate().any(|(index, node)| {
+            matches!(node, Node::Fork(fork) if fork.arms.iter().any(|arm| arm.edge.target.index() == index))
+                && !self.ends_a_match(NodeId::new(index))
+        })
+    }
+
+    /// Returns the expression that reads the numeric condition from `state`.
+    pub fn condition(&self) -> proc_macro2::TokenStream {
+        match (self.has_condition(), self.has_run()) {
+            (true, true) => quote::quote!(state.0),
+            (true, false) => quote::quote!(*state),
+            (false, _) => quote::quote!(0),
+        }
+    }
+
+    /// Returns the place to which a numeric condition is written.
+    pub fn condition_place(&self) -> proc_macro2::TokenStream {
+        match (self.has_condition(), self.has_run()) {
+            (true, true) => quote::quote!(state.0),
+            (true, false) => quote::quote!(*state),
+            (false, _) => panic!("a lexer without conditions changes no condition"),
+        }
+    }
+
+    /// Returns the expression that accesses the cached run.
+    pub fn run(&self) -> proc_macro2::TokenStream {
+        match (self.has_condition(), self.has_run()) {
+            (true, true) => quote::quote!(state.1),
+            (false, true) => quote::quote!((*state)),
+            (_, false) => panic!("a matcher without a cached run does not access one"),
+        }
+    }
+
     /// Returns whether the node at `id` ends a match at its own offset.
     ///
     /// A byte that no arm of such a node holds gives the token of a rule, thus the scan goes on

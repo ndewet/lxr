@@ -36,7 +36,7 @@ pub struct Located<T> {
 /// Each [`Located`] carries the place of its token. Thus this iterator forwards the state of the
 /// scan alone: [`condition`](Self::condition), [`offset`](Self::offset), and
 /// [`remainder`](Self::remainder).
-pub struct Locations<'a, T> {
+pub struct Locations<'a, T: Lexer> {
     scan: Scan<'a, T>,
 }
 
@@ -72,21 +72,27 @@ impl<'a, T: Lexer> Locations<'a, T> {
 impl<T: Lexer> Iterator for Locations<'_, T> {
     type Item = Result<Located<T>, ScanError>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let found = self.scan.next()?;
 
-        Some(found.map(|token| Located {
-            token,
-            span: self.scan.span(),
-            line: self.scan.line(),
-            column: self.scan.column(),
-        }))
+        let line = self.scan.line();
+        let column = self.scan.column();
+        Some(match found {
+            Ok(token) => Ok(Located {
+                token,
+                span: self.scan.span(),
+                line,
+                column,
+            }),
+            Err(error) => Err(error.locate(line, column)),
+        })
     }
 }
 
 impl<T: Lexer> FusedIterator for Locations<'_, T> {}
 
-impl<T> Debug for Locations<'_, T> {
+impl<T: Lexer> Debug for Locations<'_, T> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatResult {
         formatter
             .debug_struct("Locations")

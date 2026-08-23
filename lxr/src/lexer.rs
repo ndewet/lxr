@@ -1,5 +1,5 @@
 use crate::scan::Scan;
-use crate::step::Step;
+use crate::step::Match;
 
 /// A lexer that reads an input into the tokens of `Self`.
 ///
@@ -43,21 +43,31 @@ pub trait Lexer: Sized {
     /// gives its own enum.
     type Condition: Copy;
 
-    /// Writes the longest match of `input` at `at` into `step`.
+    /// Matcher state generated for this lexer.
+    #[doc(hidden)]
+    type State;
+
+    /// Returns the longest match of `input` at `at`.
     ///
     /// The derive macro emits one function for each node of the rule graph, thus a step of the
     /// scan is a comparison on the byte and not a read of a table.
     ///
-    /// The step reads the start condition from [`Step::condition`], and it writes the condition of
-    /// the next step there. It writes the token, the length of the match, and the bytes that it
-    /// read.
+    /// The generated state carries a start condition or cached run only when the lexer needs it.
     ///
     /// `at` is below the length of `input`, and it is at the start of a character.
     ///
     /// # Panics
     ///
-    /// This function panics if [`Step::condition`] is not a start condition of the lexer.
-    fn step(input: &str, at: usize, step: &mut Step<Self>);
+    /// This function panics if the state holds an invalid start condition.
+    fn step(input: &str, at: usize, state: &mut Self::State) -> Match<Self>;
+
+    /// Creates the matcher state for a new scan.
+    #[doc(hidden)]
+    fn initial() -> Self::State;
+
+    /// Returns the numeric start condition held by matcher state.
+    #[doc(hidden)]
+    fn state_condition(state: &Self::State) -> u16;
 
     /// Returns the start condition at `index`.
     ///
