@@ -41,13 +41,15 @@ jobs:
         run: |
           git checkout --detach "$BASE_SHA"
           cp .github/scripts/compare-benchmarks.py "$RUNNER_TEMP/compare-benchmarks.py"
-          cargo bench --package lxr --bench scan -- --save-baseline pr-base
+          cargo bench --package lxr --bench scan_lxr -- --save-baseline pr-base
+          cargo bench --package lxr --bench scan_logos -- --save-baseline pr-base
       - name: Benchmark pull request
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           git checkout --detach "$HEAD_SHA"
-          cargo bench --package lxr --bench scan -- --baseline pr-base
+          cargo bench --package lxr --bench scan_lxr -- --baseline pr-base
+          cargo bench --package lxr --bench scan_logos -- --baseline pr-base
       - name: Analyze changes
         id: comparison
         env:
