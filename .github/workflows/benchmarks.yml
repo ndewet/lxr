@@ -64,7 +64,7 @@ jobs:
           REGRESSION: ${{ steps.comparison.outputs.regression }}
         run: printf '%s\n%s\n' "$COMMENT" "$REGRESSION" >"$RESULT_FILE"
       - name: Save comparison
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-comparison
           path: |
