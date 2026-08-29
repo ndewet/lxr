@@ -94,7 +94,7 @@ jobs:
           sed -n '2s/^/regression=/p' "$RESULT_FILE" >>"$GITHUB_OUTPUT"
       - name: Update pull request comment
         if: steps.comparison.outputs.comment == 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           BODY_FILE: ${{ runner.temp }}/comparison/benchmark-comment.md
         with:
@@ -110,7 +110,7 @@ jobs:
             else await github.rest.issues.createComment({ owner, repo, issue_number, body });
       - name: Remove stale performance comment
         if: steps.comparison.outputs.comment != 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const marker = '<!-- lxr-performance -->';
