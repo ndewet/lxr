@@ -1,0 +1,10 @@
+[package]
+name = "lxr-derive"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+proc-macro = true
+
+[lints]
+workspace = true
