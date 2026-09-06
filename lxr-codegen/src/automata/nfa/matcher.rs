@@ -52,10 +52,7 @@ impl<'a, L: Label, A> Matcher<'a, L, A> {
     /// let accept = builder.add_state();
     /// builder.add_transition(
     ///     start,
-    ///     ByteRange {
-    ///         low: b'a',
-    ///         high: b'a',
-    ///     },
+    ///     ByteRange::new(b'a', b'a'),
     ///     accept,
     /// );
     /// builder.mark_accept(accept);
