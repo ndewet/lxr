@@ -1,13 +1,9 @@
 use super::adjacency::{AdjacencyList, AdjacencyListBuilder};
 use super::{BuildError, StateId, Transition};
 
-/// The shared states of a finite automaton.
+/// Stores the state data shared by NFAs and DFAs.
 ///
-/// The table holds labeled transitions, accept values, and start states. An
-/// NFA adds its epsilon transitions. A DFA needs no other state storage.
-///
-/// The table does not require disjoint transition labels. An NFA permits
-/// overlapping labels. A DFA must establish that stronger invariant itself.
+/// The table does not require disjoint transition labels.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StateTable<L, A> {
     transitions: AdjacencyList<Transition<L>>,
@@ -16,15 +12,12 @@ pub(crate) struct StateTable<L, A> {
 }
 
 impl<L, A> StateTable<L, A> {
-    /// Creates a state table from its parallel storage.
+    /// Creates a table from its transitions, accept values, and start states.
     ///
     /// # Panics
     ///
-    /// This function panics for each of these conditions:
-    ///
-    /// - The adjacency list does not have one group for each state.
-    /// - There is no start state, or a start state is outside the table.
-    /// - A transition target is outside the table.
+    /// This function panics if the storage sizes differ.
+    /// It also panics if a start state or transition target is invalid.
     pub(crate) fn new(
         transitions: AdjacencyList<Transition<L>>,
         accepts: Vec<Option<A>>,
@@ -67,7 +60,7 @@ impl<L, A> StateTable<L, A> {
         self.accepts.len()
     }
 
-    /// Returns the labeled transitions from `state`.
+    /// Returns the transitions from `state`.
     ///
     /// # Panics
     ///
@@ -99,7 +92,7 @@ impl<L, A> StateTable<L, A> {
             .as_ref()
     }
 
-    /// Returns the start states in their declared sequence.
+    /// Returns the start states in declaration sequence.
     pub(crate) fn start_states(&self) -> &[StateId] {
         &self.starts
     }
@@ -118,10 +111,7 @@ impl<L, A> StateTable<L, A> {
         })
     }
 
-    /// Verifies that `target` is in the table.
-    ///
-    /// An automaton can use this function to verify a separate group of
-    /// transitions.
+    /// Verifies a transition from `from` to `target`.
     ///
     /// # Panics
     ///
@@ -137,10 +127,7 @@ impl<L, A> StateTable<L, A> {
     }
 }
 
-/// A shared state table that is not complete.
-///
-/// The builder owns the parts that NFA and DFA construction share. Each
-/// automaton builder adds the storage and invariants specific to its kind.
+/// Collects the state data shared by NFA and DFA builders.
 #[derive(Debug)]
 pub(crate) struct StateTableBuilder<L, A> {
     transitions: AdjacencyListBuilder<Transition<L>>,
@@ -150,12 +137,12 @@ pub(crate) struct StateTableBuilder<L, A> {
 }
 
 impl<L, A> StateTableBuilder<L, A> {
-    /// Creates a builder that holds no state.
+    /// Creates an empty builder.
     pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    /// Creates a builder that holds at most `capacity` states.
+    /// Creates a builder with the given state capacity.
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             transitions: AdjacencyListBuilder::new(),
@@ -165,25 +152,24 @@ impl<L, A> StateTableBuilder<L, A> {
         }
     }
 
-    /// Returns the number of states that the builder holds.
+    /// Returns the current state count.
     pub(crate) fn state_count(&self) -> usize {
         self.accepts.len()
     }
 
-    /// Returns `true` if the builder recorded an error.
+    /// Returns whether the builder recorded an error.
     pub(crate) fn has_error(&self) -> bool {
         self.error.is_some()
     }
 
-    /// Returns `true` if the builder holds `state`.
+    /// Returns whether the builder contains `state`.
     pub(crate) fn contains(&self, state: StateId) -> bool {
         state.index() < self.state_count()
     }
 
-    /// Adds a state, then returns its identifier.
+    /// Adds a state and returns its identifier.
     ///
-    /// An addition past the capacity records a [`BuildError`] and returns a
-    /// placeholder identifier.
+    /// An addition past the capacity records an error and returns a placeholder.
     pub(crate) fn add_state(&mut self) -> StateId {
         if self.state_count() >= self.capacity {
             self.error = Some(BuildError::TooManyStates {
@@ -197,9 +183,9 @@ impl<L, A> StateTableBuilder<L, A> {
         state
     }
 
-    /// Adds a labeled transition from `from` to `to`.
+    /// Adds a transition from `from` to `to`.
     ///
-    /// `to` can refer to a state that the caller adds later.
+    /// The caller can add `to` after this call.
     ///
     /// # Panics
     ///
@@ -232,16 +218,15 @@ impl<L, A> StateTableBuilder<L, A> {
         slot.replace(accept)
     }
 
-    /// Builds a table with the given start states.
+    /// Builds a table with `starts` as its start states.
     ///
     /// # Errors
     ///
-    /// This function returns a [`BuildError`] if the state or transition
-    /// storage went past its capacity.
+    /// This function returns a [`BuildError`] if a capacity was exceeded.
     ///
     /// # Panics
     ///
-    /// This function panics if a start state or transition target is invalid.
+    /// This function panics if `starts` is empty or an identifier is invalid.
     pub(crate) fn build(self, starts: &[StateId]) -> Result<StateTable<L, A>, BuildError> {
         if let Some(error) = self.error {
             return Err(error);

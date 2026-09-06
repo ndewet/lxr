@@ -1,6 +1,6 @@
 use crate::automata::{Label, StateId, Transition, table::StateTable};
 
-/// A deterministic finite automaton.
+/// Stores a deterministic finite automaton.
 ///
 /// Outgoing labels from one state do not overlap. A missing transition moves
 /// to an implicit dead state.
@@ -9,7 +9,7 @@ pub(crate) struct Dfa<L, A = ()> {
 }
 
 impl<L, A> Dfa<L, A> {
-    /// Creates a DFA from a completed state table.
+    /// Creates a DFA from a validated state table.
     pub(super) fn new(table: StateTable<L, A>) -> Self {
         Self { table }
     }
@@ -19,7 +19,7 @@ impl<L, A> Dfa<L, A> {
         self.table.state_count()
     }
 
-    /// Returns the labeled transitions from `state`.
+    /// Returns the transitions from `state`.
     ///
     /// # Panics
     ///
@@ -46,7 +46,7 @@ impl<L, A> Dfa<L, A> {
         self.table.accept(state)
     }
 
-    /// Returns the start states in their declared sequence.
+    /// Returns the start states in declaration sequence.
     pub(crate) fn start_states(&self) -> &[StateId] {
         self.table.start_states()
     }
@@ -62,9 +62,7 @@ impl<L, A> Dfa<L, A> {
 }
 
 impl<L: Label, A> Dfa<L, A> {
-    /// Returns the state reached from `state` by reading `symbol`.
-    ///
-    /// The function returns `None` if no transition matches.
+    /// Returns the target that matches `symbol`, or `None` for the dead state.
     ///
     /// # Panics
     ///

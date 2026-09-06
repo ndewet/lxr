@@ -1,12 +1,12 @@
-/// An index into the states of a finite automaton.
+/// Identifies a state in one finite automaton.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StateId(u32);
+pub(crate) struct StateId(u32);
 
 impl StateId {
-    /// The number of states that an automaton can hold.
-    pub const CAPACITY: usize = (u32::MAX as usize).saturating_add(1);
+    /// The maximum number of states in one automaton.
+    pub(crate) const CAPACITY: usize = (u32::MAX as usize).saturating_add(1);
 
-    /// Creates a `StateId` from a state index.
+    /// Creates an identifier for `index`.
     ///
     /// # Panics
     ///
@@ -15,17 +15,16 @@ impl StateId {
         Self(u32::try_from(index).expect("an automaton holds at most u32::MAX + 1 states"))
     }
 
-    /// Returns the state index that this identifier refers to.
-    pub fn index(self) -> usize {
+    /// Returns the state index.
+    pub(crate) fn index(self) -> usize {
         self.0 as usize
     }
 
-    /// Reports this identifier as outside an automaton of `count` states.
+    /// Reports an identifier that is outside an automaton.
     ///
     /// # Panics
     ///
-    /// This function panics each time. Call it only for an identifier that the automaton does not
-    /// hold.
+    /// This function panics when called.
     pub(crate) fn outside(self, count: usize) -> ! {
         panic!(
             "state {} is outside an automaton of {count} states",

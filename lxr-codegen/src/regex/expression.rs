@@ -1,36 +1,13 @@
 use crate::regex::charset::CharSet;
 use crate::regex::quantifier::Quantifier;
 
-/// A regular expression in the parsed syntax tree.
+/// Stores one node of a parsed regex syntax tree.
 ///
-/// Each expression denotes a regular language. A leaf is an
-/// [`Epsilon`](Expression::Epsilon) or a [`Class`](Expression::Class). Each
-/// other variant applies a regular operation to its operands.
-///
-/// To make a tree from a pattern, use [`FromStr`](std::str::FromStr). To make
-/// a tree by hand, use the methods on this type.
-///
-/// # Examples
-///
-/// ```
-/// use lxr_codegen::regex::{CharSet, Expression};
-///
-/// let node: Expression = "ab".parse().unwrap();
-/// assert_eq!(
-///     node,
-///     Expression::Concatenation(vec![
-///         Expression::Class(CharSet::single('a')),
-///         Expression::Class(CharSet::single('b')),
-///     ]),
-/// );
-/// ```
+/// Each node denotes a regular language.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Expression {
-    // A concatenation and an alternation hold their children in a list. They
-    // do not nest in pairs. Thus the depth of a tree is the depth of the
-    // groups in the pattern, and not the length of the pattern. The methods
-    // flatten both sides. Thus a folded chain is equal to the same pattern
-    // with any other grouping.
+pub(crate) enum Expression {
+    // Concatenation and alternation use flat lists. Tree depth follows group
+    // nesting instead of pattern length.
     /// Matches the empty string.
     Epsilon,
     /// Matches one character from the set.
@@ -44,26 +21,10 @@ pub enum Expression {
 }
 
 impl Expression {
-    /// Returns an expression that matches `self` and then `other`.
+    /// Concatenates `self` with `other`.
     ///
-    /// The method flattens a concatenation into one node. It also removes an
-    /// [`Epsilon`](Expression::Epsilon) operand.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::{CharSet, Expression};
-    ///
-    /// let a = Expression::Class(CharSet::single('a'));
-    /// let b = Expression::Class(CharSet::single('b'));
-    ///
-    /// assert_eq!(
-    ///     a.clone().concat(b.clone()),
-    ///     Expression::Concatenation(vec![a.clone(), b]),
-    /// );
-    /// assert_eq!(a.clone().concat(Expression::Epsilon), a);
-    /// ```
-    pub fn concat(self, other: Self) -> Self {
+    /// The result flattens nested concatenations and removes epsilon operands.
+    pub(crate) fn concat(self, other: Self) -> Self {
         match (self, other) {
             (Self::Epsilon, node) | (node, Self::Epsilon) => node,
             (left, right) => {
@@ -74,24 +35,8 @@ impl Expression {
         }
     }
 
-    /// Returns an expression that matches `self` or `other`.
-    ///
-    /// The method flattens an alternation into one node.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::{CharSet, Expression};
-    ///
-    /// let a = Expression::Class(CharSet::single('a'));
-    /// let b = Expression::Class(CharSet::single('b'));
-    ///
-    /// assert_eq!(
-    ///     a.clone().alternate(b.clone()),
-    ///     Expression::Alternation(vec![a, b]),
-    /// );
-    /// ```
-    pub fn alternate(self, other: Self) -> Self {
+    /// Alternates between `self` and `other` in one flat node.
+    pub(crate) fn alternate(self, other: Self) -> Self {
         let mut branches = self.into_alternation_branches();
         branches.extend(other.into_alternation_branches());
         Self::Alternation(branches)
@@ -111,94 +56,30 @@ impl Expression {
         }
     }
 
-    /// Returns an expression that matches `self` zero or more times.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::{CharSet, Expression, Quantifier};
-    ///
-    /// let a = Expression::Class(CharSet::single('a'));
-    /// assert_eq!(
-    ///     a.clone().star(),
-    ///     Expression::Repetition(Box::new(a), Quantifier::ZERO_OR_MORE),
-    /// );
-    /// ```
-    pub fn star(self) -> Self {
+    /// Applies the `*` quantifier to `self`.
+    pub(crate) fn star(self) -> Self {
         self.repeated(Quantifier::ZERO_OR_MORE)
     }
 
-    /// Returns an expression that matches `self` one or more times.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::{CharSet, Expression, Quantifier};
-    ///
-    /// let a = Expression::Class(CharSet::single('a'));
-    /// assert_eq!(
-    ///     a.clone().plus(),
-    ///     Expression::Repetition(Box::new(a), Quantifier::ONE_OR_MORE),
-    /// );
-    /// ```
-    pub fn plus(self) -> Self {
+    /// Applies the `+` quantifier to `self`.
+    pub(crate) fn plus(self) -> Self {
         self.repeated(Quantifier::ONE_OR_MORE)
     }
 
-    /// Returns an expression that matches `self` zero times or one time.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::{CharSet, Expression, Quantifier};
-    ///
-    /// let a = Expression::Class(CharSet::single('a'));
-    /// assert_eq!(
-    ///     a.clone().optional(),
-    ///     Expression::Repetition(Box::new(a), Quantifier::ZERO_OR_ONE),
-    /// );
-    /// ```
-    pub fn optional(self) -> Self {
+    /// Applies the `?` quantifier to `self`.
+    pub(crate) fn optional(self) -> Self {
         self.repeated(Quantifier::ZERO_OR_ONE)
     }
 
-    /// Returns an expression that matches `self` as many times as `quantifier`
-    /// permits.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::{CharSet, Expression, Quantifier};
-    ///
-    /// let a = Expression::Class(CharSet::single('a'));
-    /// let quantifier = Quantifier::range(2, 4).unwrap();
-    ///
-    /// assert_eq!(
-    ///     a.clone().repeated(quantifier),
-    ///     Expression::Repetition(Box::new(a), quantifier),
-    /// );
-    /// ```
-    pub fn repeated(self, quantifier: Quantifier) -> Self {
+    /// Applies `quantifier` to `self`.
+    pub(crate) fn repeated(self, quantifier: Quantifier) -> Self {
         Self::Repetition(Box::new(self), quantifier)
     }
 
-    /// Returns `true` if the expression is nullable.
+    /// Returns whether this expression matches the empty string.
     ///
-    /// A nullable expression matches the empty string.
-    ///
-    /// A rule of a lexer needs a pattern that reads at least one character. A
-    /// pattern that matches the empty string gives a match of no length, thus
-    /// the lexer makes no progress.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::Expression;
-    ///
-    /// assert!("a*".parse::<Expression>().unwrap().is_nullable());
-    /// assert!(!"a+".parse::<Expression>().unwrap().is_nullable());
-    /// ```
-    pub fn is_nullable(&self) -> bool {
+    /// Lexer rules must not be nullable because each match must consume input.
+    pub(crate) fn is_nullable(&self) -> bool {
         match self {
             Self::Epsilon => true,
             Self::Class(_) => false,
@@ -208,28 +89,11 @@ impl Expression {
         }
     }
 
-    /// Returns the number of the nodes of the tree, after each repetition
-    /// expands into one copy for each permitted repetition.
+    /// Returns the node count after bounded repetitions expand.
     ///
-    /// A construction that has no counter makes those copies. The count thus
-    /// gives the size of the pattern that such a construction reads. A nested
-    /// repetition multiplies the count. Therefore a short pattern can give a
-    /// very large count.
-    ///
-    /// The count saturates at [`usize::MAX`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::Expression;
-    ///
-    /// let one: Expression = "a".parse().unwrap();
-    /// let many: Expression = "(a{100}){100}".parse().unwrap();
-    ///
-    /// assert_eq!(one.expanded_size(), 1);
-    /// assert!(many.expanded_size() > 10_000);
-    /// ```
-    pub fn expanded_size(&self) -> usize {
+    /// This estimate predicts Thompson construction size. It saturates at
+    /// [`usize::MAX`].
+    pub(crate) fn expanded_size(&self) -> usize {
         match self {
             Self::Epsilon | Self::Class(_) => 1,
             Self::Concatenation(parts) | Self::Alternation(parts) => parts

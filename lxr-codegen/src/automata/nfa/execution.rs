@@ -3,26 +3,19 @@ use crate::automata::id::StateId;
 use crate::automata::label::Label;
 use crate::automata::state_set::StateSet;
 
-/// Holds the state set for one [`Nfa`] execution.
+/// Tracks the active state set for one [`Nfa`] execution.
 ///
-/// An execution holds the epsilon-closed set of states that the NFA is in.
-/// [`restart`](Self::restart) selects a start state and [`step`](Self::step)
-/// applies the NFA transition relation to one symbol. The execution reuses its
-/// buffers. Thus a step makes no allocation after the buffers grow to the
-/// necessary size.
-///
-/// To make an `Execution`, use [`execution`](Nfa::execution).
+/// The state set is epsilon-closed. The execution reuses its buffers between
+/// steps.
 #[derive(Debug)]
-pub struct Execution<'a, L, A = ()> {
+pub(crate) struct Execution<'a, L, A = ()> {
     nfa: &'a Nfa<L, A>,
     states: StateSet,
     next: Vec<StateId>,
 }
 
 impl<'a, L: Label, A> Execution<'a, L, A> {
-    /// Creates an execution of `nfa` that is in no state.
-    ///
-    /// A scan puts the execution at a start state with [`restart`](Self::restart).
+    /// Creates an execution with no active state.
     pub(in crate::automata) fn new(nfa: &'a Nfa<L, A>) -> Self {
         Self {
             nfa,
@@ -31,29 +24,23 @@ impl<'a, L: Label, A> Execution<'a, L, A> {
         }
     }
 
-    /// Puts the execution in `states`, and in each state that `states` goes to without a symbol.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if a state in `states` is not in the automaton.
     fn seed(&mut self, states: &[StateId]) {
         epsilon_closure(self.nfa, states, &mut self.states);
     }
 
-    /// Puts the execution back at the start state that `start` refers to.
+    /// Restarts the execution at start-state index `start`.
     ///
     /// # Panics
     ///
     /// This function panics if `start` is not a start state of the automaton.
-    pub fn restart(&mut self, start: usize) {
+    pub(crate) fn restart(&mut self, start: usize) {
         self.seed(&[self.nfa.start_state(start)]);
     }
 
-    /// Reads `symbol`, then moves the execution.
+    /// Reads `symbol` and updates the active state set.
     ///
-    /// Returns `false` if the execution reaches no state. The execution then accepts nothing, and
-    /// each later step also gives `false`. To scan again, use [`restart`](Self::restart).
-    pub fn step(&mut self, symbol: L::Symbol) -> bool {
+    /// Returns `false` if no state remains active.
+    pub(crate) fn step(&mut self, symbol: L::Symbol) -> bool {
         self.next.clear();
         self.next
             .extend(self.nfa.step(self.states.members(), symbol));
@@ -61,18 +48,15 @@ impl<'a, L: Label, A> Execution<'a, L, A> {
         !self.states.is_empty()
     }
 
-    /// Returns the states that the execution is in.
+    /// Returns the active states in ascending sequence.
     ///
-    /// The states are in ascending sequence, and the result holds no duplicate.
-    pub fn states(&self) -> &[StateId] {
+    /// The result contains no duplicates.
+    pub(crate) fn states(&self) -> &[StateId] {
         self.states.members()
     }
 
-    /// Returns `true` if a state that the execution is in accepts.
-    ///
-    /// The caller can read [`states`](Self::states), then get each accept value
-    /// with [`Nfa::accept`].
-    pub fn accepts(&self) -> bool {
+    /// Returns whether an active state accepts.
+    pub(crate) fn accepts(&self) -> bool {
         self.states().iter().any(|&state| self.nfa.accepts(state))
     }
 }
@@ -83,7 +67,6 @@ mod tests {
     use super::*;
     use crate::automata::testing::{Symbols, builder, literal, only};
 
-    /// Returns an execution of `nfa` at its first start state.
     fn execution(nfa: &Nfa<Symbols>) -> Execution<'_, Symbols> {
         let mut execution = nfa.execution();
         execution.restart(0);

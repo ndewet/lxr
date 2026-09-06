@@ -1,25 +1,26 @@
-/// The condition on a transition of an automaton.
+/// Defines the symbols that take a transition.
 ///
-/// A label says which symbols move the automaton along the transition. The automaton does not know
-/// the alphabet. It reads only this trait. Thus one automaton serves a byte alphabet, a character
-/// alphabet, or another alphabet.
-///
-/// A label matches at least one symbol. A transition that no symbol takes is a transition that the
-/// automaton does not need, thus a builder adds no such transition.
-pub trait Label: Clone {
-    /// One symbol of the alphabet that the automaton reads.
+/// Each label must match at least one symbol.
+pub(crate) trait Label: Clone {
+    /// A symbol in the input alphabet.
     type Symbol: Copy;
 
-    /// Returns `true` if `symbol` moves the automaton along the transition.
+    /// Returns whether this label matches `symbol`.
     fn matches(&self, symbol: Self::Symbol) -> bool;
 }
 
+/// Holds one disjoint label and the input labels that contain it.
 pub(crate) struct LabelClass<L> {
     label: L,
     matching_labels: Vec<usize>,
 }
 
 impl<L> LabelClass<L> {
+    /// Creates a label class.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `matching_labels` is empty.
     pub(crate) fn new(label: L, matching_labels: Vec<usize>) -> Self {
         assert!(
             !matching_labels.is_empty(),
@@ -31,27 +32,23 @@ impl<L> LabelClass<L> {
         }
     }
 
+    /// Returns the disjoint label.
     pub(crate) fn get_label(&self) -> &L {
         &self.label
     }
 
+    /// Returns the indexes of the matching input labels.
     pub(crate) fn get_matching_labels(&self) -> &Vec<usize> {
         &self.matching_labels
     }
 }
 
-/// A label that can be split with other labels into disjoint classes.
+/// Splits labels into disjoint classes.
 pub(crate) trait Partitionable: Label + Sized {
-    /// Splits `labels` into classes with these rules:
+    /// Partitions `labels` by their matching input indexes.
     ///
-    /// - Each class matches at least one symbol and one input label.
-    /// - Classes do not overlap.
-    /// - The classes cover exactly the symbols matched by the input labels.
-    /// - Each input label is made of whole classes.
-    /// - Each class records every matching input label.
-    /// - Class order does not depend on input order.
-    ///
-    /// Each recorded index is the position of a matching label in `labels`.
+    /// The classes are disjoint and cover the exact union of `labels`.
+    /// Their sequence does not depend on the input sequence.
     fn partition(labels: &[Self]) -> Vec<LabelClass<Self>>;
 }
 

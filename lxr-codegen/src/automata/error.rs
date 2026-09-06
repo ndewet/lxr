@@ -1,20 +1,19 @@
 use std::fmt::{Display, Formatter};
 
-/// An error from an automaton builder.
+/// Reports an automaton capacity limit.
 ///
-/// Each variant identifies the storage that reached its capacity. The
-/// capacity is a limit of the input, and not a defect in the builder.
+/// Capacity errors come from lexer input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum BuildError {
-    /// The build needs more states than the state storage can hold.
+pub(crate) enum BuildError {
+    /// The state count exceeds the capacity.
     TooManyStates {
-        /// The number of states that the storage can hold.
+        /// The maximum state count.
         capacity: usize,
     },
-    /// The build needs more transitions than the transition storage can hold.
+    /// The transition count exceeds the capacity.
     TooManyTransitions {
-        /// The number of transitions that the storage can hold.
+        /// The maximum transition count.
         capacity: usize,
     },
 }

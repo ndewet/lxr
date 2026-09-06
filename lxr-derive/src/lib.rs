@@ -1,4 +1,3 @@
-//! The derive macro of lxr.
+//! Defines the lxr derive macro.
 //!
-//! The crate is empty. It holds the macro that reads an enum of tokens and
-//! implements the lexer, and `lxr-codegen` holds no emitter yet.
+//! The macro will read token enums and emit their lexer implementations.

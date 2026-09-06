@@ -1,4 +1,3 @@
-//! The runtime of a lexer that lxr generates.
+//! Provides runtime support for generated lxr lexers.
 //!
-//! The crate is empty. It holds the scan that an emitted matcher drives, and
-//! `lxr-codegen` holds no emitter yet.
+//! The runtime API will accompany matcher emission.

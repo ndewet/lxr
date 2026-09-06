@@ -1,28 +1,21 @@
-//! Thompson construction: makes the states of one pattern.
+//! Builds an NFA fragment with Thompson construction.
 //!
-//! [`fragment`] walks an [`Expression`] tree and makes one [`Fragment`] for each
-//! node. A fragment of an operator holds the fragments of its operands. Thus
-//! the number of the states grows with the size of the pattern, and not with
-//! the size of the encoding.
+//! [`fragment`] builds one [`Fragment`] for each [`Expression`] node. The
+//! selected [`Encoding`] lowers each character class.
 //!
-//! The construction knows no character encoding. It gives each
-//! [`Class`](Expression::Class) leaf to an [`Encoding`].
-//!
-//! The construction makes no start state and no accept. The caller owns the
-//! builder. It joins each fragment to the start states of its rule.
+//! The construction adds no start state or accept value. Its caller connects
+//! the fragment to a lexer rule.
 
 use super::builder::Builder;
 use super::fragment::Fragment;
 use crate::automata::encoding::Encoding;
 use crate::regex::{Expression, Quantifier};
 
-/// Adds the states of `expression` to `builder`, then returns them as a fragment.
+/// Adds the fragment for `expression` to `builder`.
 ///
-/// The function lowers each character set with `encoding`.
-///
-/// The fragment has no accept. The caller makes the exit accept, or joins the
-/// fragment to another fragment.
-pub fn fragment<E: Encoding, A>(
+/// `encoding` lowers each character class. The returned fragment has no
+/// accept value.
+pub(crate) fn fragment<E: Encoding, A>(
     expression: &Expression,
     encoding: &E,
     builder: &mut Builder<E::Label, A>,
@@ -30,7 +23,6 @@ pub fn fragment<E: Encoding, A>(
     Construction::new(encoding, builder).fragment(expression)
 }
 
-/// One application of Thompson construction.
 struct Construction<'a, E: Encoding, A> {
     encoding: &'a E,
     builder: &'a mut Builder<E::Label, A>,
@@ -51,7 +43,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         }
     }
 
-    /// Returns a fragment that matches one character from `set`.
     fn character_class(&mut self, set: &crate::regex::CharSet) -> Fragment {
         let entry = self.builder.add_state();
         let exit = self.builder.add_state();
@@ -61,7 +52,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         Fragment::new(entry, exit)
     }
 
-    /// Adds a path that matches `labels` from `entry` to `exit`.
     fn sequence(
         &mut self,
         labels: &[E::Label],
@@ -80,7 +70,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         self.builder.add_transition(previous, last.clone(), exit);
     }
 
-    /// Returns a fragment that matches the empty string.
     fn epsilon(&mut self) -> Fragment {
         let entry = self.builder.add_state();
         let exit = self.builder.add_state();
@@ -88,7 +77,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         Fragment::new(entry, exit)
     }
 
-    /// Returns a fragment that matches each part in sequence.
     fn concatenation(&mut self, parts: &[Expression]) -> Fragment {
         let mut result = None;
         for part in parts {
@@ -98,7 +86,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         result.unwrap_or_else(|| self.epsilon())
     }
 
-    /// Joins `next` after `prefix`, or starts a new concatenation at `next`.
     fn concatenate(&mut self, prefix: Option<Fragment>, next: Fragment) -> Fragment {
         let Some(prefix) = prefix else {
             return next;
@@ -108,7 +95,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         Fragment::new(prefix.entry(), next.exit())
     }
 
-    /// Returns a fragment that matches one of the branches.
     fn alternation(&mut self, branches: &[Expression]) -> Fragment {
         let entry = self.builder.add_state();
         let exit = self.builder.add_state();
@@ -120,7 +106,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         Fragment::new(entry, exit)
     }
 
-    /// Returns a fragment that matches `expression` zero or more times.
     fn star(&mut self, expression: &Expression) -> Fragment {
         let inner = self.fragment(expression);
         let entry = self.builder.add_state();
@@ -133,7 +118,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         Fragment::new(entry, exit)
     }
 
-    /// Returns a fragment that matches `expression` one or more times.
     fn plus(&mut self, expression: &Expression) -> Fragment {
         let inner = self.fragment(expression);
         let entry = self.builder.add_state();
@@ -145,7 +129,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         Fragment::new(entry, exit)
     }
 
-    /// Returns a fragment that matches `expression` zero times or one time.
     fn optional(&mut self, expression: &Expression) -> Fragment {
         let inner = self.fragment(expression);
         let entry = self.builder.add_state();
@@ -156,11 +139,6 @@ impl<'a, E: Encoding, A> Construction<'a, E, A> {
         Fragment::new(entry, exit)
     }
 
-    /// Returns a fragment for the permitted repetition counts.
-    ///
-    /// A counted repetition makes one fragment for each required count. It
-    /// adds an optional fragment for each count above the minimum. An open
-    /// upper bound adds one Kleene star fragment.
     fn repetition(&mut self, expression: &Expression, quantifier: Quantifier) -> Fragment {
         if quantifier == Quantifier::ZERO_OR_MORE {
             return self.star(expression);
@@ -201,7 +179,6 @@ mod tests {
     use crate::automata::encoding::{ByteRange, Utf8};
     use crate::automata::testing::Symbols;
 
-    /// An identity encoding from character sets to character labels.
     struct UnicodeScalars;
 
     impl Encoding for UnicodeScalars {
@@ -215,8 +192,6 @@ mod tests {
         }
     }
 
-    /// Builds an automaton that starts at the entry of the fragment of `node`
-    /// and accepts at its exit.
     fn built(node: &Expression) -> (Nfa<ByteRange>, Fragment) {
         let mut builder: Builder<ByteRange> = Builder::new();
         let part = fragment(node, &Utf8, &mut builder);
@@ -227,8 +202,6 @@ mod tests {
         (nfa, part)
     }
 
-    /// Returns the number of the bytes that `node` matches at the start of
-    /// `input`.
     fn matched(node: &Expression, input: &[u8]) -> Option<usize> {
         let (nfa, _) = built(node);
         let start = 0;
@@ -238,8 +211,6 @@ mod tests {
             .map(|found| found.length)
     }
 
-    /// Returns the number of the bytes that `pattern` matches at the start of
-    /// `input`.
     fn scan(pattern: &str, input: &str) -> Option<usize> {
         let node: Expression = pattern.parse().expect("the pattern is valid");
         matched(&node, input.as_bytes())
@@ -277,7 +248,6 @@ mod tests {
         assert_eq!(nfa.accept(part.exit()), Some(&"identifier"));
     }
 
-    /// Returns the number of the epsilon transitions in the whole automaton.
     fn epsilon_count(nfa: &Nfa<ByteRange>) -> usize {
         (0..nfa.state_count())
             .map(|index| nfa.epsilon_targets(StateId::new(index)).len())

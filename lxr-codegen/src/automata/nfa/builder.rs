@@ -4,31 +4,22 @@ use crate::automata::error::BuildError;
 use crate::automata::id::StateId;
 use crate::automata::table::StateTableBuilder;
 
-/// A [`Nfa`] that is not complete.
+/// Collects states for an [`Nfa`].
 ///
-/// Add a state with [`add_state`](Self::add_state), then add its transitions,
-/// epsilon transitions, and accept value. A transition can point at a state
-/// that comes later.
-///
-/// Build the automaton with [`build`](Self::build).
-///
-/// An added state past [`StateId::CAPACITY`] records a [`BuildError`]. Each
-/// later mutation does nothing, so a caller needs no check after each state.
+/// A transition target can refer to a state that the caller adds later.
 #[derive(Debug)]
-pub struct Builder<L, A = ()> {
+pub(crate) struct Builder<L, A = ()> {
     table: StateTableBuilder<L, A>,
     epsilons: AdjacencyListBuilder<StateId>,
 }
 
 impl<L, A> Builder<L, A> {
-    /// Creates a `Builder` that holds no state.
-    pub fn new() -> Self {
+    /// Creates an empty builder.
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    /// Creates a `Builder` that holds at most `capacity` states.
-    ///
-    /// The tests need a capacity below [`StateId::CAPACITY`].
+    /// Creates a builder with the given state capacity.
     #[cfg(test)]
     pub(super) fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -37,43 +28,33 @@ impl<L, A> Builder<L, A> {
         }
     }
 
-    /// Returns the number of the states that the builder holds.
-    ///
-    /// A caller that builds one part after another reads this before the part and after it. The
-    /// two numbers then give the states of that part, because
-    /// [`add_state`](Self::add_state) adds each state at the end.
-    pub fn state_count(&self) -> usize {
+    /// Returns the current state count.
+    pub(crate) fn state_count(&self) -> usize {
         self.table.state_count()
     }
 
-    /// Adds a state to the automaton, then returns its identifier.
+    /// Adds a state and returns its identifier.
     ///
-    /// The state has no transition, no epsilon transition, and no accept.
-    ///
-    /// An addition past the capacity returns a placeholder identifier.
-    pub fn add_state(&mut self) -> StateId {
+    /// An addition past the capacity records an error and returns a placeholder.
+    pub(crate) fn add_state(&mut self) -> StateId {
         self.table.add_state()
     }
 
-    /// Adds a transition from `from` to `to` for each symbol that `label` matches.
-    ///
-    /// `to` can be a state that you add later. [`build`](Self::build) checks each target.
+    /// Adds a transition from `from` to `to`.
     ///
     /// # Panics
     ///
     /// This function panics if `from` is not in the builder.
-    pub fn add_transition(&mut self, from: StateId, label: L, to: StateId) {
+    pub(crate) fn add_transition(&mut self, from: StateId, label: L, to: StateId) {
         self.table.add_transition(from, label, to);
     }
 
-    /// Adds a transition from `from` to `to` that reads no symbol.
-    ///
-    /// `to` can be a state that you add later. [`build`](Self::build) checks each target.
+    /// Adds an epsilon transition from `from` to `to`.
     ///
     /// # Panics
     ///
     /// This function panics if `from` is not in the builder.
-    pub fn add_epsilon_transition(&mut self, from: StateId, to: StateId) {
+    pub(crate) fn add_epsilon_transition(&mut self, from: StateId, to: StateId) {
         if self.table.has_error() {
             return;
         }
@@ -85,43 +66,25 @@ impl<L, A> Builder<L, A> {
         self.epsilons.add(from, to);
     }
 
-    /// Sets the accept value of `state`, then returns its prior value.
-    ///
-    /// The builder stores the value without interpreting it.
+    /// Sets the accept value and returns the prior value.
     ///
     /// # Panics
     ///
     /// This function panics if `state` is not in the builder.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::automata::encoding::ByteRange;
-    /// use lxr_codegen::automata::nfa::Builder;
-    ///
-    /// let mut builder = Builder::<ByteRange, &str>::new();
-    /// let state = builder.add_state();
-    ///
-    /// assert_eq!(builder.set_accept(state, "identifier"), None);
-    /// assert_eq!(builder.set_accept(state, "keyword"), Some("identifier"));
-    /// ```
-    pub fn set_accept(&mut self, state: StateId, accept: A) -> Option<A> {
+    pub(crate) fn set_accept(&mut self, state: StateId, accept: A) -> Option<A> {
         self.table.set_accept(state, accept)
     }
 
-    /// Builds a [`Nfa`] that has one start state for each identifier
-    /// in `starts`.
+    /// Builds an NFA with `starts` as its start states.
     ///
     /// # Errors
     ///
-    /// This function returns a [`BuildError`] if the states, the transitions, or the epsilon
-    /// transitions went past a capacity.
+    /// This function returns a [`BuildError`] if a capacity was exceeded.
     ///
     /// # Panics
     ///
-    /// This function panics if `starts` is empty, if a start state is not in the builder, or if
-    /// the target of a transition is not in the builder.
-    pub fn build(self, starts: &[StateId]) -> Result<Nfa<L, A>, BuildError> {
+    /// This function panics if `starts` is empty or an identifier is invalid.
+    pub(crate) fn build(self, starts: &[StateId]) -> Result<Nfa<L, A>, BuildError> {
         let count = self.table.state_count();
         let table = self.table.build(starts)?;
         let epsilons = self.epsilons.build(count)?;
@@ -131,7 +94,6 @@ impl<L, A> Builder<L, A> {
 }
 
 impl<L, A> Default for Builder<L, A> {
-    /// Creates a `Builder` that holds no state.
     fn default() -> Self {
         Self {
             table: StateTableBuilder::new(),
@@ -141,28 +103,12 @@ impl<L, A> Default for Builder<L, A> {
 }
 
 impl<L> Builder<L> {
-    /// Makes `state` accept with the unit value.
-    ///
-    /// A second call at the same state changes nothing.
+    /// Marks `state` as an accept state.
     ///
     /// # Panics
     ///
     /// This function panics if `state` is not in the builder.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::automata::encoding::ByteRange;
-    /// use lxr_codegen::automata::nfa::Builder;
-    ///
-    /// let mut builder = Builder::<ByteRange>::new();
-    /// let state = builder.add_state();
-    /// builder.mark_accept(state);
-    /// let nfa = builder.build(&[state]).unwrap();
-    ///
-    /// assert!(nfa.accepts(state));
-    /// ```
-    pub fn mark_accept(&mut self, state: StateId) {
+    pub(crate) fn mark_accept(&mut self, state: StateId) {
         let _ = self.set_accept(state, ());
     }
 }

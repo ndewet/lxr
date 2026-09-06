@@ -1,11 +1,8 @@
 use super::{BuildError, StateId};
 
-/// A compact adjacency list with one group of edges for each state.
+/// Stores one group of edges for each state.
 ///
-/// The list keeps all edges in one vector and one offset for each state.
-/// Thus the outgoing edges of a state form a slice and require no allocation.
-///
-/// To make an `AdjacencyList`, use an [`AdjacencyListBuilder`].
+/// Each group is a slice in one shared edge allocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AdjacencyList<T> {
     offsets: Vec<u32>,
@@ -13,10 +10,6 @@ pub(crate) struct AdjacencyList<T> {
 }
 
 impl<T> AdjacencyList<T> {
-    /// Creates an `AdjacencyList` from state offsets and edges.
-    ///
-    /// The offsets hold one more value than the state count. The last value is
-    /// the edge count. The values ascend.
     fn new(offsets: Vec<u32>, edges: Vec<T>) -> Self {
         debug_assert!(
             offsets.last() == Some(&(edges.len() as u32)),
@@ -37,7 +30,7 @@ impl<T> AdjacencyList<T> {
         self.offsets.len() - 1
     }
 
-    /// Returns all edges, with the edges of the first state first.
+    /// Returns all edges in state sequence.
     #[cfg(test)]
     pub(crate) fn edges(&self) -> &[T] {
         &self.edges
@@ -45,7 +38,6 @@ impl<T> AdjacencyList<T> {
 }
 
 impl<T> Default for AdjacencyList<T> {
-    /// Creates an `AdjacencyList` that holds no state and no edge.
     fn default() -> Self {
         Self {
             offsets: vec![0],
@@ -54,9 +46,7 @@ impl<T> Default for AdjacencyList<T> {
     }
 }
 
-/// An [`AdjacencyList`] that is not complete.
-///
-/// Add edges in any sequence, then build the list with [`build`](Self::build).
+/// Collects edges before it builds an [`AdjacencyList`].
 #[derive(Debug)]
 pub(crate) struct AdjacencyListBuilder<T> {
     edges: Vec<(StateId, T)>,
@@ -64,19 +54,14 @@ pub(crate) struct AdjacencyListBuilder<T> {
 }
 
 impl<T> AdjacencyListBuilder<T> {
-    /// The maximum number of edges that an [`AdjacencyList`] holds.
-    ///
-    /// The last offset is the number of edges, and an offset is a `u32`.
+    /// The maximum number of stored edges.
     pub(crate) const CAPACITY: usize = u32::MAX as usize;
 
-    /// Creates an `AdjacencyListBuilder` that holds no edge.
+    /// Creates an empty builder.
     pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    /// Creates an `AdjacencyListBuilder` that holds at most `capacity` edges.
-    ///
-    /// The tests need a capacity below [`CAPACITY`](Self::CAPACITY).
     fn with_capacity(capacity: usize) -> Self {
         Self {
             edges: Vec::new(),
@@ -84,24 +69,20 @@ impl<T> AdjacencyListBuilder<T> {
         }
     }
 
-    /// Adds `edge` to the outgoing edges of `state`.
-    ///
+    /// Adds an outgoing edge to `state`.
     pub(crate) fn add(&mut self, state: StateId, edge: T) {
         self.edges.push((state, edge));
     }
 
-    /// Builds an [`AdjacencyList`] of `state_count` states.
-    ///
-    /// The edges of one state stay in their insertion sequence.
+    /// Builds a list with `state_count` groups.
     ///
     /// # Errors
     ///
-    /// This function returns a [`BuildError`] if the builder holds more than
-    /// [`CAPACITY`](Self::CAPACITY) edges.
+    /// This function returns a [`BuildError`] if the edge count exceeds the capacity.
     ///
     /// # Panics
     ///
-    /// This function panics if the source of an edge is not below `state_count`.
+    /// This function panics if an edge source is outside the state range.
     pub(crate) fn build(self, state_count: usize) -> Result<AdjacencyList<T>, BuildError> {
         if self.edges.len() > self.capacity {
             return Err(BuildError::TooManyTransitions {
@@ -139,7 +120,6 @@ impl<T> AdjacencyListBuilder<T> {
 }
 
 impl<T> Default for AdjacencyListBuilder<T> {
-    /// Creates an `AdjacencyListBuilder` that holds no edge.
     fn default() -> Self {
         Self::with_capacity(Self::CAPACITY)
     }
@@ -149,12 +129,10 @@ impl<T> Default for AdjacencyListBuilder<T> {
 mod tests {
     use super::*;
 
-    /// An adjacency list of three groups, from the offsets and the items directly.
     fn list() -> AdjacencyList<u32> {
         AdjacencyList::new(vec![0, 1, 1, 4], vec![10, 20, 30, 40])
     }
 
-    /// An adjacency list of `groups` groups, from the group and the item of each entry.
     fn built(groups: usize, entries: &[(usize, u32)]) -> AdjacencyList<u32> {
         let mut builder = AdjacencyListBuilder::new();
         for &(group, item) in entries {

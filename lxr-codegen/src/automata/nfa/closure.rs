@@ -1,12 +1,12 @@
-//! Computes epsilon closures for NFA state sets.
+//! Computes NFA epsilon closures.
 
 use super::Nfa;
 use crate::automata::StateId;
 use crate::automata::state_set::StateSet;
 
-/// Writes the epsilon closure of `seeds` into `states`.
+/// Replaces `states` with the epsilon closure of `seeds`.
 ///
-/// The result is in ascending sequence. The set keeps each state one time.
+/// The result is sorted and contains no duplicates.
 ///
 /// # Panics
 ///

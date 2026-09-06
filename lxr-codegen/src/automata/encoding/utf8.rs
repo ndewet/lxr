@@ -1,20 +1,8 @@
-//! Represents a character set as UTF-8 byte sequences.
+//! Lowers character sets into UTF-8 byte sequences.
 //!
-//! The lexer reads bytes. A regular expression matches characters. Thus you
-//! must encode a [`Class`](crate::regex::Expression::Class) leaf as UTF-8
-//! encodings before Thompson construction makes the states.
-//!
-//! [`encode`] does that step. It makes an alternation of byte sequences from a
-//! [`CharSet`]. Construction reads each byte sequence as a chain of
-//! [`Transition`](crate::automata::Transition)s. A [`ByteRange`] is the label
-//! of one of them.
-//!
-//! This module lowers before determinization, and not after it. Thus the
-//! remainder of the pipeline reads only bytes, and the matcher does no
-//! decoding. An automaton of this form rejects an overlong encoding, an
-//! encoded surrogate, and a truncated character. It rejects them in the same
-//! manner as all other incorrect input. It never holds a part of a decoded
-//! character.
+//! Lowering occurs before determinization, so later stages process only bytes.
+//! The sequences exclude overlong encodings, surrogates, and truncated
+//! characters.
 
 use super::Encoding;
 use crate::automata::Label;
@@ -22,21 +10,15 @@ use crate::automata::label::LabelClass;
 use crate::automata::label::Partitionable;
 use crate::regex::CharSet;
 
-/// The maximum number of the bytes that a character encodes to.
 const MAX_LENGTH: usize = 4;
 
-/// The number of the payload bits in a continuation byte.
 const CONTINUATION_BITS: u32 = 6;
 
-/// The largest character that encodes to one, to two, and to three bytes.
 const MAX_BY_LENGTH: [u32; MAX_LENGTH - 1] = [0x7F, 0x7FF, 0xFFFF];
 
-/// UTF-8 encoding for an automaton that reads bytes.
-///
-/// The encoding maps each character set to the byte sequences for its
-/// characters. The automaton can then read bytes without decoding them.
+/// Lowers character sets for an automaton that reads UTF-8 bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Utf8;
+pub(crate) struct Utf8;
 
 impl Encoding for Utf8 {
     type Label = ByteRange;
@@ -47,15 +29,13 @@ impl Encoding for Utf8 {
     }
 }
 
-/// A range of bytes that matches one byte of an encoded character.
-///
-/// Both ends are in the range.
+/// Matches one inclusive range of bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ByteRange {
-    /// The lowest byte in the range.
-    pub low: u8,
-    /// The highest byte in the range.
-    pub high: u8,
+pub(crate) struct ByteRange {
+    /// The inclusive lower bound.
+    pub(crate) low: u8,
+    /// The inclusive upper bound.
+    pub(crate) high: u8,
 }
 
 impl ByteRange {
@@ -64,7 +44,7 @@ impl ByteRange {
     /// # Panics
     ///
     /// This function panics if `low` is above `high`.
-    pub fn new(low: u8, high: u8) -> Self {
+    pub(crate) fn new(low: u8, high: u8) -> Self {
         assert!(low <= high, "a byte range cannot start above its end");
         Self { low, high }
     }
@@ -107,33 +87,22 @@ impl Partitionable for ByteRange {
     }
 }
 
-/// The encodings of one range of characters, as one [`ByteRange`] for each
-/// byte.
+/// Matches one set of equal-length UTF-8 encodings.
 ///
-/// A sequence of `n` ranges matches only the byte strings of `n` bytes whose
-/// byte `i` is in range `i`. Each of those byte strings is the encoding of a
-/// character in the range of characters. The two sets are equal, because the
-/// [`encode`] function selects the range of characters for that result.
+/// Each position has one [`ByteRange`]. Their product contains only valid
+/// encodings from the source character set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ByteSequence {
+pub(crate) struct ByteSequence {
     ranges: [ByteRange; MAX_LENGTH],
     length: usize,
 }
 
 impl ByteSequence {
-    /// Returns one byte range for each byte of the encoding, the first byte
-    /// first.
-    pub fn ranges(&self) -> &[ByteRange] {
+    /// Returns the byte ranges in input sequence.
+    pub(crate) fn ranges(&self) -> &[ByteRange] {
         &self.ranges[..self.length]
     }
 
-    /// Creates a `ByteSequence` from one byte range for each byte of the
-    /// encoding.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if `ranges` is empty. It also panics if `ranges`
-    /// holds more than [`MAX_LENGTH`] ranges.
     fn new(ranges: &[ByteRange]) -> Self {
         assert!(
             (1..=MAX_LENGTH).contains(&ranges.len()),
@@ -155,14 +124,11 @@ impl AsRef<[ByteRange]> for ByteSequence {
     }
 }
 
-/// Encodes `set` to the byte sequences that encode its characters.
+/// Lowers `set` into disjoint UTF-8 byte sequences.
 ///
-/// The sequences are disjoint and in ascending sequence. Only one sequence
-/// matches each character in `set`. The sequences match no other byte string.
-///
-/// A set that holds no characters encodes to no sequences. That result is the
-/// alternation that matches nothing.
-pub fn encode(set: &CharSet) -> Vec<ByteSequence> {
+/// The sequences match exactly the characters in `set`. An empty set produces
+/// no sequence.
+pub(crate) fn encode(set: &CharSet) -> Vec<ByteSequence> {
     let mut sequences = Vec::new();
     for (low, high) in set.ranges() {
         encode_range(low as u32, high as u32, &mut sequences);
@@ -170,20 +136,13 @@ pub fn encode(set: &CharSet) -> Vec<ByteSequence> {
     sequences
 }
 
-/// Adds the sequences that encode the characters from `low` to `high` to
-/// `out`.
-///
-/// The function splits the range until the encodings of each part make one
-/// sequence. Thus the recursion goes down a maximum of one split for each byte
-/// of the encoding.
 fn encode_range(low: u32, high: u32, out: &mut Vec<ByteSequence>) {
     if low > high {
         return;
     }
 
-    // Characters of different encoded lengths have no byte string in common.
-    // Thus split the range where the encoding gets one more byte. After this
-    // loop, both ends encode to the same number of bytes.
+    // Encodings with different lengths are disjoint. Split the range where
+    // its encoded length changes.
     for &max in &MAX_BY_LENGTH {
         if low <= max && max < high {
             encode_range(low, max, out);
@@ -198,14 +157,8 @@ fn encode_range(low: u32, high: u32, out: &mut Vec<ByteSequence>) {
         return;
     }
 
-    // In a sequence, each byte moves through its own range independently. Thus
-    // a sequence is equal to the character range only if the trailing bytes
-    // move through all of their values. `mask` covers the payload bits of the
-    // last `trailing` bytes. The range obeys this condition if it starts with
-    // those bits clear and ends with those bits set. If the range does not
-    // obey the condition, split it at the first value that does. Cut a low end
-    // that starts in the middle of a block at the end of that block. Cut a
-    // high end that stops in the middle of a block at the start of that block.
+    // A sequence forms the product of its byte ranges. Split partial trailing
+    // byte blocks so that the product matches the character range exactly.
     for trailing in 1..length as u32 {
         let mask = (1 << (CONTINUATION_BITS * trailing)) - 1;
         if low & !mask == high & !mask {
@@ -233,7 +186,6 @@ fn encode_range(low: u32, high: u32, out: &mut Vec<ByteSequence>) {
     out.push(ByteSequence::new(&ranges[..length]));
 }
 
-/// Returns the number of the bytes that `codepoint` encodes to.
 fn encoded_length(codepoint: u32) -> usize {
     MAX_BY_LENGTH
         .iter()
@@ -241,10 +193,6 @@ fn encoded_length(codepoint: u32) -> usize {
         .map_or(MAX_LENGTH, |index| index + 1)
 }
 
-/// Returns the encoding of `codepoint`, with zeroes after the last byte.
-///
-/// `codepoint` is always a character, because a [`CharSet`] holds only
-/// characters and a split gives only the values that the range held.
 fn encode_scalar(codepoint: u32) -> [u8; MAX_LENGTH] {
     let character = char::from_u32(codepoint).expect("a character range holds only characters");
     let mut bytes = [0; MAX_LENGTH];
@@ -256,8 +204,6 @@ fn encode_scalar(codepoint: u32) -> [u8; MAX_LENGTH] {
 mod tests {
     use super::*;
 
-    /// The number of the characters. This is each codepoint but the
-    /// surrogates.
     const CHARACTERS: u64 = 0x11_0000 - 0x800;
 
     fn byte_range(low: u8, high: u8) -> ByteRange {
@@ -501,7 +447,6 @@ mod tests {
         matches(sequences, character.to_string().as_bytes())
     }
 
-    /// Returns the number of the byte strings that `sequences` matches.
     fn matched_strings(sequences: &[ByteSequence]) -> u64 {
         sequences
             .iter()
@@ -587,8 +532,6 @@ mod tests {
 
     #[test]
     fn a_range_ending_mid_block_splits_off_the_partial_block() {
-        // U+0100 to U+01FF fills the trailing byte of each of its leading
-        // bytes. U+0200 leaves the trailing byte at its first value.
         assert_eq!(
             encode(&CharSet::range('\u{100}', '\u{200}')),
             vec![
@@ -636,10 +579,7 @@ mod tests {
 
     #[test]
     fn nothing_but_a_character_is_matched() {
-        // The sequences match each character one time. Thus, if they match no
-        // more strings than the number of the characters, they match nothing
-        // else. They match no overlong encoding, no encoded surrogate, no
-        // truncated character, and no unwanted byte.
+        // Equal counts prove that the sequences match no extra byte string.
         assert_eq!(matched_strings(&encode(&CharSet::any())), CHARACTERS);
     }
 

@@ -1,22 +1,20 @@
 use super::{Execution, Nfa};
 use crate::automata::{Label, StateId};
 
-/// A match that [`Matcher::longest_match`] found.
+/// Holds a selected accept value and its matched length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Match<T> {
-    /// The value that `select` gave for the states at the end of the match.
-    pub accept: T,
+pub(crate) struct Match<T> {
+    /// The selected accept value.
+    pub(crate) accept: T,
     /// The number of symbols in the match.
-    pub length: usize,
+    pub(crate) length: usize,
 }
 
 /// Finds longest matches with an NFA execution.
 ///
-/// The matcher adds the longest-match policy to [`Execution`]. It remembers
-/// the last state set that accepts while it reads the input. It reuses the
-/// execution buffers for each token.
+/// The matcher reuses one [`Execution`] between scans.
 #[derive(Debug)]
-pub struct Matcher<'a, L, A = ()> {
+pub(crate) struct Matcher<'a, L, A = ()> {
     execution: Execution<'a, L, A>,
 }
 
@@ -28,42 +26,15 @@ impl<'a, L: Label, A> Matcher<'a, L, A> {
         }
     }
 
-    /// Returns the longest match at the start of `input` under `start`.
+    /// Returns the longest match at the start of `input`.
     ///
-    /// `select` resolves the accept values of the states at the end of a
-    /// match. The function calls `select` only at a position that accepts.
-    ///
-    /// A start state that accepts gives a match of zero length. A lexer must
-    /// reject such a rule or otherwise guarantee forward progress.
-    /// Only the rules reachable from the selected start state take part.
+    /// `start` selects a start state. `select` resolves the accept values when
+    /// multiple active states accept.
     ///
     /// # Panics
     ///
     /// This function panics if `start` is not a start state of the NFA.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::automata::encoding::ByteRange;
-    /// use lxr_codegen::automata::nfa::Builder;
-    ///
-    /// let mut builder = Builder::<ByteRange>::new();
-    /// let start = builder.add_state();
-    /// let accept = builder.add_state();
-    /// builder.add_transition(
-    ///     start,
-    ///     ByteRange::new(b'a', b'a'),
-    ///     accept,
-    /// );
-    /// builder.mark_accept(accept);
-    /// let nfa = builder.build(&[start]).unwrap();
-    /// let mut matcher = nfa.matcher();
-    ///
-    /// let found = matcher.longest_match(0, b"ab", |_| "a").unwrap();
-    /// assert_eq!(found.accept, "a");
-    /// assert_eq!(found.length, 1);
-    /// ```
-    pub fn longest_match<T>(
+    pub(crate) fn longest_match<T>(
         &mut self,
         start: usize,
         input: &[L::Symbol],
@@ -96,10 +67,6 @@ mod tests {
     use crate::automata::nfa::Builder;
     use crate::automata::testing::{Symbols, builder, literal, only, star};
 
-    /// The accept of each state, in the manner of a lexer table.
-    ///
-    /// The automaton says which states accept. This table says what each accept means, and the
-    /// lowest accept wins a tie.
     fn accepts(count: usize, marks: &[(StateId, u32)]) -> Vec<Option<u32>> {
         let mut table = vec![None; count];
         for &(state, accept) in marks {
@@ -108,14 +75,10 @@ mod tests {
         table
     }
 
-    /// Returns the longest match at the start of `input` under the first start, with the lowest
-    /// accept of the table.
     fn scan(nfa: &Nfa<Symbols>, table: &[Option<u32>], input: &str) -> Option<Match<u32>> {
         scan_under(nfa, table, 0, input)
     }
 
-    /// Returns the longest match at the start of `input` under `start`, with the lowest accept of
-    /// the table.
     fn scan_under(
         nfa: &Nfa<Symbols>,
         table: &[Option<u32>],
@@ -127,10 +90,6 @@ mod tests {
             .longest_match(start, &symbols, |states| lowest(table, states))
     }
 
-    /// Builds an automaton of one rule for each word, and the table of their accepts.
-    ///
-    /// Each word gets its own start state, at the index of the word. The rule of a word accepts
-    /// that index. Thus a scan under one start reads only the word of that start.
     fn conditions(words: &[&str]) -> (Nfa<Symbols>, Vec<Option<u32>>) {
         let mut builder = builder();
         let paths: Vec<_> = words
@@ -151,7 +110,6 @@ mod tests {
         (nfa, table)
     }
 
-    /// Returns the lowest accept of the states in `states`.
     fn lowest(table: &[Option<u32>], states: &[StateId]) -> u32 {
         states
             .iter()
@@ -164,10 +122,6 @@ mod tests {
         Some(Match { accept, length })
     }
 
-    /// Builds an automaton of two rules, and the table of their accepts.
-    ///
-    /// The first rule matches `first` and accepts 0. The second rule matches `second` and accepts
-    /// 1. Thus the first rule wins a tie.
     fn alternation(first: &str, second: &str) -> (Nfa<Symbols>, Vec<Option<u32>>) {
         let mut builder = Builder::new();
         let left = literal(&mut builder, first);

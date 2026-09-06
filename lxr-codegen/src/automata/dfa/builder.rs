@@ -3,24 +3,23 @@ use crate::automata::label::Partitionable;
 use crate::automata::table::StateTableBuilder;
 use crate::automata::{BuildError, StateId};
 
-/// A [`Dfa`] that is not complete.
+/// Collects states for a [`Dfa`].
 ///
-/// Add states, transitions, and accept values. Each group of outgoing labels
-/// must be disjoint.
+/// Outgoing labels from one state must be disjoint.
 #[derive(Debug)]
 pub(crate) struct Builder<L, A = ()> {
     table: StateTableBuilder<L, A>,
 }
 
 impl<L, A> Builder<L, A> {
-    /// Creates a `Builder` that holds no state.
+    /// Creates an empty builder.
     pub(crate) fn new() -> Self {
         Self {
             table: StateTableBuilder::new(),
         }
     }
 
-    /// Creates a `Builder` that holds at most `capacity` states.
+    /// Creates a builder with the given state capacity.
     #[cfg(test)]
     pub(super) fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -28,17 +27,17 @@ impl<L, A> Builder<L, A> {
         }
     }
 
-    /// Returns the number of states that the builder holds.
+    /// Returns the current state count.
     pub(crate) fn state_count(&self) -> usize {
         self.table.state_count()
     }
 
-    /// Adds a state to the automaton, then returns its identifier.
+    /// Adds a state and returns its identifier.
     pub(crate) fn add_state(&mut self) -> StateId {
         self.table.add_state()
     }
 
-    /// Adds a labeled transition from `from` to `to`.
+    /// Adds a transition from `from` to `to`.
     ///
     /// # Panics
     ///
@@ -47,7 +46,7 @@ impl<L, A> Builder<L, A> {
         self.table.add_transition(from, label, to);
     }
 
-    /// Sets the accept value of `state`, then returns its prior value.
+    /// Sets the accept value and returns the prior value.
     ///
     /// # Panics
     ///
@@ -56,19 +55,16 @@ impl<L, A> Builder<L, A> {
         self.table.set_accept(state, accept)
     }
 
-    /// Builds a [`Dfa`] with the start states in `starts`.
+    /// Builds a DFA with `starts` as its start states.
     ///
     /// # Errors
     ///
-    /// This function returns a [`BuildError`] if the state or transition
-    /// storage went past its capacity.
+    /// This function returns a [`BuildError`] if a capacity was exceeded.
     ///
     /// # Panics
     ///
-    /// This function panics for each of these conditions:
-    ///
-    /// - A start state or transition target is invalid.
-    /// - Two outgoing labels from one state overlap.
+    /// This function panics if `starts` is empty or an identifier is invalid.
+    /// It also panics if two outgoing labels overlap.
     pub(crate) fn build(self, starts: &[StateId]) -> Result<Dfa<L, A>, BuildError>
     where
         L: Partitionable,
@@ -99,7 +95,7 @@ impl<L, A> Default for Builder<L, A> {
 }
 
 impl<L> Builder<L> {
-    /// Makes `state` accept with the unit value.
+    /// Marks `state` as an accept state.
     ///
     /// # Panics
     ///

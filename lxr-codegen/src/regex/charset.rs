@@ -3,25 +3,11 @@ const MAX_CODEPOINT: u32 = char::MAX as u32;
 const SURROGATE_LOW: u32 = 0xD800;
 const SURROGATE_HIGH: u32 = 0xDFFF;
 
-/// A set of characters.
+/// Stores a set of Unicode scalar values.
 ///
-/// The set holds `char` values. Thus it holds no surrogate. The set keeps its
-/// contents as disjoint ranges in ascending sequence. Each operation on the
-/// set keeps that form.
-///
-/// # Examples
-///
-/// ```
-/// use lxr_codegen::regex::CharSet;
-///
-/// let letters = CharSet::range('a', 'z');
-/// let vowels = CharSet::single('a').union(&CharSet::single('e'));
-/// let consonants = letters.subtract(&vowels);
-///
-/// assert_eq!(consonants.ranges().next(), Some(('b', 'd')));
-/// ```
+/// The ranges are disjoint, maximal, and ascending. They exclude surrogates.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CharSet {
+pub(crate) struct CharSet {
     ranges: Vec<CharRange>,
 }
 
@@ -32,30 +18,13 @@ struct CharRange {
 }
 
 impl CharSet {
-    /// Creates a `CharSet` that holds no characters.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// assert!(CharSet::empty().is_empty());
-    /// ```
-    pub fn empty() -> Self {
+    /// Creates an empty character set.
+    pub(crate) fn empty() -> Self {
         Self { ranges: Vec::new() }
     }
 
-    /// Creates a `CharSet` that holds `c` and no other character.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// let set = CharSet::single('x');
-    /// assert_eq!(set.ranges().collect::<Vec<_>>(), vec![('x', 'x')]);
-    /// ```
-    pub fn single(c: char) -> Self {
+    /// Creates a character set that contains only `c`.
+    pub(crate) fn single(c: char) -> Self {
         let codepoint = c as u32;
         Self {
             ranges: vec![CharRange {
@@ -65,25 +34,12 @@ impl CharSet {
         }
     }
 
-    /// Creates a `CharSet` that holds each character from `low` to `high`.
-    ///
-    /// Both ends are in the set.
+    /// Creates a character set with the inclusive range `low..=high`.
     ///
     /// # Panics
     ///
-    /// This function panics if `low` is above `high`. A range that comes from
-    /// a pattern goes through the parser, and the parser gives
-    /// [`ParseErrorKind::InvertedRange`](super::ParseErrorKind::InvertedRange).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// let digits = CharSet::range('0', '9');
-    /// assert_eq!(digits.ranges().collect::<Vec<_>>(), vec![('0', '9')]);
-    /// ```
-    pub fn range(low: char, high: char) -> Self {
+    /// This function panics if `low` is above `high`.
+    pub(crate) fn range(low: char, high: char) -> Self {
         assert!(
             low <= high,
             "a range from '{}' to '{}' has no high end at or above its low end",
@@ -96,24 +52,14 @@ impl CharSet {
         }])
     }
 
-    /// Returns the ranges that make the set, from the lowest to the highest.
+    /// Returns the character ranges in ascending sequence.
     ///
-    /// The ranges are disjoint and maximal. No two ranges overlap. Each range
-    /// is as wide as the set permits.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// let set = CharSet::single('a').union(&CharSet::single('b'));
-    /// assert_eq!(set.ranges().collect::<Vec<_>>(), vec![('a', 'b')]);
-    /// ```
+    /// Each range is inclusive, maximal, and disjoint.
     #[allow(
         clippy::missing_panics_doc,
         reason = "a bound is a `char`, thus `from_u32` always gives a value"
     )]
-    pub fn ranges(&self) -> impl Iterator<Item = (char, char)> + '_ {
+    pub(crate) fn ranges(&self) -> impl Iterator<Item = (char, char)> + '_ {
         self.ranges.iter().map(|range| {
             let low = char::from_u32(range.low).expect("a bound is never a surrogate");
             let high = char::from_u32(range.high).expect("a bound is never a surrogate");
@@ -121,40 +67,15 @@ impl CharSet {
         })
     }
 
-    /// Returns the set of the characters that are in `self` or in `other`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// let set = CharSet::range('a', 'c').union(&CharSet::range('x', 'z'));
-    /// assert_eq!(
-    ///     set.ranges().collect::<Vec<_>>(),
-    ///     vec![('a', 'c'), ('x', 'z')],
-    /// );
-    /// ```
-    pub fn union(&self, other: &Self) -> Self {
+    /// Returns the union of `self` and `other`.
+    pub(crate) fn union(&self, other: &Self) -> Self {
         let mut all = self.ranges.clone();
         all.extend_from_slice(&other.ranges);
         Self::from_ranges(all)
     }
 
-    /// Returns the set of the characters that are in `self` and not in
-    /// `other`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// let set = CharSet::range('a', 'e').subtract(&CharSet::single('c'));
-    /// assert_eq!(
-    ///     set.ranges().collect::<Vec<_>>(),
-    ///     vec![('a', 'b'), ('d', 'e')],
-    /// );
-    /// ```
-    pub fn subtract(&self, other: &Self) -> Self {
+    /// Returns the characters in `self` but not in `other`.
+    pub(crate) fn subtract(&self, other: &Self) -> Self {
         let mut remaining = Vec::new();
         for range in &self.ranges {
             let mut low = range.low;
@@ -183,32 +104,15 @@ impl CharSet {
         Self::from_ranges(remaining)
     }
 
-    /// Returns the set of the characters that are not in `self`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// let set = CharSet::any().negate();
-    /// assert!(set.is_empty());
-    /// ```
-    pub fn negate(&self) -> Self {
+    /// Returns the complement of `self` over all Unicode scalar values.
+    pub(crate) fn negate(&self) -> Self {
         Self::any().subtract(self)
     }
 
-    /// Creates a `CharSet` that holds each `char`.
+    /// Creates a character set that contains every Unicode scalar value.
     ///
-    /// The set holds two ranges, because the surrogates are not characters.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// assert_eq!(CharSet::any().ranges().count(), 2);
-    /// ```
-    pub fn any() -> Self {
+    /// The set has two ranges because it excludes surrogates.
+    pub(crate) fn any() -> Self {
         Self {
             ranges: vec![
                 CharRange {
@@ -223,73 +127,26 @@ impl CharSet {
         }
     }
 
-    /// Creates a `CharSet` that holds the characters `0` to `9`.
-    ///
-    /// This is the set that the escape `\d` matches.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// assert_eq!(CharSet::digits().ranges().collect::<Vec<_>>(), vec![('0', '9')]);
-    /// ```
-    pub fn digits() -> Self {
+    /// Creates the ASCII digit set for `\d`.
+    pub(crate) fn digits() -> Self {
         Self::range('0', '9')
     }
 
-    /// Creates a `CharSet` that holds the ASCII letters, the characters `0` to
-    /// `9`, and `_`.
-    ///
-    /// This is the set that the escape `\w` matches.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// assert_eq!(
-    ///     CharSet::word().ranges().collect::<Vec<_>>(),
-    ///     vec![('0', '9'), ('A', 'Z'), ('_', '_'), ('a', 'z')],
-    /// );
-    /// ```
-    pub fn word() -> Self {
+    /// Creates the ASCII letter, digit, and underscore set for `\w`.
+    pub(crate) fn word() -> Self {
         Self::digits()
             .union(&Self::range('a', 'z'))
             .union(&Self::range('A', 'Z'))
             .union(&Self::single('_'))
     }
 
-    /// Creates a `CharSet` that holds the space and the characters `\t` to
-    /// `\r`.
-    ///
-    /// This is the set that the escape `\s` matches.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// assert_eq!(
-    ///     CharSet::whitespace().ranges().collect::<Vec<_>>(),
-    ///     vec![('\t', '\r'), (' ', ' ')],
-    /// );
-    /// ```
-    pub fn whitespace() -> Self {
+    /// Creates the ASCII white-space set for `\s`.
+    pub(crate) fn whitespace() -> Self {
         Self::single(' ').union(&Self::range('\t', '\r'))
     }
 
-    /// Returns `true` if the set holds no characters.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::CharSet;
-    ///
-    /// assert!(CharSet::empty().is_empty());
-    /// assert!(!CharSet::single('a').is_empty());
-    /// ```
-    pub fn is_empty(&self) -> bool {
+    /// Returns whether the set is empty.
+    pub(crate) fn is_empty(&self) -> bool {
         self.ranges.is_empty()
     }
 
@@ -337,8 +194,7 @@ mod tests {
     use super::*;
 
     impl CharSet {
-        /// Returns `true` if the set holds `c`.
-        pub fn contains(&self, c: char) -> bool {
+        pub(in crate::regex) fn contains(&self, c: char) -> bool {
             let cp = c as u32;
             self.ranges
                 .binary_search_by(|range| {

@@ -8,6 +8,7 @@ use crate::regex::quantifier::Quantifier;
 const MAX_REPETITION: usize = 65535;
 const MAX_NESTING_DEPTH: usize = 250;
 
+/// Parses one lexer regex pattern.
 pub(crate) struct Parser<'a> {
     pattern: &'a str,
     cursor: Cursor<'a>,
@@ -15,6 +16,7 @@ pub(crate) struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// Creates a parser at the start of `pattern`.
     pub(crate) fn new(pattern: &'a str) -> Self {
         Self {
             pattern,
@@ -23,18 +25,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Returns an error that spans from `start` to the cursor.
-    ///
-    /// Use it when the parser read the construction at fault.
     fn spanned(&self, kind: Kind, start: usize) -> ParseError {
         kind.spanning(start..self.position().max(start))
     }
 
-    /// Returns an error that spans the one character at `start`.
-    ///
-    /// Use it when the parser did not read the character at fault, and when
-    /// only the first character of a construction is at fault. The end of the
-    /// pattern gives an empty span.
     fn at(&self, kind: Kind, start: usize) -> ParseError {
         let width = self.pattern[start..]
             .chars()
@@ -43,6 +37,11 @@ impl<'a> Parser<'a> {
         kind.spanning(start..start + width)
     }
 
+    /// Parses the complete pattern.
+    ///
+    /// # Errors
+    ///
+    /// This function returns a [`ParseError`] if the pattern is invalid or unsupported.
     pub(crate) fn parse(mut self) -> Result<Expression, ParseError> {
         let pattern = self.parse_alternation()?;
         match self.cursor.peek() {
@@ -77,7 +76,6 @@ impl<'a> Parser<'a> {
         Ok(atom.repeated(quantifier))
     }
 
-    /// Parses one quantifier at the cursor.
     fn parse_quantifier(&mut self) -> Result<Option<Quantifier>, ParseError> {
         Ok(match self.cursor.peek() {
             Some('*') => {
@@ -358,11 +356,6 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*;
 
-    /// Parses `pattern`, and keeps only the start of the span of an error.
-    ///
-    /// Each test below names the kind of the failure and the byte at which it
-    /// starts. `a_span_covers_the_construction_at_fault` names the whole span
-    /// of each kind.
     fn parse(pattern: &str) -> Result<Expression, ParseError> {
         Parser::new(pattern).parse().map_err(|error| {
             let start = error.span.start;

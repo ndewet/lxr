@@ -5,34 +5,22 @@ use crate::automata::id::StateId;
 use crate::automata::label::Label;
 use crate::automata::table::StateTable;
 
-/// A nondeterministic finite automaton.
+/// Stores a nondeterministic finite automaton.
 ///
-/// The automaton holds states, transitions with a label of type `L`, epsilon transitions, the
-/// states that accept, and one or more start states.
-///
-/// The automaton does not know the alphabet, and it does not interpret an
-/// accept value. The caller selects the label and accept types. A lexer, for
-/// example, uses a byte range as the label and a rule identifier as the accept.
-///
-/// The default accept type is `()`. It records only membership in the set of
-/// accepting states.
-///
-/// To make an `Nfa`, use a [`Builder`](super::Builder).
+/// An NFA permits overlapping labels and epsilon transitions. The accept type
+/// identifies lexer rules without defining their precedence.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Nfa<L, A = ()> {
+pub(crate) struct Nfa<L, A = ()> {
     table: StateTable<L, A>,
     epsilons: AdjacencyList<StateId>,
 }
 
 impl<L, A> Nfa<L, A> {
-    /// Creates an NFA from a state table and epsilon transitions.
+    /// Creates an NFA from its validated storage.
     ///
     /// # Panics
     ///
-    /// This function panics for each of these conditions:
-    ///
-    /// - The epsilon list does not have one group for each state.
-    /// - An epsilon-transition target is outside the table.
+    /// This function panics if the storage sizes differ or an epsilon target is invalid.
     pub(super) fn new(table: StateTable<L, A>, epsilons: AdjacencyList<StateId>) -> Self {
         let count = table.state_count();
         assert_eq!(
@@ -50,28 +38,28 @@ impl<L, A> Nfa<L, A> {
         Self { table, epsilons }
     }
 
-    /// Returns the targets of the epsilon transitions from `state`.
+    /// Returns the epsilon-transition targets from `state`.
     ///
     /// # Panics
     ///
     /// This function panics if `state` is not in the automaton.
-    pub fn epsilon_targets(&self, state: StateId) -> &[StateId] {
+    pub(crate) fn epsilon_targets(&self, state: StateId) -> &[StateId] {
         self.epsilons
             .get(state)
             .unwrap_or_else(|| state.outside(self.state_count()))
     }
 
     /// Returns the number of states in the automaton.
-    pub fn state_count(&self) -> usize {
+    pub(crate) fn state_count(&self) -> usize {
         self.table.state_count()
     }
 
-    /// Returns the labeled transitions that leave `state`.
+    /// Returns the transitions from `state`.
     ///
     /// # Panics
     ///
     /// This function panics if `state` is not in the automaton.
-    pub fn transitions(&self, state: StateId) -> &[Transition<L>] {
+    pub(crate) fn transitions(&self, state: StateId) -> &[Transition<L>] {
         self.table.transitions(state)
     }
 
@@ -80,7 +68,7 @@ impl<L, A> Nfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `state` is not in the automaton.
-    pub fn accepts(&self, state: StateId) -> bool {
+    pub(crate) fn accepts(&self, state: StateId) -> bool {
         self.table.accepts(state)
     }
 
@@ -89,26 +77,12 @@ impl<L, A> Nfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `state` is not in the automaton.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::automata::encoding::ByteRange;
-    /// use lxr_codegen::automata::nfa::Builder;
-    ///
-    /// let mut builder = Builder::<ByteRange, &str>::new();
-    /// let state = builder.add_state();
-    /// builder.set_accept(state, "identifier");
-    /// let nfa = builder.build(&[state]).unwrap();
-    ///
-    /// assert_eq!(nfa.accept(state), Some(&"identifier"));
-    /// ```
-    pub fn accept(&self, state: StateId) -> Option<&A> {
+    pub(crate) fn accept(&self, state: StateId) -> Option<&A> {
         self.table.accept(state)
     }
 
-    /// Returns the start states in their declared sequence.
-    pub fn start_states(&self) -> &[StateId] {
+    /// Returns the start states in declaration sequence.
+    pub(crate) fn start_states(&self) -> &[StateId] {
         self.table.start_states()
     }
 
@@ -117,25 +91,21 @@ impl<L, A> Nfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `index` is outside the start states.
-    pub fn start_state(&self, index: usize) -> StateId {
+    pub(crate) fn start_state(&self, index: usize) -> StateId {
         self.table.start_state(index)
     }
 }
 
 impl<L: Label, A> Nfa<L, A> {
-    /// Reads `symbol` at each state in `states`, then returns each state that the automaton goes
-    /// to.
+    /// Returns each target reached from `states` with `symbol`.
     ///
-    /// The function does not follow epsilon transitions. [`Execution::step`]
-    /// follows the epsilon closure after each symbol.
-    ///
-    /// The result holds one state for each transition that matches, thus it can hold a duplicate.
+    /// This method does not follow epsilon transitions or remove duplicates.
     ///
     /// # Panics
     ///
-    /// The result panics at a state in `states` that is not in the automaton. The result is an
-    /// iterator, thus the panic comes when the caller reads that state.
-    pub fn step<'a>(
+    /// This function panics if `states` contains an invalid identifier.
+    /// The panic occurs when the caller reads the invalid state from the iterator.
+    pub(crate) fn step<'a>(
         &'a self,
         states: &'a [StateId],
         symbol: L::Symbol,
@@ -148,41 +118,13 @@ impl<L: Label, A> Nfa<L, A> {
         })
     }
 
-    /// Creates an execution of this automaton in no state.
-    ///
-    /// The automaton is read only. An [`Execution`] holds one epsilon-closed
-    /// state set and moves it one symbol at a time.
-    pub fn execution(&self) -> Execution<'_, L, A> {
+    /// Creates an empty [`Execution`] for this NFA.
+    pub(crate) fn execution(&self) -> Execution<'_, L, A> {
         Execution::new(self)
     }
 
-    /// Creates a reusable longest-match scanner for this automaton.
-    ///
-    /// A [`Matcher`] applies the longest-match policy to an [`Execution`]. It
-    /// reuses the execution buffers between calls.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::automata::encoding::ByteRange;
-    /// use lxr_codegen::automata::nfa::Builder;
-    ///
-    /// let mut builder = Builder::<ByteRange>::new();
-    /// let start = builder.add_state();
-    /// let accept = builder.add_state();
-    /// builder.add_transition(
-    ///     start,
-    ///     ByteRange::new(b'a', b'a'),
-    ///     accept,
-    /// );
-    /// builder.mark_accept(accept);
-    /// let nfa = builder.build(&[start]).unwrap();
-    ///
-    /// let found = nfa.matcher().longest_match(0, b"ab", |_| "a").unwrap();
-    /// assert_eq!(found.accept, "a");
-    /// assert_eq!(found.length, 1);
-    /// ```
-    pub fn matcher(&self) -> Matcher<'_, L, A> {
+    /// Creates a reusable longest-match [`Matcher`].
+    pub(crate) fn matcher(&self) -> Matcher<'_, L, A> {
         Matcher::new(self)
     }
 }

@@ -1,14 +1,15 @@
-//! The front of a lexer generator: a regular expression, and the automaton of
-//! that expression.
+//! Builds lexer data for the lxr derive macro.
 //!
-//! [`regex`] parses a pattern into a syntax tree.
-//! [`automata`] holds finite automata, UTF-8 encoding, and Thompson
-//! construction. The construction makes an NFA from a syntax tree.
+//! This crate parses lexer patterns and builds automata for generated matchers.
+//! Lexer authors use the derive API instead of this crate.
 //!
-//! A function that reads what a lexer author wrote gives a [`Result`]. A panic
-//! reports a defect in lxr.
+//! Functions return a [`Result`] for invalid lexer input. A panic reports a
+//! defect in lxr.
 
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
-pub mod automata;
-pub mod regex;
+// The derive entry point will use these modules when the emitter exists.
+#[allow(dead_code, unused_imports)]
+mod automata;
+#[allow(dead_code, unused_imports)]
+mod regex;

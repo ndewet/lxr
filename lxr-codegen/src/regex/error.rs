@@ -1,142 +1,96 @@
 use std::fmt::{Display, Formatter, Result};
 use std::ops::Range;
 
-/// A failure to parse a regular expression.
-///
-/// The error gives the kind of the failure, and the part of the pattern at
-/// fault. [`ParseErrorKind::help`] gives the correction.
-///
-/// # Examples
-///
-/// ```
-/// use lxr_codegen::regex::Expression;
-///
-/// let pattern = "[z-a]";
-/// let error = pattern.parse::<Expression>().unwrap_err();
-///
-/// assert_eq!(&pattern[error.span.clone()], "z-a");
-/// assert_eq!(error.to_string(), "invalid range 'z-a' at position 1");
-/// ```
+/// Reports invalid or unsupported regex syntax.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct ParseError {
-    /// The bytes of the pattern at fault.
+pub(crate) struct ParseError {
+    /// The byte range at fault.
     ///
-    /// The range counts bytes, thus a caller can slice the pattern with it. A
-    /// failure at the end of the pattern gives an empty range.
-    pub span: Range<usize>,
+    /// A failure at the end of the pattern has an empty range.
+    pub(crate) span: Range<usize>,
     /// The kind of the failure.
-    pub kind: ParseErrorKind,
+    pub(crate) kind: ParseErrorKind,
 }
 
-/// The kind of failure that a [`ParseError`] reports.
+/// Identifies the cause of a [`ParseError`].
 ///
-/// A variant with the name `Unsupported...` shows a construction that this
-/// parser does not accept. Each other variant shows a fault in the pattern.
+/// An `Unsupported` variant identifies valid regex syntax that lxr does not support.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum ParseErrorKind {
+pub(crate) enum ParseErrorKind {
     /// The pattern stops before the expression is complete.
     UnexpectedEnd,
-    /// The pattern has a character that the parser cannot use at this
-    /// position.
+    /// A character is invalid at the current position.
     UnexpectedCharacter(char),
-    /// The parser needs one specific character. The pattern has a different
-    /// character, or the pattern stops.
+    /// A required character is missing or different.
     Expected {
-        /// The character that the parser needs.
+        /// The required character.
         wanted: char,
-        /// The character that the pattern has. The end of the pattern gives
-        /// `None`.
+        /// The found character, or `None` at the end.
         found: Option<char>,
     },
     /// A quantifier has no expression before it.
     NothingToRepeat(char),
     /// A quantifier comes immediately after another quantifier.
     RepeatedQuantifier(char),
-    /// A range in a character class has a low end above its high end.
+    /// A character range has its high end first.
     InvertedRange {
-        /// The low end of the range.
+        /// The requested low end.
         low: char,
-        /// The high end of the range.
+        /// The requested high end.
         high: char,
     },
-    /// A repetition has a minimum count above its maximum count.
+    /// A repetition has its maximum count first.
     InvertedRepetition {
-        /// The minimum count of the repetition.
+        /// The requested minimum.
         minimum: usize,
-        /// The maximum count of the repetition.
+        /// The requested maximum.
         maximum: usize,
     },
     /// A repetition count is too large.
     RepetitionTooLarge,
-    /// A group starts with `(`, but the pattern has no `)` for it.
+    /// A group has no closing `)`.
     UnclosedGroup,
-    /// The pattern has a `)` with no `(` before it.
+    /// A `)` has no opening `(`.
     UnmatchedCloseParenthesis,
-    /// A character class starts with `[`, but the pattern has no `]` for it.
+    /// A character class has no closing `]`.
     UnclosedClass,
-    /// A character class holds no characters, thus it matches nothing.
+    /// A character class matches no character.
     EmptyClass,
-    /// A class escape such as `\d` is an end of a range. An end of a range
-    /// must be one character.
+    /// A multi-character class escape is a range end.
     ClassEscapeInRange(char),
-    /// An escape sequence has a character that the parser does not know.
+    /// An escape sequence is unknown.
     UnknownEscape(char),
-    /// An escape gives a value that is not a character. A surrogate and a
-    /// value above `U+10FFFF` are not characters.
+    /// An escape names a surrogate or a value above `U+10FFFF`.
     InvalidCodePoint(u64),
-    /// The groups in the pattern nest deeper than the limit.
+    /// The group depth exceeds the parser limit.
     NestingTooDeep(usize),
-    /// The pattern has an anchor, for example `^` or `$`. This parser does not
-    /// support anchors.
+    /// The pattern contains an unsupported anchor.
     UnsupportedAnchor(char),
-    /// The pattern has a `(?` group, for example a non-capturing group. This
-    /// parser does not support these groups.
+    /// The pattern contains an unsupported `(?` group.
     UnsupportedGroup,
-    /// The pattern has a POSIX character class, for example `[:alpha:]`. This
-    /// parser does not support POSIX character classes.
+    /// The pattern contains an unsupported POSIX character class.
     UnsupportedPosixClass,
-    /// The pattern has an octal escape, for example `\101`. This parser does
-    /// not support octal escapes.
+    /// The pattern contains an unsupported octal escape.
     UnsupportedOctalEscape,
-    /// The pattern has a backreference, for example `\1`. This parser does not
-    /// support backreferences.
+    /// The pattern contains an unsupported backreference.
     UnsupportedBackreference,
 }
 
 impl ParseErrorKind {
-    /// Joins this kind to the bytes at fault, then gives the error.
+    /// Creates an error for `span`.
     pub(crate) fn spanning(self, span: Range<usize>) -> ParseError {
         ParseError { span, kind: self }
     }
 
-    /// Returns the error whose span starts and stops at `position`.
-    ///
-    /// The tests of the parser compare against an error of this shape, because
-    /// their `parse` helper keeps only the start of a span.
     #[cfg(test)]
     pub(crate) fn at(self, position: usize) -> ParseError {
         self.spanning(position..position)
     }
 
-    /// Returns the correction for this kind of failure.
-    ///
-    /// A caller shows the text under the message, in the manner of a note from
-    /// the compiler. A kind that has no correction to give returns `None`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr_codegen::regex::Expression;
-    ///
-    /// let error = "a{5,2}".parse::<Expression>().unwrap_err();
-    /// assert_eq!(
-    ///     error.kind.help(),
-    ///     Some("Write the minimum first, for example `{2,5}`."),
-    /// );
-    /// ```
-    pub fn help(&self) -> Option<&'static str> {
+    /// Returns a correction when lxr can suggest one.
+    pub(crate) fn help(&self) -> Option<&'static str> {
         Some(match self {
             Self::UnexpectedEnd | Self::UnexpectedCharacter(_) | Self::Expected { .. } => {
                 return None;

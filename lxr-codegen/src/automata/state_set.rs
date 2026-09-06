@@ -1,9 +1,9 @@
 use super::StateId;
 
-/// A set of states from one finite automaton.
+/// Stores a reusable set of states from one automaton.
 ///
-/// The set keeps its members in a vector and uses a membership table to make
-/// insertion constant time. It reuses both allocations after a clear.
+/// A membership table prevents duplicates. A vector preserves the current
+/// sequence.
 #[derive(Debug)]
 pub(crate) struct StateSet {
     members: Vec<StateId>,
@@ -19,7 +19,7 @@ impl StateSet {
         }
     }
 
-    /// Adds `state` to the set and reports whether it was new.
+    /// Inserts `state` and returns whether the state was new.
     ///
     /// # Panics
     ///
@@ -39,7 +39,7 @@ impl StateSet {
         true
     }
 
-    /// Removes all states and keeps the allocated storage.
+    /// Removes all states without releasing storage.
     pub(crate) fn clear(&mut self) {
         for state in self.members.drain(..) {
             self.membership[state.index()] = false;
@@ -61,7 +61,7 @@ impl StateSet {
         self.members.get(index).copied()
     }
 
-    /// Sorts the states by their identifiers.
+    /// Sorts the states by identifier.
     pub(crate) fn sort(&mut self) {
         self.members.sort_unstable();
     }
