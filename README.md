@@ -31,6 +31,15 @@ and `lxr-derive` is the derive macro that emits one.
 
 ## Build
 
+With Nix, enter the pinned development environment first:
+
+```
+nix develop
+```
+
+The shell provides stable Rust, Cargo, rustfmt, Clippy, rust-analyzer, and the
+Rust standard-library sources.
+
 ```
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
