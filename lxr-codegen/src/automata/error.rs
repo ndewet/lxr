@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 /// Capacity errors come from lexer input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub(crate) enum BuildError {
+pub enum BuildError {
     /// The state count exceeds the capacity.
     TooManyStates {
         /// The maximum state count.

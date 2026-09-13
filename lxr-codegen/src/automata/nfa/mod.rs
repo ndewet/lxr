@@ -12,7 +12,7 @@ mod closure;
 mod execution;
 mod fragment;
 mod matcher;
-mod thompson;
+pub(crate) mod thompson;
 
 pub(crate) use self::{
     automaton::Nfa,

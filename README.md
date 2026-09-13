@@ -1,8 +1,27 @@
 # lxr
 
-A lexer generator for Rust, written to learn the theory. The repository holds
-the front of that generator: a regular expression becomes a syntax tree, and
-the syntax tree becomes an automaton.
+A lexer generator for Rust, written to learn the theory. A regular expression
+becomes an automaton, and the derive macro emits a matcher for it.
+
+## Use
+
+```rust
+use lxr::Lexer;
+
+#[derive(Debug, PartialEq, Lexer)]
+enum Token {
+    #[lxr("[a-z]+")]
+    Identifier,
+    #[lxr("[0-9]+")]
+    Integer,
+}
+
+assert_eq!(Token::scan("name42"), Some((Token::Identifier, 4)));
+```
+
+Each unit variant has one `#[lxr("pattern")]` attribute. `scan` returns the
+longest matching prefix and its UTF-8 byte length; declaration order resolves
+equal-length matches.
 
 ## What is here
 
@@ -18,16 +37,13 @@ the syntax tree becomes an automaton.
 - `automata::encoding` maps character sets to UTF-8 byte-range sequences.
   Thompson construction maps those sequences to NFA paths.
 - `automata::dfa` holds deterministic automata. Its subset construction turns
-  a reachable NFA state set into each DFA state.
+  a reachable NFA state set into each DFA state, then minimization merges
+  equivalent states.
+- `lexer` models rules and start conditions. `emitter` renders a minimized
+  byte-oriented DFA as the matcher method used by the derive macro.
 
-`lxr` and `lxr-derive` hold no code. `lxr` is the runtime of a generated lexer,
-and `lxr-derive` is the derive macro that emits one.
-
-## What comes next
-
-1. The minimization. The states that read the same input become one state.
-2. The emitter. A deterministic automaton becomes the source of a matcher, and
-   the two empty crates get their code.
+`lxr` supplies the public `Lexer` trait and re-exports its derive macro.
+`lxr-derive` parses token variants and wires the full code-generation pipeline.
 
 ## Build
 

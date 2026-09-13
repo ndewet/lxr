@@ -12,7 +12,7 @@ mod parser;
 mod quantifier;
 
 pub(crate) use charset::CharSet;
-pub(crate) use error::{ParseError, ParseErrorKind};
+pub use error::{ParseError, ParseErrorKind};
 pub(crate) use expression::Expression;
 pub(crate) use quantifier::{Quantifier, QuantifierRangeError};
 use std::str::FromStr;

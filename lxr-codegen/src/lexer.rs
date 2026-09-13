@@ -4,67 +4,82 @@
 //! Automata retain [`RuleId`] values at accepting states; the associated
 //! pattern, action, and start-condition membership remain here.
 
-use crate::regex::Expression;
+use crate::automata::{BuildError, dfa, encoding::Utf8, nfa};
+use crate::emitter;
+use crate::regex::{Expression, ParseError};
 use proc_macro2::TokenStream;
 
 /// Identifies a rule in one [`Lexer`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct RuleId(usize);
+pub struct RuleId(usize);
 
 impl RuleId {
     /// Creates an identifier for the rule at `index`.
-    pub(crate) const fn new(index: usize) -> Self {
+    pub const fn new(index: usize) -> Self {
         Self(index)
     }
 
     /// Returns the rule's declaration index.
-    pub(crate) const fn index(self) -> usize {
+    pub const fn index(self) -> usize {
         self.0
     }
 }
 
 /// Identifies a start condition in one [`Lexer`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct StartConditionId(usize);
+pub struct StartConditionId(usize);
 
 impl StartConditionId {
     /// Creates an identifier for the start condition at `index`.
-    pub(crate) const fn new(index: usize) -> Self {
+    pub const fn new(index: usize) -> Self {
         Self(index)
     }
 
     /// Returns the start condition's declaration index.
-    pub(crate) const fn index(self) -> usize {
+    pub const fn index(self) -> usize {
         self.0
     }
 }
 
 /// A named lexer mode that selects one DFA start state.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct StartCondition {
+pub struct StartCondition {
     name: String,
 }
 
 impl StartCondition {
     /// Creates a start condition with its source-level name.
-    pub(crate) fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>) -> Self {
         Self { name: name.into() }
     }
 
     /// Returns the source-level name.
-    pub(crate) fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         &self.name
     }
 }
 
 /// One pattern and the Rust expression it produces when accepted.
-pub(crate) struct Rule {
+pub struct Rule {
     pattern: Expression,
     action: RuleAction,
     start_conditions: Vec<StartConditionId>,
 }
 
 impl Rule {
+    /// Parses a regex rule enabled in `start_conditions`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `pattern` is not valid lxr regex syntax.
+    pub fn parse(
+        pattern: &str,
+        action: RuleAction,
+        start_conditions: Vec<StartConditionId>,
+    ) -> Result<Self, ParseError> {
+        Ok(Self::new(pattern.parse()?, action, start_conditions))
+    }
+
     /// Creates a rule enabled in `start_conditions`.
     pub(crate) fn new(
         pattern: Expression,
@@ -79,6 +94,7 @@ impl Rule {
     }
 
     /// Returns the parsed regular expression.
+    #[cfg(test)]
     pub(crate) fn pattern(&self) -> &Expression {
         &self.pattern
     }
@@ -89,17 +105,18 @@ impl Rule {
     }
 
     /// Returns the start conditions in which this rule is enabled.
+    #[cfg(test)]
     pub(crate) fn start_conditions(&self) -> &[StartConditionId] {
         &self.start_conditions
     }
 }
 
 /// The generated expression returned when a rule wins a match.
-pub(crate) struct RuleAction(TokenStream);
+pub struct RuleAction(TokenStream);
 
 impl RuleAction {
     /// Creates an action from its generated Rust expression.
-    pub(crate) fn new(tokens: TokenStream) -> Self {
+    pub fn new(tokens: TokenStream) -> Self {
         Self(tokens)
     }
 
@@ -110,14 +127,14 @@ impl RuleAction {
 }
 
 /// All semantic input needed to construct and emit one lexer.
-pub(crate) struct Lexer {
+pub struct Lexer {
     rules: Vec<Rule>,
     start_conditions: Vec<StartCondition>,
 }
 
 impl Lexer {
     /// Creates a lexer from declaration-ordered rules and start conditions.
-    pub(crate) fn new(rules: Vec<Rule>, start_conditions: Vec<StartCondition>) -> Self {
+    pub fn new(rules: Vec<Rule>, start_conditions: Vec<StartCondition>) -> Self {
         Self {
             rules,
             start_conditions,
@@ -140,6 +157,7 @@ impl Lexer {
     }
 
     /// Returns the lexer rules in declaration order.
+    #[cfg(test)]
     pub(crate) fn rules(&self) -> &[Rule] {
         &self.rules
     }
@@ -149,6 +167,7 @@ impl Lexer {
     /// # Panics
     ///
     /// Panics if `id` is not a start condition in this lexer.
+    #[cfg(test)]
     pub(crate) fn start_condition(&self, id: StartConditionId) -> &StartCondition {
         self.start_conditions.get(id.index()).unwrap_or_else(|| {
             panic!(
@@ -160,8 +179,55 @@ impl Lexer {
     }
 
     /// Returns the start conditions in declaration order.
+    #[cfg(test)]
     pub(crate) fn start_conditions(&self) -> &[StartCondition] {
         &self.start_conditions
+    }
+
+    /// Builds, minimizes, and emits this lexer as one private matcher method.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the automaton exceeds its representable capacity.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a rule enables a start condition that this lexer does not
+    /// define.
+    pub fn emit(&self) -> Result<TokenStream, BuildError> {
+        let mut builder = nfa::Builder::new();
+        let starts: Vec<_> = self
+            .start_conditions
+            .iter()
+            .map(|_| builder.add_state())
+            .collect();
+
+        for (index, rule) in self.rules.iter().enumerate() {
+            let fragment = nfa::thompson::fragment(&rule.pattern, &Utf8, &mut builder);
+            for start_condition in &rule.start_conditions {
+                let start = starts.get(start_condition.index()).unwrap_or_else(|| {
+                    panic!(
+                        "rule {index} enables start condition {} outside a lexer with {} start conditions",
+                        start_condition.index(),
+                        starts.len()
+                    )
+                });
+                builder.add_epsilon_transition(*start, fragment.entry());
+            }
+            builder.set_accept(fragment.exit(), RuleId::new(index));
+        }
+
+        let nfa = builder.build(&starts)?;
+        let dfa = dfa::subset::construct(&nfa, |states| {
+            states
+                .iter()
+                .filter_map(|state| nfa.accept(*state).copied())
+                .min()
+                .expect("an accepting subset contains an accepting NFA state")
+        })?;
+        let dfa = dfa.minimize()?;
+
+        Ok(emitter::emit(&dfa, self))
     }
 }
 

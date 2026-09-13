@@ -10,7 +10,7 @@
 //! limits come from lexer input and return a [`BuildError`].
 
 pub(crate) mod encoding;
-mod nfa;
+pub(crate) mod nfa;
 
 mod adjacency;
 pub(crate) mod dfa;
@@ -23,4 +23,5 @@ mod table;
 mod testing;
 mod transition;
 
-pub(crate) use self::{error::BuildError, id::StateId, label::Label, transition::Transition};
+pub use self::error::BuildError;
+pub(crate) use self::{id::StateId, label::Label, transition::Transition};

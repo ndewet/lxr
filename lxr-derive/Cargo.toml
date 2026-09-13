@@ -6,5 +6,11 @@ edition.workspace = true
 [lib]
 proc-macro = true
 
+[dependencies]
+lxr-codegen = { path = "../lxr-codegen" }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["derive", "parsing"] }
+
 [lints]
 workspace = true

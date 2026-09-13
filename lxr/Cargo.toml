@@ -3,5 +3,8 @@ name = "lxr"
 version.workspace = true
 edition.workspace = true
 
+[dependencies]
+lxr-derive = { path = "../lxr-derive" }
+
 [lints]
 workspace = true

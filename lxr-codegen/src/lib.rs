@@ -13,7 +13,10 @@
 mod automata;
 #[allow(dead_code, unused_imports)]
 pub(crate) mod emitter;
-#[allow(dead_code)]
-mod lexer;
+pub mod lexer;
 #[allow(dead_code, unused_imports)]
-mod regex;
+pub mod regex;
+
+pub use automata::BuildError;
+pub use lexer::{Lexer, Rule, RuleAction, RuleId, StartCondition, StartConditionId};
+pub use regex::ParseError;
