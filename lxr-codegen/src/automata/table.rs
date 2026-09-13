@@ -92,6 +92,11 @@ impl<L, A> StateTable<L, A> {
             .as_ref()
     }
 
+    /// Consumes the table and returns its accept values by state identifier.
+    pub(crate) fn into_accepts(self) -> Vec<Option<A>> {
+        self.accepts
+    }
+
     /// Returns the start states in declaration sequence.
     pub(crate) fn start_states(&self) -> &[StateId] {
         &self.starts

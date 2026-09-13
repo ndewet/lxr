@@ -46,6 +46,11 @@ impl<L, A> Dfa<L, A> {
         self.table.accept(state)
     }
 
+    /// Consumes the DFA and returns its accept values by state identifier.
+    pub(super) fn into_accepts(self) -> Vec<Option<A>> {
+        self.table.into_accepts()
+    }
+
     /// Returns the start states in declaration sequence.
     pub(crate) fn start_states(&self) -> &[StateId] {
         self.table.start_states()

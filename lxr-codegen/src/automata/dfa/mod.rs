@@ -5,6 +5,7 @@
 
 mod automaton;
 mod builder;
+mod minimization;
 pub(crate) mod subset;
 
 pub(crate) use self::{automaton::Dfa, builder::Builder};
