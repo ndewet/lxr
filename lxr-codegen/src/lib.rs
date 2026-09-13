@@ -8,8 +8,12 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
-// The derive entry point will use these modules when the emitter exists.
+// The derive entry point will use these modules when the lexer pipeline exists.
 #[allow(dead_code, unused_imports)]
 mod automata;
+#[allow(dead_code, unused_imports)]
+pub(crate) mod emitter;
+#[allow(dead_code)]
+mod lexer;
 #[allow(dead_code, unused_imports)]
 mod regex;

@@ -9,7 +9,7 @@
 //! Invalid state identifiers report an lxr defect and cause a panic. Capacity
 //! limits come from lexer input and return a [`BuildError`].
 
-mod encoding;
+pub(crate) mod encoding;
 mod nfa;
 
 mod adjacency;
