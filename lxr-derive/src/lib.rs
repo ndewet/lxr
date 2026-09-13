@@ -2,7 +2,9 @@
 //!
 //! The macro reads token enums and emits their lexer implementations.
 
-use lxr_codegen::{Lexer, Rule, RuleAction, StartCondition, StartConditionId};
+#![deny(dead_code)]
+
+use lxr_codegen::{RuleSpec, compile};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Fields, LitStr, Result, parse_macro_input};
@@ -37,16 +39,10 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
         let pattern = rule_pattern(&variant.attrs, &variant.ident)?;
         let variant_ident = variant.ident;
-        let action = RuleAction::new(quote!(Self::#variant_ident));
-        let rule = Rule::parse(&pattern.value(), action, vec![StartConditionId::new(0)])
-            .map_err(|error| Error::new_spanned(pattern, error))?;
-        rules.push(rule);
+        rules.push(RuleSpec::new(pattern.value(), quote!(Self::#variant_ident)));
     }
 
-    let lexer = Lexer::new(rules, vec![StartCondition::new("INITIAL")]);
-    let matcher = lexer
-        .emit()
-        .map_err(|error| Error::new_spanned(input.ident.clone(), error))?;
+    let matcher = compile(rules).map_err(|error| Error::new_spanned(input.ident.clone(), error))?;
     let ident = input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
 

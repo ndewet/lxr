@@ -47,6 +47,7 @@ impl StateSet {
     }
 
     /// Returns `true` if the set has no state.
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.members.is_empty()
     }

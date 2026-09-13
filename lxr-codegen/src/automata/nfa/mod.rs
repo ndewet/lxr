@@ -9,17 +9,15 @@
 mod automaton;
 mod builder;
 mod closure;
+#[cfg(test)]
 mod execution;
 mod fragment;
+#[cfg(test)]
 mod matcher;
 pub(crate) mod thompson;
 
-pub(crate) use self::{
-    automaton::Nfa,
-    builder::Builder,
-    execution::Execution,
-    fragment::Fragment,
-    matcher::{Match, Matcher},
-};
+pub(crate) use self::{automaton::Nfa, builder::Builder};
+#[cfg(test)]
+pub(crate) use self::{execution::Execution, matcher::Matcher};
 
 pub(crate) use self::closure::epsilon_closure;

@@ -63,6 +63,7 @@ impl Quantifier {
     }
 
     /// Returns whether Thompson construction can use one operand fragment.
+    #[cfg(test)]
     pub(crate) const fn has_direct_construction(self) -> bool {
         matches!(
             (self.minimum, self.maximum),

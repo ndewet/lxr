@@ -23,5 +23,5 @@ mod table;
 mod testing;
 mod transition;
 
-pub use self::error::BuildError;
+pub(crate) use self::error::BuildError;
 pub(crate) use self::{id::StateId, label::Label, transition::Transition};

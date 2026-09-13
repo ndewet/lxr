@@ -4,7 +4,7 @@ use std::ops::Range;
 /// Reports invalid or unsupported regex syntax.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct ParseError {
+pub(crate) struct ParseError {
     /// The byte range at fault.
     ///
     /// A failure at the end of the pattern has an empty range.
@@ -18,7 +18,7 @@ pub struct ParseError {
 /// An `Unsupported` variant identifies valid regex syntax that lxr does not support.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum ParseErrorKind {
+pub(crate) enum ParseErrorKind {
     /// The pattern stops before the expression is complete.
     UnexpectedEnd,
     /// A character is invalid at the current position.
@@ -90,6 +90,7 @@ impl ParseErrorKind {
     }
 
     /// Returns a correction when lxr can suggest one.
+    #[cfg(test)]
     pub(crate) fn help(&self) -> Option<&'static str> {
         Some(match self {
             Self::UnexpectedEnd | Self::UnexpectedCharacter(_) | Self::Expected { .. } => {

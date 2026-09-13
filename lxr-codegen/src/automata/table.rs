@@ -76,6 +76,7 @@ impl<L, A> StateTable<L, A> {
     /// # Panics
     ///
     /// This function panics if `state` is outside the table.
+    #[cfg(test)]
     pub(crate) fn accepts(&self, state: StateId) -> bool {
         self.accept(state).is_some()
     }
@@ -107,6 +108,7 @@ impl<L, A> StateTable<L, A> {
     /// # Panics
     ///
     /// This function panics if `index` is outside the start states.
+    #[cfg(test)]
     pub(crate) fn start_state(&self, index: usize) -> StateId {
         *self.starts.get(index).unwrap_or_else(|| {
             panic!(

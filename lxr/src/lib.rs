@@ -3,6 +3,8 @@
 //! Derive [`Lexer`] for a unit enum and place one `#[lxr("pattern")]`
 //! attribute on each variant.
 
+#![deny(dead_code)]
+
 pub use lxr_derive::Lexer;
 
 /// Scans the longest prefix accepted by a generated lexer.

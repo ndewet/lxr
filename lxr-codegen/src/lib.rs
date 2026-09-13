@@ -7,16 +7,12 @@
 //! defect in lxr.
 
 #![cfg_attr(test, allow(clippy::unwrap_used))]
+#![deny(dead_code)]
 
 // The derive entry point will use these modules when the lexer pipeline exists.
-#[allow(dead_code, unused_imports)]
 mod automata;
-#[allow(dead_code, unused_imports)]
-pub(crate) mod emitter;
-pub mod lexer;
-#[allow(dead_code, unused_imports)]
-pub mod regex;
+mod emitter;
+mod lexer;
+mod regex;
 
-pub use automata::BuildError;
-pub use lexer::{Lexer, Rule, RuleAction, RuleId, StartCondition, StartConditionId};
-pub use regex::ParseError;
+pub use lexer::{CompileError, RuleSpec, compile};

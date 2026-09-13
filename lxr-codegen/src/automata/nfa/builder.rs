@@ -28,11 +28,6 @@ impl<L, A> Builder<L, A> {
         }
     }
 
-    /// Returns the current state count.
-    pub(crate) fn state_count(&self) -> usize {
-        self.table.state_count()
-    }
-
     /// Adds a state and returns its identifier.
     ///
     /// An addition past the capacity records an error and returns a placeholder.
@@ -102,6 +97,7 @@ impl<L, A> Default for Builder<L, A> {
     }
 }
 
+#[cfg(test)]
 impl<L> Builder<L> {
     /// Marks `state` as an accept state.
     ///

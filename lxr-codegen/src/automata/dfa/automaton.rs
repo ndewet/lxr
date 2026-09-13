@@ -1,4 +1,6 @@
-use crate::automata::{Label, StateId, Transition, table::StateTable};
+#[cfg(test)]
+use crate::automata::Label;
+use crate::automata::{StateId, Transition, table::StateTable};
 
 /// Stores a deterministic finite automaton.
 ///
@@ -33,6 +35,7 @@ impl<L, A> Dfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `state` is not in the DFA.
+    #[cfg(test)]
     pub(crate) fn accepts(&self, state: StateId) -> bool {
         self.table.accepts(state)
     }
@@ -61,11 +64,13 @@ impl<L, A> Dfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `index` is outside the start states.
+    #[cfg(test)]
     pub(crate) fn start_state(&self, index: usize) -> StateId {
         self.table.start_state(index)
     }
 }
 
+#[cfg(test)]
 impl<L: Label, A> Dfa<L, A> {
     /// Returns the target that matches `symbol`, or `None` for the dead state.
     ///

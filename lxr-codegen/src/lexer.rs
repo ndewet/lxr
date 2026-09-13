@@ -8,59 +8,101 @@ use crate::automata::{BuildError, dfa, encoding::Utf8, nfa};
 use crate::emitter;
 use crate::regex::{Expression, ParseError};
 use proc_macro2::TokenStream;
+use std::fmt::{Display, Formatter};
+
+/// One rule supplied to the code generator.
+pub struct RuleSpec {
+    pattern: String,
+    action: TokenStream,
+}
+impl RuleSpec {
+    /// Creates a rule from its regex pattern and generated Rust action.
+    pub fn new(pattern: impl Into<String>, action: TokenStream) -> Self {
+        Self {
+            pattern: pattern.into(),
+            action,
+        }
+    }
+}
+/// Reports a lexer compilation failure.
+#[derive(Debug)]
+pub struct CompileError {
+    message: String,
+}
+impl Display for CompileError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for CompileError {}
+impl From<ParseError> for CompileError {
+    fn from(error: ParseError) -> Self {
+        Self {
+            message: error.to_string(),
+        }
+    }
+}
+impl From<BuildError> for CompileError {
+    fn from(error: BuildError) -> Self {
+        Self {
+            message: error.to_string(),
+        }
+    }
+}
 
 /// Identifies a rule in one [`Lexer`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RuleId(usize);
+pub(crate) struct RuleId(usize);
 
 impl RuleId {
     /// Creates an identifier for the rule at `index`.
-    pub const fn new(index: usize) -> Self {
+    pub(crate) const fn new(index: usize) -> Self {
         Self(index)
     }
 
     /// Returns the rule's declaration index.
-    pub const fn index(self) -> usize {
+    pub(crate) const fn index(self) -> usize {
         self.0
     }
 }
 
 /// Identifies a start condition in one [`Lexer`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StartConditionId(usize);
+pub(crate) struct StartConditionId(usize);
 
 impl StartConditionId {
     /// Creates an identifier for the start condition at `index`.
-    pub const fn new(index: usize) -> Self {
+    pub(crate) const fn new(index: usize) -> Self {
         Self(index)
     }
 
     /// Returns the start condition's declaration index.
-    pub const fn index(self) -> usize {
+    pub(crate) const fn index(self) -> usize {
         self.0
     }
 }
 
 /// A named lexer mode that selects one DFA start state.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StartCondition {
+pub(crate) struct StartCondition {
     name: String,
 }
 
 impl StartCondition {
     /// Creates a start condition with its source-level name.
-    pub fn new(name: impl Into<String>) -> Self {
+    pub(crate) fn new(name: impl Into<String>) -> Self {
         Self { name: name.into() }
     }
 
     /// Returns the source-level name.
-    pub fn name(&self) -> &str {
+    #[cfg(test)]
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 }
 
 /// One pattern and the Rust expression it produces when accepted.
-pub struct Rule {
+pub(crate) struct Rule {
     pattern: Expression,
     action: RuleAction,
     start_conditions: Vec<StartConditionId>,
@@ -72,7 +114,7 @@ impl Rule {
     /// # Errors
     ///
     /// Returns an error when `pattern` is not valid lxr regex syntax.
-    pub fn parse(
+    fn parse(
         pattern: &str,
         action: RuleAction,
         start_conditions: Vec<StartConditionId>,
@@ -112,11 +154,11 @@ impl Rule {
 }
 
 /// The generated expression returned when a rule wins a match.
-pub struct RuleAction(TokenStream);
+pub(crate) struct RuleAction(TokenStream);
 
 impl RuleAction {
     /// Creates an action from its generated Rust expression.
-    pub fn new(tokens: TokenStream) -> Self {
+    pub(crate) fn new(tokens: TokenStream) -> Self {
         Self(tokens)
     }
 
@@ -127,14 +169,14 @@ impl RuleAction {
 }
 
 /// All semantic input needed to construct and emit one lexer.
-pub struct Lexer {
+pub(crate) struct Lexer {
     rules: Vec<Rule>,
     start_conditions: Vec<StartCondition>,
 }
 
 impl Lexer {
     /// Creates a lexer from declaration-ordered rules and start conditions.
-    pub fn new(rules: Vec<Rule>, start_conditions: Vec<StartCondition>) -> Self {
+    pub(crate) fn new(rules: Vec<Rule>, start_conditions: Vec<StartCondition>) -> Self {
         Self {
             rules,
             start_conditions,
@@ -194,7 +236,7 @@ impl Lexer {
     ///
     /// Panics if a rule enables a start condition that this lexer does not
     /// define.
-    pub fn emit(&self) -> Result<TokenStream, BuildError> {
+    fn emit(&self) -> Result<TokenStream, BuildError> {
         let mut builder = nfa::Builder::new();
         let starts: Vec<_> = self
             .start_conditions
@@ -229,6 +271,27 @@ impl Lexer {
 
         Ok(emitter::emit(&dfa, self))
     }
+}
+
+/// Builds, minimizes, and emits a lexer from declaration-ordered rules.
+///
+/// # Errors
+///
+/// Returns an error for invalid regex syntax or an automaton capacity limit.
+pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileError> {
+    let rules = specifications
+        .into_iter()
+        .map(|specification| {
+            Rule::parse(
+                &specification.pattern,
+                RuleAction::new(specification.action),
+                vec![StartConditionId::new(0)],
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Lexer::new(rules, vec![StartCondition::new("INITIAL")])
+        .emit()
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

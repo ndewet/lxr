@@ -1,7 +1,9 @@
+#[cfg(test)]
 use super::{Execution, Matcher};
 use crate::automata::Transition;
 use crate::automata::adjacency::AdjacencyList;
 use crate::automata::id::StateId;
+#[cfg(test)]
 use crate::automata::label::Label;
 use crate::automata::table::StateTable;
 
@@ -68,6 +70,7 @@ impl<L, A> Nfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `state` is not in the automaton.
+    #[cfg(test)]
     pub(crate) fn accepts(&self, state: StateId) -> bool {
         self.table.accepts(state)
     }
@@ -91,11 +94,13 @@ impl<L, A> Nfa<L, A> {
     /// # Panics
     ///
     /// This function panics if `index` is outside the start states.
+    #[cfg(test)]
     pub(crate) fn start_state(&self, index: usize) -> StateId {
         self.table.start_state(index)
     }
 }
 
+#[cfg(test)]
 impl<L: Label, A> Nfa<L, A> {
     /// Returns each target reached from `states` with `symbol`.
     ///

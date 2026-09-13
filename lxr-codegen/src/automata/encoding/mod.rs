@@ -6,7 +6,7 @@
 
 mod utf8;
 
-pub(crate) use self::utf8::{ByteRange, ByteSequence, Utf8};
+pub(crate) use self::utf8::{ByteRange, Utf8};
 
 use super::label::Label;
 use crate::regex::CharSet;

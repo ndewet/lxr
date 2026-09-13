@@ -1,5 +1,7 @@
 //! End-to-end tests for generated lexers.
 
+#![deny(dead_code)]
+
 use lxr::Lexer;
 
 #[derive(Debug, PartialEq, Lexer)]

@@ -57,16 +57,19 @@ impl Expression {
     }
 
     /// Applies the `*` quantifier to `self`.
+    #[cfg(test)]
     pub(crate) fn star(self) -> Self {
         self.repeated(Quantifier::ZERO_OR_MORE)
     }
 
     /// Applies the `+` quantifier to `self`.
+    #[cfg(test)]
     pub(crate) fn plus(self) -> Self {
         self.repeated(Quantifier::ONE_OR_MORE)
     }
 
     /// Applies the `?` quantifier to `self`.
+    #[cfg(test)]
     pub(crate) fn optional(self) -> Self {
         self.repeated(Quantifier::ZERO_OR_ONE)
     }
@@ -79,6 +82,7 @@ impl Expression {
     /// Returns whether this expression matches the empty string.
     ///
     /// Lexer rules must not be nullable because each match must consume input.
+    #[cfg(test)]
     pub(crate) fn is_nullable(&self) -> bool {
         match self {
             Self::Epsilon => true,
@@ -93,6 +97,7 @@ impl Expression {
     ///
     /// This estimate predicts Thompson construction size. It saturates at
     /// [`usize::MAX`].
+    #[cfg(test)]
     pub(crate) fn expanded_size(&self) -> usize {
         match self {
             Self::Epsilon | Self::Class(_) => 1,
@@ -113,6 +118,7 @@ impl Expression {
     }
 }
 
+#[cfg(test)]
 fn expanded_repetition_size(expression: &Expression, minimum: usize, maximum: usize) -> usize {
     expression
         .expanded_size()
