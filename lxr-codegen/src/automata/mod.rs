@@ -13,7 +13,7 @@ mod encoding;
 mod nfa;
 
 mod adjacency;
-mod dfa;
+pub(crate) mod dfa;
 mod error;
 mod id;
 mod label;

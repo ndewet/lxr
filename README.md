@@ -17,16 +17,16 @@ the syntax tree becomes an automaton.
   and it gives one fragment for each operator.
 - `automata::encoding` maps character sets to UTF-8 byte-range sequences.
   Thompson construction maps those sequences to NFA paths.
+- `automata::dfa` holds deterministic automata. Its subset construction turns
+  a reachable NFA state set into each DFA state.
 
 `lxr` and `lxr-derive` hold no code. `lxr` is the runtime of a generated lexer,
 and `lxr-derive` is the derive macro that emits one.
 
 ## What comes next
 
-1. The subset construction. A nondeterministic automaton becomes a
-   deterministic automaton.
-2. The minimization. The states that read the same input become one state.
-3. The emitter. A deterministic automaton becomes the source of a matcher, and
+1. The minimization. The states that read the same input become one state.
+2. The emitter. A deterministic automaton becomes the source of a matcher, and
    the two empty crates get their code.
 
 ## Build
