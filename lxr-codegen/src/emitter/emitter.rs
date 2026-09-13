@@ -40,14 +40,14 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         .filter_map(|index| {
             let state = crate::automata::StateId::new(index);
             dfa.accept(state).map(|accept| {
-                let accept = lexer.rule(*accept).action().tokens();
+                let accept = lexer.rule(*accept).action().rendered();
                 quote! { #index => Some(#accept), }
             })
         })
         .collect();
 
     quote! {
-        fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(Self, usize)> {
+        fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(Option<Self>, usize)> {
             let mut state = match start_condition {
                 #(#starts)*
                 _ => return None,
@@ -93,7 +93,7 @@ mod tests {
         Lexer::new(
             vec![Rule::new(
                 Expression::from_str("a").expect("the test pattern is valid"),
-                RuleAction::new(action),
+                RuleAction::Emit(action),
                 vec![crate::lexer::StartConditionId::new(0)],
             )],
             vec![StartCondition::new("INITIAL")],
@@ -110,7 +110,7 @@ mod tests {
 
         let actual = emit(&dfa, &Lexer::new(vec![], vec![]));
         let expected = quote! {
-            fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(Self, usize)> {
+            fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(Option<Self>, usize)> {
                 let mut state = match start_condition {
                     0usize => 0usize,
                     _ => return None,
@@ -156,6 +156,6 @@ mod tests {
         let emitted = emit(&dfa, &lexer(quote!(Rule::Token(7)))).to_string();
 
         assert!(emitted.contains("97u8 ..= 122u8 => Some (1usize)"));
-        assert!(emitted.contains("1usize => Some (Rule :: Token (7))"));
+        assert!(emitted.contains("1usize => Some (Some (Rule :: Token (7)))"));
     }
 }

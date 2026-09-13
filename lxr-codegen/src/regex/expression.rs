@@ -82,7 +82,6 @@ impl Expression {
     /// Returns whether this expression matches the empty string.
     ///
     /// Lexer rules must not be nullable because each match must consume input.
-    #[cfg(test)]
     pub(crate) fn is_nullable(&self) -> bool {
         match self {
             Self::Epsilon => true,

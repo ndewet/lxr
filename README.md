@@ -21,7 +21,8 @@ assert_eq!(Token::scan("name42"), Some((Token::Identifier, 4)));
 
 Each unit variant has one `#[lxr("pattern")]` attribute. `scan` returns the
 longest matching prefix and its UTF-8 byte length; declaration order resolves
-equal-length matches.
+equal-length matches. Enum-level `#[lxr(skip = "pattern")]` attributes
+consume whitespace, comments, or other trivia before the next token.
 
 ## What is here
 

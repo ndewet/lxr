@@ -7,7 +7,9 @@
 use lxr_codegen::{RuleSpec, compile};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Error, Fields, LitStr, Result, parse_macro_input};
+use syn::{
+    Data, DeriveInput, Error, Expr, Fields, Lit, LitStr, MetaNameValue, Result, parse_macro_input,
+};
 
 /// Derives [`lxr::Lexer`](::lxr::Lexer) for an enum of token kinds.
 ///
@@ -29,7 +31,7 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         ));
     };
 
-    let mut rules = Vec::with_capacity(data.variants.len());
+    let mut rules = skip_rules(&input.attrs)?;
     for variant in data.variants {
         if !matches!(variant.fields, Fields::Unit) {
             return Err(Error::new_spanned(
@@ -39,7 +41,10 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
         let pattern = rule_pattern(&variant.attrs, &variant.ident)?;
         let variant_ident = variant.ident;
-        rules.push(RuleSpec::new(pattern.value(), quote!(Self::#variant_ident)));
+        rules.push(RuleSpec::emit(
+            pattern.value(),
+            quote!(Self::#variant_ident),
+        ));
     }
 
     let matcher = compile(rules).map_err(|error| Error::new_spanned(input.ident.clone(), error))?;
@@ -53,10 +58,37 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
 
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
             fn scan(input: &str) -> Option<(Self, usize)> {
-                Self::__lxr_scan(input.as_bytes(), 0)
+                let mut input = input.as_bytes(); let mut length = 0;
+                loop { let (token, consumed) = Self::__lxr_scan(input, 0)?; length += consumed; input = &input[consumed..]; if let Some(token) = token { return Some((token, length)); } }
             }
         }
     })
+}
+
+fn skip_rules(attributes: &[syn::Attribute]) -> Result<Vec<RuleSpec>> {
+    attributes
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("lxr"))
+        .map(|attribute| {
+            let MetaNameValue { path, value, .. } = attribute.parse_args()?;
+            if !path.is_ident("skip") {
+                return Err(Error::new_spanned(path, "expected `skip = \"pattern\"`"));
+            }
+            let Expr::Lit(expression) = value else {
+                return Err(Error::new_spanned(
+                    value,
+                    "a skipped pattern must be a string literal",
+                ));
+            };
+            let Lit::Str(pattern) = expression.lit else {
+                return Err(Error::new_spanned(
+                    expression,
+                    "a skipped pattern must be a string literal",
+                ));
+            };
+            Ok(RuleSpec::skip(pattern.value()))
+        })
+        .collect()
 }
 
 fn rule_pattern(attributes: &[syn::Attribute], variant: &syn::Ident) -> Result<LitStr> {

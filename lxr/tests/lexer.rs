@@ -43,3 +43,19 @@ enum Unicode {
 fn derived_lexer_counts_utf8_bytes() {
     assert_eq!(Unicode::scan("éé!"), Some((Unicode::EAcute, 4)));
 }
+
+#[derive(Debug, PartialEq, Lexer)]
+#[lxr(skip = "[ \\t\\n]+")]
+#[lxr(skip = "//[^\\n]*")]
+enum WithTrivia {
+    #[lxr("[a-z]+")]
+    Identifier,
+}
+
+#[test]
+fn derived_lexer_skips_whitespace_and_comments() {
+    assert_eq!(
+        WithTrivia::scan(" \t// note\nname"),
+        Some((WithTrivia::Identifier, 14))
+    );
+}

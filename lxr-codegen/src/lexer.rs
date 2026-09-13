@@ -8,19 +8,27 @@ use crate::automata::{BuildError, dfa, encoding::Utf8, nfa};
 use crate::emitter;
 use crate::regex::{Expression, ParseError};
 use proc_macro2::TokenStream;
+use quote::quote;
 use std::fmt::{Display, Formatter};
 
 /// One rule supplied to the code generator.
 pub struct RuleSpec {
     pattern: String,
-    action: TokenStream,
+    action: RuleAction,
 }
 impl RuleSpec {
     /// Creates a rule from its regex pattern and generated Rust action.
-    pub fn new(pattern: impl Into<String>, action: TokenStream) -> Self {
+    pub fn emit(pattern: impl Into<String>, action: TokenStream) -> Self {
         Self {
             pattern: pattern.into(),
-            action,
+            action: RuleAction::Emit(action),
+        }
+    }
+    /// Creates a rule that consumes input without producing a token.
+    pub fn skip(pattern: impl Into<String>) -> Self {
+        Self {
+            pattern: pattern.into(),
+            action: RuleAction::Skip,
         }
     }
 }
@@ -154,17 +162,21 @@ impl Rule {
 }
 
 /// The generated expression returned when a rule wins a match.
-pub(crate) struct RuleAction(TokenStream);
+pub(crate) enum RuleAction {
+    Emit(TokenStream),
+    Skip,
+}
 
 impl RuleAction {
     /// Creates an action from its generated Rust expression.
-    pub(crate) fn new(tokens: TokenStream) -> Self {
-        Self(tokens)
+    pub(crate) fn rendered(&self) -> TokenStream {
+        match self {
+            Self::Emit(tokens) => quote!(Some(#tokens)),
+            Self::Skip => quote!(None),
+        }
     }
-
-    /// Returns the generated Rust expression.
-    pub(crate) fn tokens(&self) -> &TokenStream {
-        &self.0
+    pub(crate) fn skips(&self) -> bool {
+        matches!(self, Self::Skip)
     }
 }
 
@@ -284,11 +296,19 @@ pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileErro
         .map(|specification| {
             Rule::parse(
                 &specification.pattern,
-                RuleAction::new(specification.action),
+                specification.action,
                 vec![StartConditionId::new(0)],
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    if rules
+        .iter()
+        .any(|rule| rule.action.skips() && rule.pattern.is_nullable())
+    {
+        return Err(CompileError {
+            message: "a skipped rule must consume at least one byte".into(),
+        });
+    }
     Lexer::new(rules, vec![StartCondition::new("INITIAL")])
         .emit()
         .map_err(Into::into)
@@ -304,7 +324,7 @@ mod tests {
         Lexer::new(
             vec![Rule::new(
                 Expression::from_str("[a-z]+").expect("the test pattern is valid"),
-                RuleAction::new(quote!(Token::Identifier)),
+                RuleAction::Emit(quote!(Token::Identifier)),
                 vec![StartConditionId::new(0)],
             )],
             vec![StartCondition::new("INITIAL")],
@@ -320,7 +340,10 @@ mod tests {
             rule.pattern(),
             &Expression::from_str("[a-z]+").expect("the test pattern is valid")
         );
-        assert_eq!(rule.action().tokens().to_string(), "Token :: Identifier");
+        assert_eq!(
+            rule.action().rendered().to_string(),
+            "Some (Token :: Identifier)"
+        );
         assert_eq!(rule.start_conditions(), &[StartConditionId::new(0)]);
         assert_eq!(lexer.rules().len(), 1);
     }
