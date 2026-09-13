@@ -57,9 +57,8 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
 
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
-            fn scan(input: &str) -> Option<(Self, usize)> {
-                let mut input = input.as_bytes(); let mut length = 0;
-                loop { let (token, consumed) = Self::__lxr_scan(input, 0)?; length += consumed; input = &input[consumed..]; if let Some(token) = token { return Some((token, length)); } }
+            fn scan_one(input: &[u8]) -> Option<(Option<Self>, usize)> {
+                Self::__lxr_scan(input, 0)
             }
         }
     })

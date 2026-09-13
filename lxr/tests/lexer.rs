@@ -2,7 +2,7 @@
 
 #![deny(dead_code)]
 
-use lxr::Lexer;
+use lxr::{Lexer, ScanError, Spanned};
 
 #[derive(Debug, PartialEq, Lexer)]
 enum Token {
@@ -57,5 +57,25 @@ fn derived_lexer_skips_whitespace_and_comments() {
     assert_eq!(
         WithTrivia::scan(" \t// note\nname"),
         Some((WithTrivia::Identifier, 14))
+    );
+}
+
+#[test]
+fn scanner_keeps_spans_and_recovers_after_invalid_input() {
+    let scanned: Vec<_> = WithTrivia::scanner("one @ two").collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Ok(Spanned {
+                token: WithTrivia::Identifier,
+                span: 0..3,
+            }),
+            Err(ScanError { span: 4..5 }),
+            Ok(Spanned {
+                token: WithTrivia::Identifier,
+                span: 6..9,
+            }),
+        ]
     );
 }

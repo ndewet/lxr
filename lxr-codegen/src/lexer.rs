@@ -175,9 +175,6 @@ impl RuleAction {
             Self::Skip => quote!(None),
         }
     }
-    pub(crate) fn skips(&self) -> bool {
-        matches!(self, Self::Skip)
-    }
 }
 
 /// All semantic input needed to construct and emit one lexer.
@@ -301,12 +298,9 @@ pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileErro
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if rules
-        .iter()
-        .any(|rule| rule.action.skips() && rule.pattern.is_nullable())
-    {
+    if rules.iter().any(|rule| rule.pattern.is_nullable()) {
         return Err(CompileError {
-            message: "a skipped rule must consume at least one byte".into(),
+            message: "a lexer rule must consume at least one byte".into(),
         });
     }
     Lexer::new(rules, vec![StartCondition::new("INITIAL")])

@@ -6,9 +6,11 @@ becomes an automaton, and the derive macro emits a matcher for it.
 ## Use
 
 ```rust
-use lxr::Lexer;
+use lxr::{Lexer, Spanned};
 
 #[derive(Debug, PartialEq, Lexer)]
+#[lxr(skip = r"[ \t\n]+")]
+#[lxr(skip = r"//[^\n]*")]
 enum Token {
     #[lxr("[a-z]+")]
     Identifier,
@@ -16,13 +18,24 @@ enum Token {
     Integer,
 }
 
-assert_eq!(Token::scan("name42"), Some((Token::Identifier, 4)));
+let scanned: Vec<_> = Token::scanner("name // note\n42").collect();
+assert_eq!(scanned[0], Ok(Spanned { token: Token::Identifier, span: 0..4 }));
+assert_eq!(scanned[1], Ok(Spanned { token: Token::Integer, span: 13..15 }));
 ```
 
-Each unit variant has one `#[lxr("pattern")]` attribute. `scan` returns the
-longest matching prefix and its UTF-8 byte length; declaration order resolves
-equal-length matches. Enum-level `#[lxr(skip = "pattern")]` attributes
-consume whitespace, comments, or other trivia before the next token.
+Each unit variant has one `#[lxr("pattern")]` attribute. Enum-level
+`#[lxr(skip = "pattern")]` attributes consume whitespace, comments, or other
+trivia before the next token. Rules use longest-match semantics; declaration
+order resolves equal-length matches.
+
+`Token::scanner(input)` returns `Result<Spanned<Token>, ScanError>` items.
+`Spanned` records the matched token's UTF-8 byte range. An unrecognized
+character produces `ScanError` for that character and scanning continues.
+`Token::scan(input)` is a convenience method that returns the first token and
+the number of bytes consumed before it, including preceding trivia.
+
+Token variants are currently unit variants. Use a `Spanned` range to slice the
+original input when a consumer needs the matched text.
 
 ## What is here
 
@@ -32,7 +45,8 @@ consume whitespace, comments, or other trivia before the next token.
   repetition, and a `CharSet` specifies a leaf.
 - `automata` holds finite automata and their shared vocabulary. A transition
   label is generic, thus an automaton knows no lexer concept.
-- `automata::nfa` holds `Nfa`, its `Builder`, `Execution`, and `Matcher`.
+- `automata::nfa` holds the NFA and its builder; test-only execution helpers
+  validate its matching semantics.
 - `automata::nfa::thompson` is Thompson construction. It walks a syntax tree,
   and it gives one fragment for each operator.
 - `automata::encoding` maps character sets to UTF-8 byte-range sequences.
