@@ -39,6 +39,11 @@ use syn::{
 /// # pub trait Lexer: Sized {
 /// #     fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
 /// #     fn mode_name(mode: usize) -> &'static str;
+/// #     fn start(mode: usize) -> usize;
+/// #     fn step(state: usize, byte: u8) -> Option<usize>;
+/// #     fn accept(state: usize) -> Option<usize>;
+/// #     fn continues(state: usize) -> bool;
+/// #     fn action(rule: usize, text: &str) -> Result<(Option<Self>, Transition), PayloadError>;
 /// # }
 /// # fn main() {
 /// use lxr_derive::Lexer;
@@ -139,6 +144,13 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
 
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
+            fn start(mode: usize) -> usize { Self::__lxr_start(mode) }
+            fn step(state: usize, byte: u8) -> Option<usize> { Self::__lxr_step(state, byte) }
+            fn accept(state: usize) -> Option<usize> { Self::__lxr_accept(state) }
+            fn continues(state: usize) -> bool { Self::__lxr_continues(state) }
+            fn action(rule: usize, text: &str) -> Result<(Option<Self>, ::lxr::Transition), ::lxr::PayloadError> {
+                Self::__lxr_action(rule, text)
+            }
             fn scan_one(
                 input: &str,
                 mode: usize,

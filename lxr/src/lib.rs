@@ -7,7 +7,18 @@
 
 pub use lxr_derive::Lexer;
 
-use std::marker::PhantomData;
+mod limits;
+mod location;
+mod scanner;
+mod source;
+mod source_error;
+
+pub use limits::Limits;
+pub use location::{Locate, LocatedSpan, Location};
+pub use scanner::{Checkpoint, Remainder, Scanner};
+pub use source::{Replay, ReplaySource, Tracking};
+pub use source_error::SourceError;
+
 use std::ops::Range;
 use std::str::FromStr;
 use std::{
@@ -33,7 +44,7 @@ pub struct Spanned<T> {
     /// The token accepted by the lexer.
     pub token: T,
     /// The half-open UTF-8 byte range matched by this token.
-    pub span: Range<usize>,
+    pub span: Range<u64>,
 }
 
 /// A failure produced while converting an accepted lexeme into a payload.
@@ -97,161 +108,53 @@ where
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanError {
+    /// A source operation failed. Scanning stops.
+    Input {
+        /// The source position reached before the failure.
+        offset: u64,
+        /// The original I/O error.
+        error: SourceError,
+    },
+    /// The input contains invalid or incomplete UTF-8. Scanning stops.
+    InvalidEncoding {
+        /// The byte position where the invalid sequence starts.
+        offset: u64,
+    },
+    /// Retained input exceeds the configured limit. Scanning stops.
+    RetentionLimit {
+        /// The token's starting position.
+        offset: u64,
+        /// The configured byte limit.
+        limit: usize,
+    },
+    /// The mode stack exceeds the configured limit. Scanning stops.
+    ModeLimit {
+        /// The rule's byte range.
+        span: Range<u64>,
+        /// The configured stack depth.
+        limit: usize,
+    },
+    /// A byte position cannot fit in u64. Scanning stops.
+    PositionOverflow,
     /// No rule accepted the character at this UTF-8 byte range.
     Unrecognized {
         /// The UTF-8 byte range of the unrecognized character.
-        span: Range<usize>,
+        span: Range<u64>,
     },
     /// A winning rule's payload conversion failed.
     InvalidPayload {
         /// The UTF-8 byte range matched by the rule with the invalid payload.
-        span: Range<usize>,
+        span: Range<u64>,
         /// The payload conversion error's message.
         message: String,
     },
     /// Input ended while a pushed lexer mode was still active.
     UnterminatedMode {
         /// The range from the mode-opening rule through end of input.
-        span: Range<usize>,
+        span: Range<u64>,
         /// The unclosed mode's declared name.
         mode: &'static str,
     },
-}
-
-/// Iterates over tokens and recoverable invalid-input errors.
-///
-/// # Examples
-///
-/// ```
-/// use lxr::{Lexer, Scanner};
-///
-/// #[derive(Debug, PartialEq, Lexer)]
-/// enum Token {
-///     #[lxr("[a-z]+")]
-///     Word,
-/// }
-///
-/// let scanner = Scanner::<Token>::new("word");
-/// assert_eq!(scanner.count(), 1);
-/// ```
-pub struct Scanner<'input, T> {
-    input: &'input str,
-    offset: usize,
-    modes: Vec<ModeFrame>,
-    finished: bool,
-    marker: PhantomData<T>,
-}
-
-struct ModeFrame {
-    id: usize,
-    opened_at: usize,
-}
-
-impl<'input, T> Scanner<'input, T> {
-    /// Creates a scanner at the beginning of `input`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr::{Lexer, Scanner};
-    ///
-    /// #[derive(Lexer)]
-    /// enum Token {
-    ///     #[lxr("x")]
-    ///     X,
-    /// }
-    ///
-    /// assert!(Scanner::<Token>::new("x").next().is_some());
-    /// ```
-    pub fn new(input: &'input str) -> Self {
-        Self {
-            input,
-            offset: 0,
-            modes: vec![ModeFrame {
-                id: 0,
-                opened_at: 0,
-            }],
-            finished: false,
-            marker: PhantomData,
-        }
-    }
-}
-
-impl<T: Lexer> Iterator for Scanner<'_, T> {
-    type Item = Result<Spanned<T>, ScanError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let input = &self.input[self.offset..];
-            if input.is_empty() {
-                if self.finished {
-                    return None;
-                }
-                self.finished = true;
-                if let Some(frame) = self.modes.get(1) {
-                    return Some(Err(ScanError::UnterminatedMode {
-                        span: frame.opened_at..self.offset,
-                        mode: T::mode_name(frame.id),
-                    }));
-                }
-                return None;
-            }
-            let mode = self
-                .modes
-                .last()
-                .expect("the mode stack contains INITIAL")
-                .id;
-            let Some(result) = T::scan_one(input, mode) else {
-                let width = self.input[self.offset..]
-                    .chars()
-                    .next()
-                    .expect("a non-empty UTF-8 string has a first character")
-                    .len_utf8();
-                let span = self.offset..self.offset + width;
-                self.offset += width;
-                return Some(Err(ScanError::Unrecognized { span }));
-            };
-            let start = self.offset;
-            let (token, consumed, transition) = match result {
-                Ok(result) => result,
-                Err((error, consumed)) => {
-                    let span = start..start + consumed;
-                    self.offset = span.end;
-                    return Some(Err(ScanError::InvalidPayload {
-                        span,
-                        message: error.to_string(),
-                    }));
-                }
-            };
-            self.offset += consumed;
-            match transition {
-                Transition::Stay => {}
-                Transition::Begin(id) => {
-                    let frame = self
-                        .modes
-                        .last_mut()
-                        .expect("the mode stack contains INITIAL");
-                    frame.id = id;
-                    frame.opened_at = start;
-                }
-                Transition::Push(id) => self.modes.push(ModeFrame {
-                    id,
-                    opened_at: start,
-                }),
-                Transition::Pop => {
-                    if self.modes.len() > 1 {
-                        self.modes.pop();
-                    }
-                }
-            }
-            if let Some(token) = token {
-                return Some(Ok(Spanned {
-                    token,
-                    span: start..self.offset,
-                }));
-            }
-        }
-    }
 }
 
 /// Scans UTF-8 input with a generated lexer.
@@ -270,6 +173,50 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
 /// assert_eq!(Token::scan("word"), Some((Token::Word, 4)));
 /// ```
 pub trait Lexer: Sized {
+    /// Returns the initial execution state for a mode.
+    #[doc(hidden)]
+    fn start(mode: usize) -> usize;
+    /// Advances the execution by one byte.
+    #[doc(hidden)]
+    fn step(state: usize, byte: u8) -> Option<usize>;
+    /// Returns the accepting rule for a state.
+    #[doc(hidden)]
+    fn accept(state: usize) -> Option<usize>;
+    /// Reports whether a state has outgoing transitions.
+    #[doc(hidden)]
+    fn continues(state: usize) -> bool;
+    /// Converts the selected lexeme.
+    #[doc(hidden)]
+    fn action(rule: usize, text: &str) -> Result<(Option<Self>, Transition), PayloadError>;
+
+    /// Creates a scanner with buffering for a blocking reader.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    /// #[derive(Lexer)]
+    /// enum Token { #[lxr("x")] X }
+    /// assert_eq!(Token::from_reader(&b"x"[..]).count(), 1);
+    /// ```
+    fn from_reader<R: std::io::Read>(reader: R) -> Scanner<Self, std::io::BufReader<R>> {
+        Scanner::<Self>::from_reader(reader)
+    }
+
+    /// Creates a scanner from an existing blocking buffer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    /// #[derive(Lexer)]
+    /// enum Token { #[lxr("x")] X }
+    /// assert_eq!(Token::from_bufread(&b"x"[..]).count(), 1);
+    /// ```
+    fn from_bufread<S: std::io::BufRead>(source: S) -> Scanner<Self, S> {
+        Scanner::<Self>::from_bufread(source)
+    }
+
     /// Scans one token or skipped rule from the start of a string.
     ///
     /// `None` means no rule accepts a prefix. A successful result contains a
@@ -297,7 +244,7 @@ pub trait Lexer: Sized {
     ///
     /// assert_eq!(Token::scanner("word").count(), 1);
     /// ```
-    fn scanner(input: &str) -> Scanner<'_, Self> {
+    fn scanner(input: &str) -> Scanner<Self, Replay<std::io::Cursor<&[u8]>>> {
         Scanner::new(input)
     }
 
@@ -317,9 +264,44 @@ pub trait Lexer: Sized {
     /// assert_eq!(Token::scan("42!"), Some((Token::Integer, 2)));
     /// ```
     fn scan(input: &str) -> Option<(Self, usize)> {
-        Self::scanner(input)
-            .next()?
-            .ok()
-            .map(|spanned| (spanned.token, spanned.span.end))
+        Self::scanner(input).next()?.ok().map(|spanned| {
+            (
+                spanned.token,
+                usize::try_from(spanned.span.end).expect("a string length fits usize"),
+            )
+        })
+    }
+}
+
+impl Display for ScanError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unrecognized { span } => write!(formatter, "unrecognized input at {span:?}"),
+            Self::InvalidPayload { span, message } => {
+                write!(formatter, "invalid payload at {span:?}: {message}")
+            }
+            Self::UnterminatedMode { span, mode } => {
+                write!(formatter, "unterminated mode {mode} at {span:?}")
+            }
+            Self::Input { offset, error } => write!(formatter, "input error at {offset}: {error}"),
+            Self::InvalidEncoding { offset } => write!(formatter, "invalid UTF-8 at {offset}"),
+            Self::RetentionLimit { offset, limit } => write!(
+                formatter,
+                "retained input at {offset} exceeds {limit} bytes"
+            ),
+            Self::ModeLimit { span, limit } => {
+                write!(formatter, "mode depth at {span:?} exceeds {limit}")
+            }
+            Self::PositionOverflow => formatter.write_str("input position exceeds u64"),
+        }
+    }
+}
+
+impl Error for ScanError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Input { error, .. } => Some(error),
+            _ => None,
+        }
     }
 }

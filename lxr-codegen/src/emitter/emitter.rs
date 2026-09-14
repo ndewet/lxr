@@ -75,7 +75,33 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
             quote!(#index => #name,)
         });
 
+    let continuing: Vec<_> = (0..dfa.state_count())
+        .filter(|&index| {
+            !dfa.transitions(crate::automata::StateId::new(index))
+                .is_empty()
+        })
+        .collect();
+
     quote! {
+        fn __lxr_start(start_condition: usize) -> usize {
+            match start_condition {
+                #(#starts)*
+                _ => unreachable!("unknown lexer mode"),
+            }
+        }
+
+        fn __lxr_step(state: usize, byte: u8) -> Option<usize> {
+            match state { #(#transitions)* _ => None }
+        }
+
+        fn __lxr_accept(state: usize) -> Option<usize> {
+            match state { #(#accepts)* _ => None }
+        }
+
+        fn __lxr_continues(state: usize) -> bool {
+            match state { #(#continuing => true,)* _ => false }
+        }
+
         fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(usize, usize)> {
             let mut state = match start_condition {
                 #(#starts)*

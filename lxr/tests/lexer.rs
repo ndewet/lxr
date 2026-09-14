@@ -453,7 +453,10 @@ fn rust_like_lexer_handles_comments_ranges_and_compound_punctuation() {
     assert_eq!(
         scanned
             .iter()
-            .map(|spanned| &input[spanned.span.clone()])
+            .map(
+                |spanned| &input[usize::try_from(spanned.span.start).expect("string offset")
+                    ..usize::try_from(spanned.span.end).expect("string offset")]
+            )
             .collect::<Vec<_>>(),
         vec![
             "fn",
@@ -516,7 +519,10 @@ fn rust_like_lexer_prefers_the_longest_compound_punctuation() {
     assert_eq!(
         scanned
             .iter()
-            .map(|spanned| &input[spanned.span.clone()])
+            .map(
+                |spanned| &input[usize::try_from(spanned.span.start).expect("string offset")
+                    ..usize::try_from(spanned.span.end).expect("string offset")]
+            )
             .collect::<Vec<_>>(),
         vec!["a", "==", "=", "b", "..", "c", "..", ".", "d"]
     );

@@ -9,7 +9,7 @@ enum Token {
     Word,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = "one @ two";
     let scanned: Vec<_> = Token::scanner(input).collect();
 
@@ -30,8 +30,13 @@ fn main() {
 
     for item in scanned {
         match item {
-            Ok(spanned) => println!("{:?}: {:?}", &input[spanned.span], spanned.token),
+            Ok(spanned) => {
+                let start = usize::try_from(spanned.span.start)?;
+                let end = usize::try_from(spanned.span.end)?;
+                println!("{:?}: {:?}", &input[start..end], spanned.token);
+            }
             Err(error) => println!("scan error: {error:?}"),
         }
     }
+    Ok(())
 }
