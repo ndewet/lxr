@@ -53,6 +53,39 @@ the number of bytes consumed before it, including preceding trivia.
 Rules use longest-match semantics. Declaration order resolves equal-length
 matches.
 
+## Caller state
+
+An action can read and write state that lives for the whole scan. Name the
+state type with `#[lxr(extras = Type)]`, and name a converter with
+`with_extras = path`. Such a converter receives the lexeme and the state.
+Use this for a symbol table, an indentation stack, or a count of errors.
+
+```rust
+#[derive(Default)]
+struct Counts { words: usize }
+
+#[derive(Lexer)]
+#[lxr(extras = Counts)]
+enum Token {
+    #[lxr("[a-z]+", with_extras = count)]
+    Word(usize),
+}
+
+fn count(_: &str, counts: &mut Counts) -> usize {
+    counts.words += 1;
+    counts.words
+}
+
+let mut scanner = Token::scanner("one two");
+let scanned: Vec<_> = scanner.by_ref().collect();
+assert_eq!(scanner.into_extras().words, 2);
+```
+
+The state starts from its `Default`. Call `scanner.with_extras(state)` for a
+state that has no `Default`, or for a state that starts with content. Call
+`scanner.extras()` and `scanner.extras_mut()` during a scan, and
+`scanner.into_extras()` after one.
+
 ## More examples
 
 The runnable examples are in [`lxr/examples`](lxr/examples).
@@ -61,6 +94,8 @@ The runnable examples are in [`lxr/examples`](lxr/examples).
   longest-match selection.
 - [`payloads.rs`](lxr/examples/payloads.rs) shows `FromStr` payloads and a
   custom payload converter.
+- [`extras.rs`](lxr/examples/extras.rs) shows caller state, with a symbol
+  table and a bracket depth.
 - [`errors.rs`](lxr/examples/errors.rs) shows token spans and recovery after
   unrecognized input or a payload error.
 - [`modes.rs`](lxr/examples/modes.rs) shows `modes`, `begin`, `push`, and

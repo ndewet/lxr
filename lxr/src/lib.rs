@@ -148,11 +148,12 @@ pub enum ScanError {
 /// let scanner = Scanner::<Token>::new("word");
 /// assert_eq!(scanner.count(), 1);
 /// ```
-pub struct Scanner<'input, T> {
+pub struct Scanner<'input, T: Lexer> {
     input: &'input str,
     offset: usize,
     modes: Vec<ModeFrame>,
     finished: bool,
+    extras: T::Extras,
     marker: PhantomData<T>,
 }
 
@@ -161,7 +162,10 @@ struct ModeFrame {
     opened_at: usize,
 }
 
-impl<'input, T> Scanner<'input, T> {
+impl<'input, T: Lexer> Scanner<'input, T>
+where
+    T::Extras: Default,
+{
     /// Creates a scanner at the beginning of `input`.
     ///
     /// # Examples
@@ -186,8 +190,111 @@ impl<'input, T> Scanner<'input, T> {
                 opened_at: 0,
             }],
             finished: false,
+            extras: T::Extras::default(),
             marker: PhantomData,
         }
+    }
+}
+
+impl<T: Lexer> Scanner<'_, T> {
+    /// Returns the caller state that each action reads and writes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    ///
+    /// #[derive(Lexer)]
+    /// #[lxr(extras = usize)]
+    /// enum Token {
+    ///     #[lxr("x", with_extras = count)]
+    ///     X,
+    /// }
+    ///
+    /// fn count(_: &str, total: &mut usize) {
+    ///     *total += 1;
+    /// }
+    ///
+    /// let mut scanner = Token::scanner("xxx");
+    /// assert_eq!(scanner.by_ref().count(), 3);
+    /// assert_eq!(*scanner.extras(), 3);
+    /// ```
+    pub fn extras(&self) -> &T::Extras {
+        &self.extras
+    }
+
+    /// Returns the caller state for a change before or during a scan.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    ///
+    /// #[derive(Lexer)]
+    /// #[lxr(extras = usize)]
+    /// enum Token {
+    ///     #[lxr("x")]
+    ///     X,
+    /// }
+    ///
+    /// let mut scanner = Token::scanner("x");
+    /// *scanner.extras_mut() = 7;
+    /// assert_eq!(*scanner.extras(), 7);
+    /// ```
+    pub fn extras_mut(&mut self) -> &mut T::Extras {
+        &mut self.extras
+    }
+
+    /// Sets the initial caller state.
+    ///
+    /// Use this for a state that has no [`Default`], or for a state that
+    /// starts with content.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    ///
+    /// #[derive(Lexer)]
+    /// #[lxr(extras = usize)]
+    /// enum Token {
+    ///     #[lxr("x")]
+    ///     X,
+    /// }
+    ///
+    /// let scanner = Token::scanner("x").with_extras(7);
+    /// assert_eq!(*scanner.extras(), 7);
+    /// ```
+    #[must_use]
+    pub fn with_extras(mut self, extras: T::Extras) -> Self {
+        self.extras = extras;
+        self
+    }
+
+    /// Consumes the scanner and returns the caller state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    ///
+    /// #[derive(Lexer)]
+    /// #[lxr(extras = usize)]
+    /// enum Token {
+    ///     #[lxr("x", with_extras = count)]
+    ///     X,
+    /// }
+    ///
+    /// fn count(_: &str, total: &mut usize) {
+    ///     *total += 1;
+    /// }
+    ///
+    /// let mut scanner = Token::scanner("xx");
+    /// assert_eq!(scanner.by_ref().count(), 2);
+    /// assert_eq!(scanner.into_extras(), 2);
+    /// ```
+    pub fn into_extras(self) -> T::Extras {
+        self.extras
     }
 }
 
@@ -215,7 +322,7 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
                 .last()
                 .expect("the mode stack contains INITIAL")
                 .id;
-            let Some(result) = T::scan_one(input, mode) else {
+            let Some(result) = T::scan_one(input, mode, &mut self.extras) else {
                 let width = self.input[self.offset..]
                     .chars()
                     .next()
@@ -288,13 +395,20 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
 /// assert_eq!(Token::scan("word"), Some((Token::Word, 4)));
 /// ```
 pub trait Lexer: __private::Sealed + Sized {
+    /// The caller state that each action reads and writes.
+    ///
+    /// The container attribute `#[lxr(extras = Type)]` names this type. It is
+    /// the unit type for a lexer that keeps no state. Use it for a symbol
+    /// table, an indentation stack, or a count of errors.
+    type Extras;
+
     /// Scans one token or skipped rule from the start of a string.
     ///
     /// `None` means no rule accepts a prefix. A successful result contains a
     /// skipped rule or token plus its consumed byte length. An error means a
     /// winning rule could not convert its payload.
     #[doc(hidden)]
-    fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
+    fn scan_one(input: &str, mode: usize, extras: &mut Self::Extras) -> Option<RuleScan<Self>>;
 
     /// Returns a generated start-condition name for diagnostics.
     #[doc(hidden)]
@@ -315,7 +429,10 @@ pub trait Lexer: __private::Sealed + Sized {
     ///
     /// assert_eq!(Token::scanner("word").count(), 1);
     /// ```
-    fn scanner(input: &str) -> Scanner<'_, Self> {
+    fn scanner(input: &str) -> Scanner<'_, Self>
+    where
+        Self::Extras: Default,
+    {
         Scanner::new(input)
     }
 
@@ -334,7 +451,10 @@ pub trait Lexer: __private::Sealed + Sized {
     ///
     /// assert_eq!(Token::scan("42!"), Some((Token::Integer, 2)));
     /// ```
-    fn scan(input: &str) -> Option<(Self, usize)> {
+    fn scan(input: &str) -> Option<(Self, usize)>
+    where
+        Self::Extras: Default,
+    {
         Self::scanner(input)
             .next()?
             .ok()

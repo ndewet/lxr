@@ -614,3 +614,82 @@ fn a_unit_variant_and_a_skip_rule_each_accept_a_converter() {
         vec!["one".to_owned(), " ".to_owned(), "two".to_owned()]
     );
 }
+#[derive(Default, Debug, PartialEq)]
+struct Counts {
+    words: usize,
+    skips: usize,
+    depth: usize,
+}
+
+#[derive(Debug, PartialEq, Lexer)]
+#[lxr(extras = Counts)]
+#[lxr(skip = r"\s+", with_extras = count_skip)]
+enum Counted {
+    #[lxr("[a-z]+", with_extras = count_word)]
+    Word(usize),
+    #[lxr(r"\(", with_extras = push_depth)]
+    Open,
+}
+
+fn count_word(_: &str, counts: &mut Counts) -> usize {
+    counts.words += 1;
+    counts.words
+}
+
+fn count_skip(_: &str, counts: &mut Counts) {
+    counts.skips += 1;
+}
+
+fn push_depth(_: &str, counts: &mut Counts) {
+    counts.depth += 1;
+}
+
+#[test]
+fn an_action_reads_and_writes_the_caller_state() {
+    let mut scanner = Counted::scanner("one two (three");
+    let scanned: Vec<_> = scanner.by_ref().collect();
+
+    assert_eq!(
+        scanned.first(),
+        Some(&Ok(Spanned {
+            token: Counted::Word(1),
+            span: 0..3,
+        }))
+    );
+    assert_eq!(
+        scanner.into_extras(),
+        Counts {
+            words: 3,
+            skips: 2,
+            depth: 1,
+        }
+    );
+}
+
+#[test]
+fn the_caller_state_starts_from_default_or_from_with_extras() {
+    assert_eq!(*Counted::scanner("").extras(), Counts::default());
+
+    let mut scanner = Counted::scanner("one").with_extras(Counts {
+        words: 10,
+        skips: 0,
+        depth: 0,
+    });
+    assert_eq!(
+        scanner.next(),
+        Some(Ok(Spanned {
+            token: Counted::Word(11),
+            span: 0..3,
+        }))
+    );
+
+    let mut scanner = Counted::scanner("one");
+    scanner.extras_mut().words = 20;
+    assert_eq!(
+        scanner.next(),
+        Some(Ok(Spanned {
+            token: Counted::Word(21),
+            span: 0..3,
+        }))
+    );
+}
