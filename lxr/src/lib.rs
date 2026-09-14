@@ -98,6 +98,12 @@ where
 
 /// An error encountered while scanning input.
 ///
+/// `Unrecognized` and `InvalidPayload` are recoverable, thus the scan
+/// continues. Each other variant is terminal, thus iteration stops.
+///
+/// A terminal error discards a pending token. The scanner reports the
+/// terminal error, and not the rule that it accepted before the failure.
+///
 /// # Examples
 ///
 /// ```

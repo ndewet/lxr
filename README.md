@@ -60,9 +60,12 @@ It does not normalize line endings.
 
 Lexical errors remain recoverable. I/O errors, invalid UTF-8, position
 overflow, and resource limits terminate iteration after one error.
-An I/O error does not complete a pending token. The scanner retries
-`Interrupted`; `WouldBlock` is terminal. This API does not support async
-input or files that the caller wants to follow as they grow.
+A terminal error discards a pending token. The scanner reports the
+terminal error, and not the rule that it accepted before the failure.
+This applies to each terminal error, and not only to an I/O error.
+The scanner retries `Interrupted`; `WouldBlock` is terminal. This API
+does not support async input or files that the caller wants to follow as
+they grow.
 
 `Limits` defaults to 8 MiB of retained input and 1024 mode frames.
 Use `scanner.with_limits(limits)?` before scanning to change these bounds.
