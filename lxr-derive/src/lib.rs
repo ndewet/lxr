@@ -15,9 +15,21 @@ use syn::{
 
 /// Derives the `lxr::Lexer` trait for an enum of token kinds.
 ///
-/// Every variant needs one `#[lxr("pattern")]` attribute. Unit variants
-/// emit no payload; a single-field tuple variant parses an owned payload.
+/// Every variant needs one `#[lxr("pattern")]` attribute. A unit variant
+/// emits no payload. A single-field tuple variant parses an owned payload.
 /// Rules are considered in declaration order when equal-length matches tie.
+///
+/// A rule accepts these modifiers:
+///
+/// - `modes = Name` or `modes = [A, B]` restricts the rule to named start
+///   conditions.
+/// - `with = path` names a converter that receives the lexeme.
+/// - `with_extras = path` names a converter that also receives the caller
+///   state.
+/// - `begin = Name`, `push = Name`, and `pop` change the mode stack.
+///
+/// The container accepts `mode = Name`, `skip = "pattern"`, and
+/// `extras = Type`.
 ///
 /// # Examples
 ///

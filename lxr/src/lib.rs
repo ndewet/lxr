@@ -1,7 +1,12 @@
 //! Provides runtime support for generated lxr lexers.
 //!
 //! Derive [`Lexer`] for a token enum and place one `#[lxr("pattern")]`
-//! attribute on each variant.
+//! attribute on each variant. [`Lexer::scanner`] scans a string, and
+//! [`Lexer::from_reader`] scans a blocking stream. Each item is a
+//! [`Spanned`] token or a [`ScanError`].
+//!
+//! Name a converter with `with = path`, and name caller state with
+//! `#[lxr(extras = Type)]`. Read the README for the complete syntax.
 
 #![deny(dead_code)]
 
@@ -339,6 +344,10 @@ pub trait Lexer: __private::Sealed + Sized {
     }
 
     /// Returns the first token in `input`, if one is accepted before an error.
+    ///
+    /// This method discards each error. It gives `None` for empty input, for
+    /// an unrecognized character, and for a failed payload conversion alike.
+    /// Use [`scanner`](Lexer::scanner) when the caller must tell these apart.
     ///
     /// # Examples
     ///

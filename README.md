@@ -45,7 +45,9 @@ fn strip_bang(text: &str) -> String {
 `Spanned` records the matched token's UTF-8 byte range. An unrecognized
 character produces `ScanError` for that character and scanning continues.
 `Token::scan(input)` is a convenience method that returns the first token and
-the number of bytes consumed before it, including preceding trivia.
+the number of bytes consumed before it, including preceding trivia. It
+discards each error, thus it gives `None` for empty input and for an error
+alike. Use `Token::scanner(input)` when the caller must tell these apart.
 
 Rules use longest-match semantics. Declaration order resolves equal-length
 matches.
@@ -211,6 +213,24 @@ If an adapter is consumed before scanner construction, lookup preserves
 that adapter's original line coordinates.
 
 Run `cargo run -p lxr --example streaming` for a complete example.
+
+## Limits of the API
+
+These are decisions, and not defects. Each one keeps a guarantee that the
+streaming scanner gives.
+
+- A token payload is owned. A token never borrows the scanner buffer,
+  because a stream discards a buffer after it reads the next one. Use
+  `span.text(input)` to get a borrowed lexeme from an in-memory string.
+- `from_reader` does not resolve a line and a column. A line index has no
+  bound, thus tracking would break the memory guarantee for a large
+  stream. Use `from_tracked_reader` when a diagnostic needs a line.
+- There is no checkpoint, and the scanner cannot rewind. A parser that
+  backtracks buffers the tokens that it reads.
+- A pattern has no `^` anchor, no `$` anchor, and no case-insensitive
+  flag. Use a mode to get the behaviour of a start-of-line anchor.
+- The scanner is blocking. There is no async input, and no support for a
+  file that grows while the scan reads it.
 
 ## More examples
 
