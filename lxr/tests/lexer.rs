@@ -174,3 +174,266 @@ fn scanner_reports_explicit_converter_errors_and_recovers() {
         ]
     );
 }
+
+#[derive(Debug, PartialEq, Lexer)]
+enum Repetition {
+    #[lxr("a{2,}b")]
+    OpenEnded,
+    #[lxr("(a?)*b")]
+    NullableLoop,
+}
+
+#[test]
+fn derived_lexer_handles_open_ended_and_nullable_repetition() {
+    assert_eq!(Repetition::scan("aaab"), Some((Repetition::OpenEnded, 4)));
+    assert_eq!(Repetition::scan("b"), Some((Repetition::NullableLoop, 1)));
+    assert_eq!(Repetition::scan("aaa"), None);
+}
+
+#[derive(Debug, PartialEq, Lexer)]
+enum UnicodeBoundaries {
+    #[lxr(r"[\x7f-\x{80}]")]
+    Boundary,
+    #[lxr("(é|€|𐐷)+")]
+    Scalar,
+}
+
+#[test]
+fn derived_lexer_matches_utf8_boundaries_and_keeps_byte_spans() {
+    let scanned: Vec<_> = UnicodeBoundaries::scanner("\u{7f}\u{80}é€𐐷@").collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Ok(Spanned {
+                token: UnicodeBoundaries::Boundary,
+                span: 0..1,
+            }),
+            Ok(Spanned {
+                token: UnicodeBoundaries::Boundary,
+                span: 1..3,
+            }),
+            Ok(Spanned {
+                token: UnicodeBoundaries::Scalar,
+                span: 3..12,
+            }),
+            Err(ScanError::Unrecognized { span: 12..13 }),
+        ]
+    );
+}
+
+#[derive(Debug, PartialEq, Lexer)]
+enum NegatedClass {
+    #[lxr("a")]
+    A,
+    #[lxr(r"[^a]")]
+    NotA,
+}
+
+#[test]
+fn derived_lexer_matches_negated_classes_including_newlines_and_unicode() {
+    let scanned: Vec<_> = NegatedClass::scanner("a\né").collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Ok(Spanned {
+                token: NegatedClass::A,
+                span: 0..1,
+            }),
+            Ok(Spanned {
+                token: NegatedClass::NotA,
+                span: 1..2,
+            }),
+            Ok(Spanned {
+                token: NegatedClass::NotA,
+                span: 2..4,
+            }),
+        ]
+    );
+}
+
+#[derive(Debug, Clone, PartialEq, Lexer)]
+#[lxr(skip = r"[ \t\r\n]+")]
+#[lxr(skip = r"//[^\n]*")]
+enum RustToken {
+    #[lxr("fn")]
+    Fn,
+    #[lxr("let")]
+    Let,
+    #[lxr("match")]
+    Match,
+    #[lxr("[A-Za-z_][A-Za-z0-9_]*")]
+    Identifier,
+    #[lxr("[0-9][0-9_]*")]
+    Integer,
+    #[lxr(r#""([^"\\]|\\.)*""#)]
+    String,
+    #[lxr("->")]
+    Arrow,
+    #[lxr("::")]
+    PathSeparator,
+    #[lxr(":")]
+    Colon,
+    #[lxr("==")]
+    EqualEqual,
+    #[lxr("=")]
+    Equal,
+    #[lxr("=>")]
+    FatArrow,
+    #[lxr(r"\.\.=")]
+    RangeInclusive,
+    #[lxr(r"\.\.")]
+    Range,
+    #[lxr(r"\.")]
+    Dot,
+    #[lxr(r"\(")]
+    LeftParen,
+    #[lxr(r"\)")]
+    RightParen,
+    #[lxr(r"\{")]
+    LeftBrace,
+    #[lxr(r"\}")]
+    RightBrace,
+    #[lxr(",")]
+    Comma,
+    #[lxr(";")]
+    Semicolon,
+}
+
+fn rust_tokens(input: &str) -> Vec<Spanned<RustToken>> {
+    RustToken::scanner(input)
+        .map(|result| result.expect("the Rust-like input is recognized"))
+        .collect()
+}
+
+#[test]
+fn rust_like_lexer_recognizes_common_tokens() {
+    assert_eq!(RustToken::scan("fn"), Some((RustToken::Fn, 2)));
+    assert_eq!(
+        RustToken::scan("fn_name"),
+        Some((RustToken::Identifier, 7)),
+        "a keyword must not steal an identifier prefix"
+    );
+    assert_eq!(
+        RustToken::scan(r#""say: \"é\"""#),
+        Some((RustToken::String, 13)),
+        "escaped quotes and multi-byte characters stay inside one string literal"
+    );
+}
+
+#[test]
+fn rust_like_lexer_handles_comments_ranges_and_compound_punctuation() {
+    let input = "fn crate::main(a: u32) -> String { let value = 12_345; // note\nmatch value { 0..=10 => \"é\", _ => \"other\" } }";
+    let scanned = rust_tokens(input);
+
+    assert_eq!(
+        scanned
+            .iter()
+            .map(|spanned| &spanned.token)
+            .collect::<Vec<_>>(),
+        vec![
+            &RustToken::Fn,
+            &RustToken::Identifier,
+            &RustToken::PathSeparator,
+            &RustToken::Identifier,
+            &RustToken::LeftParen,
+            &RustToken::Identifier,
+            &RustToken::Colon,
+            &RustToken::Identifier,
+            &RustToken::RightParen,
+            &RustToken::Arrow,
+            &RustToken::Identifier,
+            &RustToken::LeftBrace,
+            &RustToken::Let,
+            &RustToken::Identifier,
+            &RustToken::Equal,
+            &RustToken::Integer,
+            &RustToken::Semicolon,
+            &RustToken::Match,
+            &RustToken::Identifier,
+            &RustToken::LeftBrace,
+            &RustToken::Integer,
+            &RustToken::RangeInclusive,
+            &RustToken::Integer,
+            &RustToken::FatArrow,
+            &RustToken::String,
+            &RustToken::Comma,
+            &RustToken::Identifier,
+            &RustToken::FatArrow,
+            &RustToken::String,
+            &RustToken::RightBrace,
+            &RustToken::RightBrace,
+        ]
+    );
+    assert_eq!(
+        scanned
+            .iter()
+            .map(|spanned| &input[spanned.span.clone()])
+            .collect::<Vec<_>>(),
+        vec![
+            "fn",
+            "crate",
+            "::",
+            "main",
+            "(",
+            "a",
+            ":",
+            "u32",
+            ")",
+            "->",
+            "String",
+            "{",
+            "let",
+            "value",
+            "=",
+            "12_345",
+            ";",
+            "match",
+            "value",
+            "{",
+            "0",
+            "..=",
+            "10",
+            "=>",
+            "\"é\"",
+            ",",
+            "_",
+            "=>",
+            "\"other\"",
+            "}",
+            "}",
+        ]
+    );
+}
+
+#[test]
+fn rust_like_lexer_prefers_the_longest_compound_punctuation() {
+    let input = "a===b..c...d";
+    let scanned = rust_tokens(input);
+
+    assert_eq!(
+        scanned
+            .iter()
+            .map(|spanned| &spanned.token)
+            .collect::<Vec<_>>(),
+        vec![
+            &RustToken::Identifier,
+            &RustToken::EqualEqual,
+            &RustToken::Equal,
+            &RustToken::Identifier,
+            &RustToken::Range,
+            &RustToken::Identifier,
+            &RustToken::Range,
+            &RustToken::Dot,
+            &RustToken::Identifier,
+        ]
+    );
+    assert_eq!(
+        scanned
+            .iter()
+            .map(|spanned| &input[spanned.span.clone()])
+            .collect::<Vec<_>>(),
+        vec!["a", "==", "=", "b", "..", "c", "..", ".", "d"]
+    );
+}
