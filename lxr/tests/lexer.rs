@@ -535,22 +535,24 @@ fn rust_like_lexer_prefers_the_longest_compound_punctuation() {
         vec!["a", "==", "=", "b", "..", "c", "..", ".", "d"]
     );
 }
+
 #[derive(Debug, PartialEq, Lexer)]
 enum Converters {
     #[lxr("![a-z]+", with = direct)]
     Direct(String),
-    #[lxr("[0-9]+", with = short_number)]
-    Short(String),
+    #[lxr("[0-9]+", with = checked)]
+    Checked(u8),
     #[lxr(r"\?[a-z]+", with = failing)]
-    Checked(String),
+    Rejected(String),
 }
 
 fn direct(text: &str) -> String {
     text[1..].to_uppercase()
 }
 
-fn short_number(text: &str) -> Option<String> {
-    (text.len() <= 2).then(|| text.to_owned())
+fn checked(text: &str) -> Result<u8, String> {
+    text.parse()
+        .map_err(|_| format!("{text} is not a byte value"))
 }
 
 fn failing(_: &str) -> Result<String, &'static str> {
@@ -558,7 +560,7 @@ fn failing(_: &str) -> Result<String, &'static str> {
 }
 
 #[test]
-fn a_converter_returns_a_payload_an_option_or_a_result() {
+fn a_converter_returns_a_payload_or_a_result() {
     assert_eq!(
         Converters::scanner("!hi").next(),
         Some(Ok(Spanned {
@@ -569,15 +571,15 @@ fn a_converter_returns_a_payload_an_option_or_a_result() {
     assert_eq!(
         Converters::scanner("42").next(),
         Some(Ok(Spanned {
-            token: Converters::Short("42".to_owned()),
+            token: Converters::Checked(42),
             span: Span::new(0, 2),
         }))
     );
     assert_eq!(
-        Converters::scanner("123").next(),
+        Converters::scanner("999").next(),
         Some(Err(ScanError::InvalidPayload {
             span: Span::new(0, 3),
-            message: "the converter rejected the lexeme".to_owned(),
+            message: "999 is not a byte value".to_owned(),
         }))
     );
     assert_eq!(

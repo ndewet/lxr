@@ -27,9 +27,10 @@ contain one owned tuple payload. Payloads use their `FromStr` implementation,
 so `String`, numeric types, and user types that implement `FromStr` work.
 
 Add `with = path` to name a converter function. The converter receives the
-matched lexeme. It returns the payload, an `Option` of the payload, or a
-`Result` of the payload. A `None` and an `Err` each give
-`ScanError::InvalidPayload`. Only a variant with a payload accepts a
+matched lexeme. It returns the payload when a conversion cannot fail. It
+returns a `Result` of the payload when a conversion can fail. An `Err`
+gives `ScanError::InvalidPayload`, and the `Display` of the `Err` value
+becomes the message of that error. Only a variant with a payload accepts a
 converter.
 
 ```rust
