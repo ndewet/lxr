@@ -76,13 +76,15 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         let converter = attribute.converter;
         let variant_ident = variant.ident;
         let action = match variant.fields {
-            Fields::Unit => match converter {
-                Some(converter) => quote! {
-                    ::lxr::PayloadResult::<()>::into_payload((#converter)(text))
-                        .map(|()| Some(Self::#variant_ident))
-                },
-                None => quote!(Ok(Some(Self::#variant_ident))),
-            },
+            Fields::Unit => {
+                if converter.is_some() {
+                    return Err(Error::new_spanned(
+                        variant_ident,
+                        "a unit token variant has no payload, thus it cannot have `with`",
+                    ));
+                }
+                quote!(Ok(Some(Self::#variant_ident)))
+            }
             Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
                 let field = fields.unnamed.first().expect("one field was checked");
                 let Type::Reference(_) = field.ty else {
@@ -182,17 +184,17 @@ fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<(Vec<String>, Vec<R
                 ));
             }
             let pattern = config.pattern.expect("skip attribute has a pattern");
-            let spec = match &config.rule.converter {
-                Some(converter) => RuleSpec::emit(
-                    pattern,
-                    quote! {
-                        ::lxr::PayloadResult::<()>::into_payload((#converter)(text))
-                            .map(|()| None)
-                    },
-                ),
-                None => RuleSpec::skip(pattern),
-            };
-            rules.push(rule_spec(spec, &config.rule.modes, &config.rule.transition));
+            if config.rule.converter.is_some() {
+                return Err(Error::new_spanned(
+                    attribute,
+                    "a `skip` rule emits no token, thus it cannot have `with`",
+                ));
+            }
+            rules.push(rule_spec(
+                RuleSpec::skip(pattern),
+                &config.rule.modes,
+                &config.rule.transition,
+            ));
             Ok(())
         })?;
     Ok((modes, rules))

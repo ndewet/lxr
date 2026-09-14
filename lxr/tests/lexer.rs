@@ -588,29 +588,3 @@ fn a_converter_returns_a_payload_an_option_or_a_result() {
         }))
     );
 }
-
-thread_local! {
-    static SEEN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-
-fn record(text: &str) {
-    SEEN.with(|seen| seen.borrow_mut().push(text.to_owned()));
-}
-
-#[derive(Debug, PartialEq, Lexer)]
-#[lxr(skip = r"\s+", with = record)]
-enum Recorded {
-    #[lxr("[a-z]+", with = record)]
-    Word,
-}
-
-#[test]
-fn a_unit_variant_and_a_skip_rule_each_accept_a_converter() {
-    SEEN.with(|seen| seen.borrow_mut().clear());
-    let scanned: Vec<_> = Recorded::scanner("one two").collect();
-    assert_eq!(scanned.len(), 2);
-    assert_eq!(
-        SEEN.with(|seen| seen.borrow().clone()),
-        vec!["one".to_owned(), " ".to_owned(), "two".to_owned()]
-    );
-}

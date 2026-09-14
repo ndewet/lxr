@@ -10,8 +10,8 @@ use std::fmt::Display;
 /// of the payload. A `None` and an `Err` each become a
 /// [`ScanError::InvalidPayload`](crate::ScanError::InvalidPayload).
 ///
-/// A converter for a unit variant, and a converter for a `skip` rule, each
-/// return `()`, `Option<()>`, or `Result<(), E>`.
+/// Only a variant with a payload accepts a converter. A unit variant has no
+/// payload, and a `skip` rule emits no token.
 ///
 /// # Examples
 ///
