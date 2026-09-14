@@ -36,7 +36,8 @@ use syn::{
 /// #     Pop,
 /// # }
 /// # pub type RuleScan<T> = Result<(Option<T>, usize, Transition), (PayloadError, usize)>;
-/// # pub trait Lexer: Sized {
+/// # pub mod __private { pub trait Sealed {} }
+/// # pub trait Lexer: __private::Sealed + Sized {
 /// #     fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
 /// #     fn mode_name(mode: usize) -> &'static str;
 /// # }
@@ -137,6 +138,8 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         impl #impl_generics #ident #type_generics #where_clause {
             #matcher
         }
+
+        impl #impl_generics ::lxr::__private::Sealed for #ident #type_generics #where_clause {}
 
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
             fn scan_one(
