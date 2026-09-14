@@ -296,15 +296,31 @@ impl RuleAction {
 pub(crate) struct Lexer {
     rules: Vec<Rule>,
     start_conditions: Vec<StartCondition>,
+    extras: TokenStream,
 }
 
 impl Lexer {
     /// Creates a lexer from declaration-ordered rules and start conditions.
+    ///
+    /// The caller state type starts as the unit type. Call
+    /// [`Lexer::with_extras`] to name another type.
     pub(crate) fn new(rules: Vec<Rule>, start_conditions: Vec<StartCondition>) -> Self {
         Self {
             rules,
             start_conditions,
+            extras: quote!(()),
         }
+    }
+
+    /// Names the caller state type that each action receives.
+    pub(crate) fn with_extras(mut self, extras: TokenStream) -> Self {
+        self.extras = extras;
+        self
+    }
+
+    /// Returns the caller state type that each action receives.
+    pub(crate) fn extras(&self) -> &TokenStream {
+        &self.extras
     }
 
     /// Returns the rule identified by `id`.
@@ -415,11 +431,13 @@ impl Lexer {
 /// # Ok::<(), lxr_codegen::CompileError>(())
 /// ```
 pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileError> {
-    compile_with_modes(Vec::new(), specifications)
+    compile_with_modes(Vec::new(), specifications, quote!(()))
 }
 
 /// Builds a lexer with named start conditions in addition to `INITIAL`.
-/// Builds a lexer with named start conditions in addition to `INITIAL`.
+///
+/// `extras` names the caller state type that each action receives. Give
+/// `quote!(())` for a lexer that keeps no state.
 ///
 /// # Errors
 ///
@@ -439,6 +457,7 @@ pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileErro
 ///             .in_modes(vec!["String".into()])
 ///             .transition(Transition::Pop),
 ///     ],
+///     quote::quote!(()),
 /// )?;
 /// assert!(generated.to_string().contains("Transition :: Push"));
 /// # Ok::<(), lxr_codegen::CompileError>(())
@@ -446,6 +465,7 @@ pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileErro
 pub fn compile_with_modes(
     modes: Vec<String>,
     specifications: Vec<RuleSpec>,
+    extras: TokenStream,
 ) -> Result<TokenStream, CompileError> {
     let mut conditions = vec![StartCondition::new("INITIAL")];
     for mode in modes {
@@ -507,7 +527,10 @@ pub fn compile_with_modes(
             message: "a lexer rule must consume at least one byte".into(),
         });
     }
-    Lexer::new(rules, conditions).emit().map_err(Into::into)
+    Lexer::new(rules, conditions)
+        .with_extras(extras)
+        .emit()
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

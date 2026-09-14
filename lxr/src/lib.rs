@@ -218,6 +218,13 @@ impl ScanError {
 /// assert_eq!(Token::scan("word"), Some((Token::Word, 4)));
 /// ```
 pub trait Lexer: __private::Sealed + Sized {
+    /// The caller state that each action reads and writes.
+    ///
+    /// The container attribute `#[lxr(extras = Type)]` names this type. It is
+    /// the unit type for a lexer that keeps no state. Use it for a symbol
+    /// table, an indentation stack, or a count of errors.
+    type Extras;
+
     /// Returns the initial execution state for a mode.
     #[doc(hidden)]
     fn start(mode: usize) -> usize;
@@ -232,7 +239,11 @@ pub trait Lexer: __private::Sealed + Sized {
     fn continues(state: usize) -> bool;
     /// Converts the selected lexeme.
     #[doc(hidden)]
-    fn action(rule: usize, text: &str) -> Result<(Option<Self>, Transition), PayloadError>;
+    fn action(
+        rule: usize,
+        text: &str,
+        extras: &mut Self::Extras,
+    ) -> Result<(Option<Self>, Transition), PayloadError>;
 
     /// Creates a scanner with buffering for a blocking reader.
     ///
@@ -249,7 +260,10 @@ pub trait Lexer: __private::Sealed + Sized {
     /// enum Token { #[lxr("x")] X }
     /// assert_eq!(Token::from_reader(&b"x"[..]).count(), 1);
     /// ```
-    fn from_reader<R: std::io::Read>(reader: R) -> Scanner<Self, std::io::BufReader<R>> {
+    fn from_reader<R: std::io::Read>(reader: R) -> Scanner<Self, std::io::BufReader<R>>
+    where
+        Self::Extras: Default,
+    {
         Scanner::<Self>::from_reader(reader)
     }
 
@@ -274,7 +288,10 @@ pub trait Lexer: __private::Sealed + Sized {
     /// ```
     fn from_tracked_reader<R: std::io::Read>(
         reader: R,
-    ) -> Scanner<Self, Tracking<std::io::BufReader<R>>> {
+    ) -> Scanner<Self, Tracking<std::io::BufReader<R>>>
+    where
+        Self::Extras: Default,
+    {
         Scanner::<Self>::from_bufread(Tracking::new(std::io::BufReader::new(reader)))
     }
 
@@ -288,7 +305,10 @@ pub trait Lexer: __private::Sealed + Sized {
     /// enum Token { #[lxr("x")] X }
     /// assert_eq!(Token::from_bufread(&b"x"[..]).count(), 1);
     /// ```
-    fn from_bufread<S: std::io::BufRead>(source: S) -> Scanner<Self, S> {
+    fn from_bufread<S: std::io::BufRead>(source: S) -> Scanner<Self, S>
+    where
+        Self::Extras: Default,
+    {
         Scanner::<Self>::from_bufread(source)
     }
 
@@ -311,7 +331,10 @@ pub trait Lexer: __private::Sealed + Sized {
     ///
     /// assert_eq!(Token::scanner("word").count(), 1);
     /// ```
-    fn scanner(input: &str) -> Scanner<Self, Replay<std::io::Cursor<&[u8]>>> {
+    fn scanner(input: &str) -> Scanner<Self, Replay<std::io::Cursor<&[u8]>>>
+    where
+        Self::Extras: Default,
+    {
         Scanner::new(input)
     }
 
@@ -330,7 +353,10 @@ pub trait Lexer: __private::Sealed + Sized {
     ///
     /// assert_eq!(Token::scan("42!"), Some((Token::Integer, 2)));
     /// ```
-    fn scan(input: &str) -> Option<(Self, usize)> {
+    fn scan(input: &str) -> Option<(Self, usize)>
+    where
+        Self::Extras: Default,
+    {
         Self::scanner(input).next()?.ok().map(|spanned| {
             (
                 spanned.token,

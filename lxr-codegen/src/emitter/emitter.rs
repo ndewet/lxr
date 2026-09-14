@@ -66,6 +66,7 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
             quote! { #index => (#action).map(|token| (token, #transition)), }
         })
         .collect();
+    let extras = lexer.extras();
     let mode_names = lexer
         .start_conditions()
         .iter()
@@ -105,7 +106,9 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         fn __lxr_action(
             rule: usize,
             text: &str,
+            extras: &mut #extras,
         ) -> Result<(Option<Self>, ::lxr::Transition), ::lxr::PayloadError> {
+            let _ = &mut *extras;
             match rule {
                 #(#actions)*
                 _ => unreachable!("generated lexer selected an unknown rule"),

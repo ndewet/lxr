@@ -50,12 +50,50 @@ the number of bytes consumed before it, including preceding trivia.
 Rules use longest-match semantics. Declaration order resolves equal-length
 matches.
 
+## Caller state
+
+An action can read and write state that lives for the whole scan. Name the
+state type with `#[lxr(extras = Type)]`, and name a converter with
+`with_extras = path`. Such a converter receives the lexeme and the state.
+Use this for a symbol table, an indentation stack, or a count of errors.
+
+```rust
+#[derive(Default)]
+struct Counts { words: usize }
+
+#[derive(Lexer)]
+#[lxr(extras = Counts)]
+enum Token {
+    #[lxr("[a-z]+", with_extras = count)]
+    Word(usize),
+}
+
+fn count(_: &str, counts: &mut Counts) -> usize {
+    counts.words += 1;
+    counts.words
+}
+
+let mut scanner = Token::scanner("one two");
+let scanned: Vec<_> = scanner.by_ref().collect();
+assert_eq!(scanner.into_extras().words, 2);
+```
+
+The state starts from its `Default`. Call `scanner.with_extras(state)` for a
+state that has no `Default`, or for a state that starts with content. Call
+`scanner.extras()` and `scanner.extras_mut()` during a scan, and
+`scanner.into_extras()` after one.
+
 ## Streaming input
 
 Use `Token::from_reader(reader)` for a blocking `Read` source, including a
 file. Use `Token::from_bufread(source)` for an existing `BufRead` source.
 The scanner retains lexemes and lookahead across buffer boundaries.
 The input need not support seeking.
+
+`from_reader` does not resolve a line and a column, thus its memory stays
+bounded. Use `Token::from_tracked_reader(reader)` for a diagnostic that
+needs a line number. That adapter retains one `u64` for each line, and
+`Limits` excludes that index.
 
 ```rust
 use std::fs::File;
@@ -141,7 +179,9 @@ offset. Later requests reuse that index and extend it when needed.
 Lookup preserves the source position, including after an indexing error.
 If position restoration fails, the replay adapter rejects later reads.
 
-For a forward-only source, explicitly enable tracking:
+For a forward-only source, enable tracking. `Token::from_tracked_reader`
+does this for a `Read` source. Use `Tracking` directly for a source that
+is already buffered:
 
 ```rust
 use lxr::{Locate, Tracking};
@@ -183,6 +223,8 @@ The runnable examples are in [`lxr/examples`](lxr/examples).
   `pop`, including nested comments and an unterminated mode error.
 - [`patterns.rs`](lxr/examples/patterns.rs) shows literals, groups,
   alternation, character classes, escapes, repetition, and Unicode.
+- [`extras.rs`](lxr/examples/extras.rs) shows caller state, with a symbol
+  table and a bracket depth.
 
 Run an example from the workspace root:
 

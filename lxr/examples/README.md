@@ -12,3 +12,4 @@ cargo run -p lxr --example <name>
 - `streaming` shows buffered input, replay, and diagnostic locations.
 - `modes` shows start conditions and nested comments.
 - `patterns` shows the supported regex building blocks.
+- `extras` shows caller state that each action reads and writes.

@@ -16,7 +16,7 @@ pub type Remainder<S> = io::Chain<Cursor<Vec<u8>>, S>;
 /// and resource failures terminate iteration. Lexical errors are recoverable.
 /// The scanner retries Interrupted. WouldBlock is a terminal source error.
 /// EOF ends this scan, including for sources that later acquire more data.
-pub struct Scanner<T, S = Replay<Cursor<&'static [u8]>>> {
+pub struct Scanner<T: Lexer, S = Replay<Cursor<&'static [u8]>>> {
     source: S,
     buffer: Vec<u8>,
     head: usize,
@@ -25,6 +25,7 @@ pub struct Scanner<T, S = Replay<Cursor<&'static [u8]>>> {
     eof: bool,
     finished: bool,
     limits: Limits,
+    extras: T::Extras,
     marker: PhantomData<T>,
 }
 
@@ -34,7 +35,10 @@ struct ModeFrame {
     opened_at: u64,
 }
 
-impl<T> Scanner<T> {
+impl<T: Lexer> Scanner<T>
+where
+    T::Extras: Default,
+{
     /// Creates a scanner over borrowed UTF-8 text with lazy location lookup.
     ///
     /// [`Lexer::scanner`](crate::Lexer::scanner) is the public entry point.
@@ -67,12 +71,87 @@ impl<T> Scanner<T> {
             eof: false,
             finished: false,
             limits: Limits::default(),
+            extras: T::Extras::default(),
             marker: PhantomData,
         }
     }
 }
 
-impl<T, S: BufRead> Scanner<T, S> {
+impl<T: Lexer, S: BufRead> Scanner<T, S> {
+    /// Returns the caller state that each action reads and writes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    /// #[derive(Lexer)]
+    /// #[lxr(extras = usize)]
+    /// enum Token { #[lxr("x", with_extras = count)] X }
+    /// fn count(_: &str, total: &mut usize) { *total += 1; }
+    /// let mut scanner = Token::scanner("xxx");
+    /// assert_eq!(scanner.by_ref().count(), 3);
+    /// assert_eq!(*scanner.extras(), 3);
+    /// ```
+    pub fn extras(&self) -> &T::Extras {
+        &self.extras
+    }
+
+    /// Returns the caller state for a change before or during a scan.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    /// #[derive(Lexer)]
+    /// #[lxr(extras = usize)]
+    /// enum Token { #[lxr("x")] X }
+    /// let mut scanner = Token::scanner("x");
+    /// *scanner.extras_mut() = 7;
+    /// assert_eq!(*scanner.extras(), 7);
+    /// ```
+    pub fn extras_mut(&mut self) -> &mut T::Extras {
+        &mut self.extras
+    }
+
+    /// Sets the initial caller state.
+    ///
+    /// Use this for a state that has no [`Default`], or for a state that
+    /// starts with content.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    /// #[derive(Lexer)]
+    /// #[lxr(extras = usize)]
+    /// enum Token { #[lxr("x")] X }
+    /// let scanner = Token::scanner("x").with_extras(7);
+    /// assert_eq!(*scanner.extras(), 7);
+    /// ```
+    #[must_use]
+    pub fn with_extras(mut self, extras: T::Extras) -> Self {
+        self.extras = extras;
+        self
+    }
+
+    /// Consumes the scanner and returns the caller state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    /// #[derive(Lexer)]
+    /// #[lxr(extras = usize)]
+    /// enum Token { #[lxr("x", with_extras = count)] X }
+    /// fn count(_: &str, total: &mut usize) { *total += 1; }
+    /// let mut scanner = Token::scanner("xx");
+    /// assert_eq!(scanner.by_ref().count(), 2);
+    /// assert_eq!(scanner.into_extras(), 2);
+    /// ```
+    pub fn into_extras(self) -> T::Extras {
+        self.extras
+    }
+
     /// Sets bounds before scanning begins.
     ///
     /// # Errors
@@ -218,7 +297,7 @@ impl<T, S: BufRead> Scanner<T, S> {
     }
 }
 
-impl<T, S: BufRead + Locate> Locate for Scanner<T, S> {
+impl<T: Lexer, S: BufRead + Locate> Locate for Scanner<T, S> {
     fn current_offset(&mut self) -> io::Result<u64> {
         Ok(self.offset)
     }
@@ -282,7 +361,7 @@ impl<T: Lexer, S: BufRead> Scanner<T, S> {
             };
             let text = std::str::from_utf8(&self.buffer[self.head..self.head + count])
                 .expect("execution validates complete UTF-8 scalars");
-            let action = T::action(rule, text);
+            let action = T::action(rule, text, &mut self.extras);
             let span = self.commit(count)?;
             let (token, transition) = action.map_err(|error| ScanError::InvalidPayload {
                 span,

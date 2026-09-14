@@ -37,12 +37,17 @@ use syn::{
 /// # }
 /// # pub mod __private { pub trait Sealed {} }
 /// # pub trait Lexer: __private::Sealed + Sized {
+/// #     type Extras;
 /// #     fn mode_name(mode: usize) -> &'static str;
 /// #     fn start(mode: usize) -> usize;
 /// #     fn step(state: usize, byte: u8) -> Option<usize>;
 /// #     fn accept(state: usize) -> Option<usize>;
 /// #     fn continues(state: usize) -> bool;
-/// #     fn action(rule: usize, text: &str) -> Result<(Option<Self>, Transition), PayloadError>;
+/// #     fn action(
+/// #         rule: usize,
+/// #         text: &str,
+/// #         extras: &mut Self::Extras,
+/// #     ) -> Result<(Option<Self>, Transition), PayloadError>;
 /// # }
 /// # fn main() {
 /// use lxr_derive::Lexer;
@@ -72,7 +77,8 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         ));
     };
 
-    let (modes, mut rules) = lexer_attributes(&input.attrs)?;
+    let (modes, extras, mut rules) = lexer_attributes(&input.attrs)?;
+    let extras = extras.map_or_else(|| quote!(()), |extras| quote!(#extras));
     for variant in data.variants {
         let attribute = rule_attribute(&variant.attrs, &variant.ident)?;
         let pattern = attribute.pattern.clone();
@@ -80,10 +86,13 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         let variant_ident = variant.ident;
         let action = match variant.fields {
             Fields::Unit => match converter {
-                Some(converter) => quote! {
-                    ::lxr::PayloadResult::<()>::into_payload((#converter)(text))
-                        .map(|()| Some(Self::#variant_ident))
-                },
+                Some(converter) => {
+                    let call = converter.call();
+                    quote! {
+                        ::lxr::PayloadResult::<()>::into_payload(#call)
+                            .map(|()| Some(Self::#variant_ident))
+                    }
+                }
                 None => quote!(Ok(Some(Self::#variant_ident))),
             },
             Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
@@ -91,12 +100,13 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                 let Type::Reference(_) = field.ty else {
                     let payload_type = &field.ty;
                     let action = match converter {
-                        Some(converter) => quote! {
-                            ::lxr::PayloadResult::<#payload_type>::into_payload(
-                                (#converter)(text),
-                            )
-                            .map(|payload| Some(Self::#variant_ident(payload)))
-                        },
+                        Some(converter) => {
+                            let call = converter.call();
+                            quote! {
+                                ::lxr::PayloadResult::<#payload_type>::into_payload(#call)
+                                    .map(|payload| Some(Self::#variant_ident(payload)))
+                            }
+                        }
                         None => quote! {
                             ::lxr::parse_payload::<#payload_type>(text)
                                 .map(|payload| Some(Self::#variant_ident(payload)))
@@ -131,7 +141,7 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         ));
     }
 
-    let matcher = compile_with_modes(modes, rules)
+    let matcher = compile_with_modes(modes, rules, extras.clone())
         .map_err(|error| Error::new_spanned(input.ident.clone(), error))?;
     let ident = input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
@@ -144,12 +154,18 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         impl #impl_generics ::lxr::__private::Sealed for #ident #type_generics #where_clause {}
 
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
+            type Extras = #extras;
+
             fn start(mode: usize) -> usize { Self::__lxr_start(mode) }
             fn step(state: usize, byte: u8) -> Option<usize> { Self::__lxr_step(state, byte) }
             fn accept(state: usize) -> Option<usize> { Self::__lxr_accept(state) }
             fn continues(state: usize) -> bool { Self::__lxr_continues(state) }
-            fn action(rule: usize, text: &str) -> Result<(Option<Self>, ::lxr::Transition), ::lxr::PayloadError> {
-                Self::__lxr_action(rule, text)
+            fn action(
+                rule: usize,
+                text: &str,
+                extras: &mut Self::Extras,
+            ) -> Result<(Option<Self>, ::lxr::Transition), ::lxr::PayloadError> {
+                Self::__lxr_action(rule, text, extras)
             }
             fn mode_name(mode: usize) -> &'static str {
                 Self::__lxr_mode_name(mode)
@@ -158,8 +174,11 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
     })
 }
 
-fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<(Vec<String>, Vec<RuleSpec>)> {
+type LexerConfig = (Vec<String>, Option<Type>, Vec<RuleSpec>);
+
+fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<LexerConfig> {
     let mut modes = Vec::new();
+    let mut extras = None;
     let mut rules = Vec::new();
     attributes
         .iter()
@@ -173,32 +192,45 @@ fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<(Vec<String>, Vec<R
                 modes.push(mode);
                 return Ok(());
             }
+            if config.name == "extras" {
+                if extras.is_some() {
+                    return Err(Error::new_spanned(
+                        attribute,
+                        "a lexer can have only one `extras` attribute",
+                    ));
+                }
+                extras = config.extras;
+                return Ok(());
+            }
             if config.name != "skip" {
                 return Err(Error::new_spanned(
                     attribute,
-                    "expected `mode = Name` or `skip = \"pattern\"`",
+                    "expected `mode = Name`, `extras = Type`, or `skip = \"pattern\"`",
                 ));
             }
             let pattern = config.pattern.expect("skip attribute has a pattern");
             let spec = match &config.rule.converter {
-                Some(converter) => RuleSpec::emit(
-                    pattern,
-                    quote! {
-                        ::lxr::PayloadResult::<()>::into_payload((#converter)(text))
-                            .map(|()| None)
-                    },
-                ),
+                Some(converter) => {
+                    let call = converter.call();
+                    RuleSpec::emit(
+                        pattern,
+                        quote! {
+                            ::lxr::PayloadResult::<()>::into_payload(#call).map(|()| None)
+                        },
+                    )
+                }
                 None => RuleSpec::skip(pattern),
             };
             rules.push(rule_spec(spec, &config.rule.modes, &config.rule.transition));
             Ok(())
         })?;
-    Ok((modes, rules))
+    Ok((modes, extras, rules))
 }
 
 struct LexerAttribute {
     name: String,
     mode: Option<String>,
+    extras: Option<Type>,
     pattern: Option<String>,
     rule: RuleConfig,
 }
@@ -206,7 +238,25 @@ struct LexerAttribute {
 struct RuleConfig {
     modes: Vec<String>,
     transition: Transition,
-    converter: Option<Expr>,
+    converter: Option<Converter>,
+}
+
+/// A converter function, and whether it receives the caller state.
+struct Converter {
+    path: Expr,
+    extras: bool,
+}
+
+impl Converter {
+    /// Renders the call that gives the return value of the converter.
+    fn call(&self) -> proc_macro2::TokenStream {
+        let path = &self.path;
+        if self.extras {
+            quote!((#path)(text, extras))
+        } else {
+            quote!((#path)(text))
+        }
+    }
 }
 
 impl Parse for LexerAttribute {
@@ -221,6 +271,20 @@ impl Parse for LexerAttribute {
             return Ok(Self {
                 name: name.to_string(),
                 mode: Some(mode.to_string()),
+                extras: None,
+                pattern: None,
+                rule: RuleConfig::stay(),
+            });
+        }
+        if name == "extras" {
+            let extras: Type = input.parse()?;
+            if !input.is_empty() {
+                return Err(input.error("unexpected lexer extras attribute content"));
+            }
+            return Ok(Self {
+                name: name.to_string(),
+                mode: None,
+                extras: Some(extras),
                 pattern: None,
                 rule: RuleConfig::stay(),
             });
@@ -230,6 +294,7 @@ impl Parse for LexerAttribute {
         Ok(Self {
             name: name.to_string(),
             mode: None,
+            extras: None,
             pattern: Some(pattern.value()),
             rule,
         })
@@ -266,13 +331,23 @@ fn parse_rule_modifiers(input: ParseStream<'_>) -> Result<RuleConfig> {
             }
             "with" => {
                 input.parse::<syn::Token![=]>()?;
-                config.converter = Some(input.parse()?);
+                config.converter = Some(Converter {
+                    path: input.parse()?,
+                    extras: false,
+                });
+            }
+            "with_extras" => {
+                input.parse::<syn::Token![=]>()?;
+                config.converter = Some(Converter {
+                    path: input.parse()?,
+                    extras: true,
+                });
             }
             "pop" => config.transition = Transition::Pop,
             _ => {
                 return Err(Error::new_spanned(
                     name,
-                    "expected `modes`, `with`, `push`, `begin`, or `pop`",
+                    "expected `modes`, `with`, `with_extras`, `push`, `begin`, or `pop`",
                 ));
             }
         }
@@ -297,7 +372,7 @@ fn rule_spec(spec: RuleSpec, modes: &[String], transition: &Transition) -> RuleS
 
 struct RuleAttribute {
     pattern: LitStr,
-    converter: Option<Expr>,
+    converter: Option<Converter>,
     modes: Vec<String>,
     transition: Transition,
 }
