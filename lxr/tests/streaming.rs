@@ -273,62 +273,6 @@ enum Modes {
 }
 
 #[test]
-fn checkpoints_restore_modes_lookahead_and_completion() {
-    let mut scanner = Modes::scanner("<xx>x");
-    assert!(matches!(
-        scanner.next(),
-        Some(Ok(Spanned {
-            token: Modes::Open,
-            ..
-        }))
-    ));
-    let checkpoint = scanner.checkpoint().expect("memory supports replay");
-    let expected = scanner.by_ref().collect::<Vec<_>>();
-    assert_eq!(expected.len(), 3);
-    scanner
-        .restore(&checkpoint)
-        .expect("checkpoint belongs to scanner");
-    assert_eq!(scanner.collect::<Vec<_>>(), expected);
-
-    let mut scanner = Rollback::scanner("abbb!");
-    assert!(matches!(
-        scanner.next(),
-        Some(Ok(Spanned {
-            token: Rollback::A,
-            ..
-        }))
-    ));
-    let checkpoint = scanner.checkpoint().expect("save speculative lookahead");
-    let expected = scanner.by_ref().collect::<Vec<_>>();
-    scanner.restore(&checkpoint).expect("restore lookahead");
-    assert_eq!(scanner.by_ref().collect::<Vec<_>>(), expected);
-    let end = scanner.checkpoint().expect("save EOF");
-    scanner
-        .restore(&checkpoint)
-        .expect("restore earlier checkpoint");
-    scanner.restore(&end).expect("restore EOF");
-    assert_eq!(scanner.next(), None);
-}
-
-#[test]
-fn foreign_checkpoints_do_not_change_the_scanner() {
-    let mut first = Text::scanner("a");
-    let mut second = Text::scanner("b");
-    let checkpoint = first.checkpoint().expect("save first scanner");
-    assert_eq!(
-        second
-            .restore(&checkpoint)
-            .expect_err("foreign checkpoint")
-            .kind(),
-        io::ErrorKind::InvalidInput
-    );
-    assert_eq!(
-        second.next().expect("token").expect("valid token").token,
-        Text::Word("b".into())
-    );
-}
-
-#[test]
 fn limits_report_failure_instead_of_shortening_a_token() {
     for capacity in 1..=8 {
         let mut scanner =
@@ -577,15 +521,16 @@ fn files_support_streaming_replay_and_locations() {
     let file = std::fs::File::open(path).expect("reopen manifest");
     let source = Replay::new(BufReader::with_capacity(3, file)).expect("seekable file");
     let mut scanner = Text::from_bufread(source);
-    let checkpoint = scanner.checkpoint().expect("file checkpoint");
     let offset = input.find('\n').expect("manifest has multiple lines") as u64 + 1;
     assert_eq!(
         scanner.locate(offset).expect("file location"),
         Location { line: 2, column: 1 }
     );
     assert_eq!(scanner.by_ref().collect::<Vec<_>>(), expected);
-    scanner.restore(&checkpoint).expect("file restore");
-    assert_eq!(scanner.collect::<Vec<_>>(), expected);
+    assert_eq!(
+        scanner.locate(offset).expect("location after the scan"),
+        Location { line: 2, column: 1 }
+    );
 }
 
 struct Faults {
@@ -661,22 +606,6 @@ fn failed_location_reads_restore_the_source_position() {
             .span,
         2..3
     );
-}
-
-#[test]
-fn failed_checkpoint_restore_terminates_scanning() {
-    let fail_seek = Rc::new(Cell::new(0));
-    let source = Faults {
-        cursor: Cursor::new(b"a\nb"),
-        fail_read: Rc::new(Cell::new(false)),
-        fail_seek: fail_seek.clone(),
-    };
-    let mut scanner = Text::from_bufread(Replay::new(source).expect("source"));
-    let checkpoint = scanner.checkpoint().expect("checkpoint");
-    assert!(scanner.next().expect("token").is_ok());
-    fail_seek.set(1);
-    assert!(scanner.restore(&checkpoint).is_err());
-    assert_eq!(scanner.next(), None);
 }
 
 #[test]

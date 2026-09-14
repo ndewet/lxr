@@ -71,8 +71,8 @@ they grow.
 Use `scanner.with_limits(limits)?` before scanning to change these bounds.
 Retained input includes the lexeme, speculative input, and lookahead.
 A limit error never changes longest-match selection.
-The bounds exclude source buffers, token payloads, checkpoints, and line
-indexes. Some rule sets require repeated scanning after rollback.
+The bounds exclude source buffers, token payloads, and line indexes.
+Some rule sets require repeated scanning after rollback.
 The API does not guarantee linear total execution time.
 
 Use `scanner.into_remainder()` to recover unread input when scanning stops
@@ -80,9 +80,9 @@ early. The returned reader supplies retained lookahead before the source.
 
 ## Replay and diagnostic locations
 
-Use `Replay` to enable checkpoints and lazy location lookup for a stable
-source that implements `BufRead + Seek`. The source content must remain
-unchanged while the adapter exists.
+Use `Replay` to enable lazy location lookup for a stable source that
+implements `BufRead + Seek`. The source content must remain unchanged
+while the adapter exists.
 
 ```rust
 use lxr::{Locate, Replay, ScanError};
@@ -90,7 +90,6 @@ use std::{fs::File, io::BufReader};
 
 let source = Replay::new(BufReader::new(File::open("input.txt")?))?;
 let mut scanner = Token::from_bufread(source);
-let checkpoint = scanner.checkpoint()?;
 
 while let Some(item) = scanner.next() {
     if let Err(ScanError::Unrecognized { span }) = item {
@@ -98,18 +97,14 @@ while let Some(item) = scanner.next() {
         eprintln!("unrecognized input at {}:{}", location.line, location.column);
     }
 }
-
-scanner.restore(&checkpoint)?;
 ```
 
-Checkpoints preserve modes, lookahead, and completion state. They belong to
-one scanner and retain a copy of its buffered input and mode stack.
-Restoring a checkpoint repeats payload conversion. Location lookup does
-not execute lexer actions.
-Custom sources can implement `ReplaySource` with their own mark type.
-A plain forward-only source does not provide caller-requested replay.
+Call `next` in a `while let` loop, and not in a `for` loop. A `for` loop
+moves the scanner, thus `locate_span` is then unavailable.
 
-`Token::scanner(&str)` supports checkpoints and lazy locations directly.
+Location lookup does not execute lexer actions.
+
+`Token::scanner(&str)` supports lazy locations directly.
 Normal scanning of a replayable source does no line tracking.
 The first location request indexes line starts through the requested
 offset. Later requests reuse that index and extend it when needed.

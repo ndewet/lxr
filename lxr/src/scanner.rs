@@ -4,30 +4,12 @@ use std::{
     io::{self, BufRead, BufReader, Cursor, Read},
     marker::PhantomData,
     ops::Range,
-    sync::Arc,
 };
 
-use crate::{
-    Lexer, Limits, Locate, Location, Replay, ReplaySource, ScanError, Spanned, Transition,
-};
+use crate::{Lexer, Limits, Locate, Location, Replay, ScanError, Spanned, Transition};
 
 /// Unconsumed lookahead followed by the remaining buffered source.
 pub type Remainder<S> = io::Chain<Cursor<Vec<u8>>, S>;
-
-/// A complete scanner position, including modes and retained lookahead.
-///
-/// A checkpoint belongs to its originating scanner. Restoring repeats payload
-/// conversion and does not undo converter side effects. Each checkpoint owns
-/// a copy of retained lookahead and the mode stack.
-pub struct Checkpoint<M> {
-    owner: Arc<()>,
-    source: M,
-    buffer: Vec<u8>,
-    offset: u64,
-    modes: Vec<ModeFrame>,
-    eof: bool,
-    finished: bool,
-}
 
 /// A lexer over blocking input with owned token payloads.
 ///
@@ -44,7 +26,6 @@ pub struct Scanner<T, S = Replay<Cursor<&'static [u8]>>> {
     eof: bool,
     finished: bool,
     limits: Limits,
-    owner: Arc<()>,
     marker: PhantomData<T>,
 }
 
@@ -102,7 +83,6 @@ impl<T> Scanner<T> {
             eof: false,
             finished: false,
             limits: Limits::default(),
-            owner: Arc::new(()),
             marker: PhantomData,
         }
     }
@@ -243,70 +223,6 @@ impl<T, S: BufRead> Scanner<T, S> {
         self.head += count;
         self.offset = end;
         Ok(span)
-    }
-}
-
-impl<T, S: ReplaySource> Scanner<T, S> {
-    /// Saves input, modes, lookahead, and completion state between tokens.
-    ///
-    /// # Errors
-    ///
-    /// Returns the source's position error.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let mut scanner = lxr::Scanner::<()>::new("text");
-    /// let checkpoint = scanner.checkpoint()?;
-    /// scanner.restore(&checkpoint)?;
-    /// # Ok::<(), std::io::Error>(())
-    /// ```
-    pub fn checkpoint(&mut self) -> io::Result<Checkpoint<S::Mark>> {
-        Ok(Checkpoint {
-            owner: self.owner.clone(),
-            source: self.source.mark()?,
-            buffer: self.buffer[self.head..].to_vec(),
-            offset: self.offset,
-            modes: self.modes.clone(),
-            eof: self.eof,
-            finished: self.finished,
-        })
-    }
-
-    /// Restores a checkpoint from this scanner.
-    ///
-    /// A source restoration failure terminates scanning.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for a foreign checkpoint or a source restoration failure.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let mut scanner = lxr::Scanner::<()>::new("text");
-    /// let checkpoint = scanner.checkpoint()?;
-    /// scanner.restore(&checkpoint)?;
-    /// # Ok::<(), std::io::Error>(())
-    /// ```
-    pub fn restore(&mut self, checkpoint: &Checkpoint<S::Mark>) -> io::Result<()> {
-        if !Arc::ptr_eq(&self.owner, &checkpoint.owner) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "checkpoint belongs to another scanner",
-            ));
-        }
-        if let Err(error) = self.source.restore(&checkpoint.source) {
-            self.finished = true;
-            return Err(error);
-        }
-        self.buffer.clone_from(&checkpoint.buffer);
-        self.head = 0;
-        self.offset = checkpoint.offset;
-        self.modes.clone_from(&checkpoint.modes);
-        self.eof = checkpoint.eof;
-        self.finished = checkpoint.finished;
-        Ok(())
     }
 }
 

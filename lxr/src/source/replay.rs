@@ -2,7 +2,7 @@
 
 use std::io::{self, BufRead, Cursor, Read, Seek, SeekFrom};
 
-use crate::{Locate, Location, ReplaySource, location::resolve};
+use crate::{Locate, Location, location::resolve};
 
 /// A stable seekable source with lazy location lookup.
 ///
@@ -42,6 +42,11 @@ impl<S: BufRead + Seek> Replay<S> {
             lines: vec![0],
             poisoned: false,
         })
+    }
+
+    fn position(&mut self) -> io::Result<u64> {
+        self.check()?;
+        self.inner.stream_position()
     }
 
     fn check(&self) -> io::Result<()> {
@@ -131,22 +136,9 @@ impl<S: BufRead + Seek> BufRead for Replay<S> {
     }
 }
 
-impl<S: BufRead + Seek> ReplaySource for Replay<S> {
-    type Mark = u64;
-
-    fn mark(&mut self) -> io::Result<u64> {
-        self.check()?;
-        self.inner.stream_position()
-    }
-
-    fn restore(&mut self, mark: &u64) -> io::Result<()> {
-        self.seek_to(*mark)
-    }
-}
-
 impl<S: BufRead + Seek> Locate for Replay<S> {
     fn current_offset(&mut self) -> io::Result<u64> {
-        self.mark()?
+        self.position()?
             .checked_sub(self.origin)
             .ok_or_else(|| io::Error::other("position precedes source origin"))
     }
@@ -154,10 +146,10 @@ impl<S: BufRead + Seek> Locate for Replay<S> {
     fn locate(&mut self, offset: u64) -> io::Result<Location> {
         self.check()?;
         if offset > self.indexed {
-            let saved = self.mark()?;
+            let saved = self.position()?;
             let result = self.index_to(offset);
             // Restore even when indexing fails, so diagnostics preserve scanning.
-            self.restore(&saved)?;
+            self.seek_to(saved)?;
             result?;
         }
         resolve(&self.lines, offset)

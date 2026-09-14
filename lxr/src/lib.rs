@@ -15,8 +15,8 @@ mod source_error;
 
 pub use limits::Limits;
 pub use location::{Locate, LocatedSpan, Location};
-pub use scanner::{Checkpoint, Remainder, Scanner};
-pub use source::{Replay, ReplaySource, Tracking};
+pub use scanner::{Remainder, Scanner};
+pub use source::{Replay, Tracking};
 pub use source_error::SourceError;
 
 use std::ops::Range;

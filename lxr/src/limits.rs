@@ -3,8 +3,8 @@
 /// Resource bounds for a scanner.
 ///
 /// Defaults are 8 MiB of retained input and 1024 mode frames.
-/// Bounds exclude vector capacity, source buffers, token payloads,
-/// checkpoints, and diagnostic indexes.
+/// Bounds exclude vector capacity, source buffers, token payloads, and
+/// diagnostic indexes.
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
     /// Maximum retained bytes, including the current lexeme and lookahead.
