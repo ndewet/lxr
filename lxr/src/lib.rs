@@ -7,8 +7,10 @@
 
 pub use lxr_derive::Lexer;
 
+mod payload;
 mod span;
 
+pub use payload::PayloadResult;
 pub use span::Span;
 
 use std::marker::PhantomData;
