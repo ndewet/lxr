@@ -38,7 +38,10 @@ use syn::{
 /// # pub type RuleScan<T> = Result<(Option<T>, usize, Transition), (PayloadError, usize)>;
 /// # pub mod __private { pub trait Sealed {} }
 /// # pub trait Lexer: __private::Sealed + Sized {
-/// #     fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
+/// #     fn start_state(mode: usize) -> Option<usize>;
+/// #     fn next_state(state: usize, byte: u8) -> Option<usize>;
+/// #     fn accepting_rule(state: usize) -> Option<usize>;
+/// #     fn run_action(rule: usize, text: &str) -> Result<(Option<Self>, Transition), PayloadError>;
 /// #     fn mode_name(mode: usize) -> &'static str;
 /// # }
 /// # fn main() {
@@ -50,7 +53,7 @@ use syn::{
 ///     Word,
 /// }
 ///
-/// assert!(<Token as lxr::Lexer>::scan_one("word", 0).is_some());
+/// let _ = Token::Word;
 /// # }
 /// ```
 #[proc_macro_derive(Lexer, attributes(lxr))]
@@ -143,16 +146,23 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         impl #impl_generics ::lxr::__private::Sealed for #ident #type_generics #where_clause {}
 
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
-            fn scan_one(
-                input: &str,
-                mode: usize,
-            ) -> Option<::lxr::RuleScan<Self>> {
-                let (rule, length) = Self::__lxr_scan(input.as_bytes(), mode)?;
-                Some(
-                    Self::__lxr_action(rule, &input[..length])
-                        .map(|(token, transition)| (token, length, transition))
-                        .map_err(|error| (error, length)),
-                )
+            fn start_state(mode: usize) -> Option<usize> {
+                Self::__lxr_start(mode)
+            }
+
+            fn next_state(state: usize, byte: u8) -> Option<usize> {
+                Self::__lxr_transition(state, byte)
+            }
+
+            fn accepting_rule(state: usize) -> Option<usize> {
+                Self::__lxr_accept(state)
+            }
+
+            fn run_action(
+                rule: usize,
+                text: &str,
+            ) -> Result<(Option<Self>, ::lxr::Transition), ::lxr::PayloadError> {
+                Self::__lxr_action(rule, text)
             }
 
             fn mode_name(mode: usize) -> &'static str {

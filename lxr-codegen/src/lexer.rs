@@ -411,7 +411,7 @@ impl Lexer {
 ///     RuleSpec::skip(r"\s+"),
 ///     RuleSpec::emit("[a-z]+", quote::quote!(Ok(Some(Self::Word)))),
 /// ])?;
-/// assert!(generated.to_string().contains("__lxr_scan"));
+/// assert!(generated.to_string().contains("__lxr_transition"));
 /// # Ok::<(), lxr_codegen::CompileError>(())
 /// ```
 pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileError> {

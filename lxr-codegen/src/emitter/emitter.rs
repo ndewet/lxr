@@ -13,7 +13,7 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         .enumerate()
         .map(|(index, state)| {
             let state = state.index();
-            quote! { #index => #state, }
+            quote! { #index => Some(#state), }
         })
         .collect();
     let transitions: Vec<_> = (0..dfa.state_count())
@@ -76,36 +76,25 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         });
 
     quote! {
-        fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(usize, usize)> {
-            let mut state = match start_condition {
+        fn __lxr_start(start_condition: usize) -> Option<usize> {
+            match start_condition {
                 #(#starts)*
-                _ => return None,
-            };
-            let mut latest = match state {
+                _ => None,
+            }
+        }
+
+        fn __lxr_transition(state: usize, byte: u8) -> Option<usize> {
+            match state {
+                #(#transitions)*
+                _ => None,
+            }
+        }
+
+        fn __lxr_accept(state: usize) -> Option<usize> {
+            match state {
                 #(#accepts)*
                 _ => None,
-            };
-            let mut length = latest.map(|_| 0);
-
-            for (index, &byte) in input.iter().enumerate() {
-                let Some(next) = (match state {
-                    #(#transitions)*
-                    _ => None,
-                }) else {
-                    break;
-                };
-                state = next;
-
-                if let Some(accept) = match state {
-                    #(#accepts)*
-                    _ => None,
-                } {
-                    latest = Some(accept);
-                    length = Some(index + 1);
-                }
             }
-
-            latest.zip(length)
         }
 
         fn __lxr_action(
@@ -153,9 +142,11 @@ mod tests {
             .expect("the test DFA is below its capacity");
 
         let actual = emit(&dfa, &Lexer::new(vec![], vec![])).to_string();
-        assert!(actual.contains("0usize => 0usize"));
+        assert!(actual.contains("0usize => Some (0usize)"));
         assert!(actual.contains("Result < (Option < Self > , :: lxr :: Transition)"));
         assert!(actual.contains("fn __lxr_mode_name"));
+        assert!(actual.contains("fn __lxr_transition"));
+        assert!(actual.contains("fn __lxr_accept"));
     }
 
     #[test]
