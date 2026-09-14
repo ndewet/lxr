@@ -330,10 +330,7 @@ impl<T: Lexer, S: BufRead> Iterator for Scanner<T, S> {
         match self.scan() {
             Ok(token) => token.map(Ok),
             Err(error) => {
-                if !matches!(
-                    error,
-                    ScanError::Unrecognized { .. } | ScanError::InvalidPayload { .. }
-                ) {
+                if error.is_terminal() {
                     self.finished = true;
                 }
                 Some(Err(error))

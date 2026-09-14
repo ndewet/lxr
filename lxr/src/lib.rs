@@ -169,6 +169,33 @@ pub enum ScanError {
     },
 }
 
+impl ScanError {
+    /// Reports whether this error stops iteration.
+    ///
+    /// A recoverable error identifies a fault in the input, thus the scan
+    /// continues at the next character. A terminal error stops the scanner,
+    /// thus the iterator gives `None` after it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::{ScanError, Span};
+    ///
+    /// let lexical = ScanError::Unrecognized {
+    ///     span: Span::new(4, 5),
+    /// };
+    /// assert!(!lexical.is_terminal());
+    /// assert!(ScanError::PositionOverflow.is_terminal());
+    /// ```
+    #[must_use]
+    pub const fn is_terminal(&self) -> bool {
+        !matches!(
+            self,
+            Self::Unrecognized { .. } | Self::InvalidPayload { .. }
+        )
+    }
+}
+
 /// Scans UTF-8 input with a generated lexer.
 ///
 /// Only the `Lexer` derive macro implements this trait. The scanner trusts

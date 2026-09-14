@@ -68,6 +68,20 @@ The scanner retries `Interrupted`; `WouldBlock` is terminal. This API
 does not support async input or files that the caller wants to follow as
 they grow.
 
+Call `error.is_terminal()` to find which errors stop the scan. Use it to
+collect the recoverable errors, and to stop at the first terminal error.
+
+```rust
+let mut errors = Vec::new();
+for item in Token::scanner(input) {
+    match item {
+        Ok(token) => { /* Use the token. */ }
+        Err(error) if error.is_terminal() => return Err(error.into()),
+        Err(error) => errors.push(error),
+    }
+}
+```
+
 `Limits` defaults to 8 MiB of retained input and 1024 mode frames.
 Use `scanner.with_limits(limits)?` before scanning to change these bounds.
 Retained input includes the lexeme, speculative input, and lookahead.

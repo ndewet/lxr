@@ -621,3 +621,70 @@ fn failed_location_restore_poisoning_prevents_reads_from_the_wrong_position() {
     assert!(source.read(&mut [0]).is_err());
     assert!(source.locate(0).is_err());
 }
+
+#[test]
+fn is_terminal_agrees_with_the_end_of_iteration() {
+    let recoverable = [
+        ScanError::Unrecognized {
+            span: Span::new(0, 1),
+        },
+        ScanError::InvalidPayload {
+            span: Span::new(0, 1),
+            message: "message".to_owned(),
+        },
+    ];
+    let terminal = [
+        ScanError::Input {
+            offset: 0,
+            error: io::Error::other("failure").into(),
+        },
+        ScanError::InvalidEncoding { offset: 0 },
+        ScanError::RetentionLimit {
+            offset: 0,
+            limit: 1,
+        },
+        ScanError::ModeLimit {
+            span: Span::new(0, 1),
+            limit: 1,
+        },
+        ScanError::PositionOverflow,
+        ScanError::UnterminatedMode {
+            span: Span::new(0, 1),
+            mode: "Quoted",
+        },
+    ];
+    for error in &recoverable {
+        assert!(!error.is_terminal(), "{error:?}");
+    }
+    for error in &terminal {
+        assert!(error.is_terminal(), "{error:?}");
+    }
+    assert_eq!(
+        recoverable.len() + terminal.len(),
+        8,
+        "one case for each variant"
+    );
+}
+
+#[test]
+fn a_recoverable_error_continues_and_a_terminal_error_stops() {
+    let mut errors = Vec::new();
+    let mut tokens = 0;
+    for item in Text::scanner("a@b") {
+        match item {
+            Ok(_) => tokens += 1,
+            Err(error) if error.is_terminal() => panic!("unexpected terminal error: {error:?}"),
+            Err(error) => errors.push(error),
+        }
+    }
+    assert_eq!(tokens, 2, "the scan continues after a recoverable error");
+    assert_eq!(errors.len(), 1);
+
+    let mut scanner = Text::from_bufread(BufReader::with_capacity(1, &b"a\xff"[..]));
+    let error = scanner
+        .by_ref()
+        .find_map(Result::err)
+        .expect("invalid encoding");
+    assert!(error.is_terminal());
+    assert_eq!(scanner.next(), None);
+}
