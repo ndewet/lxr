@@ -1,6 +1,6 @@
 //! Shows automatic and custom token payload conversion.
 
-use lxr::{Lexer, ScanError};
+use lxr::{Lexer, ScanError, Span};
 use std::convert::Infallible;
 
 #[derive(Debug, PartialEq, Lexer)]
@@ -23,7 +23,7 @@ fn main() {
     let failed: Vec<_> = Token::scanner("18446744073709551616 7").collect();
     assert!(matches!(
         failed.first(),
-        Some(Err(ScanError::InvalidPayload { span, .. })) if span == &(0..20)
+        Some(Err(ScanError::InvalidPayload { span, .. })) if span == &Span::new(0, 20)
     ));
     println!("{failed:#?}");
 }
