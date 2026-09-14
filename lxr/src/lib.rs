@@ -7,8 +7,11 @@
 
 pub use lxr_derive::Lexer;
 
+mod span;
+
+pub use span::Span;
+
 use std::marker::PhantomData;
-use std::ops::Range;
 use std::str::FromStr;
 use std::{
     error::Error,
@@ -20,20 +23,20 @@ use std::{
 /// # Examples
 ///
 /// ```
-/// use lxr::Spanned;
+/// use lxr::{Span, Spanned};
 ///
 /// let token = Spanned {
 ///     token: "name",
-///     span: 0..4,
+///     span: Span::new(0, 4),
 /// };
-/// assert_eq!(token.span, 0..4);
+/// assert_eq!(token.span.text("name 42"), Some("name"));
 /// ```
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Spanned<T> {
     /// The token accepted by the lexer.
     pub token: T,
     /// The half-open UTF-8 byte range matched by this token.
-    pub span: Range<usize>,
+    pub span: Span,
 }
 
 /// Holds the items that generated code names, and that callers do not.
@@ -97,29 +100,31 @@ where
 /// # Examples
 ///
 /// ```
-/// use lxr::ScanError;
+/// use lxr::{ScanError, Span};
 ///
-/// let error = ScanError::Unrecognized { span: 4..5 };
-/// assert!(matches!(error, ScanError::Unrecognized { span } if span == (4..5)));
+/// let error = ScanError::Unrecognized {
+///     span: Span::new(4, 5),
+/// };
+/// assert!(matches!(error, ScanError::Unrecognized { span } if span.len() == 1));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanError {
     /// No rule accepted the character at this UTF-8 byte range.
     Unrecognized {
         /// The UTF-8 byte range of the unrecognized character.
-        span: Range<usize>,
+        span: Span,
     },
     /// A winning rule's payload conversion failed.
     InvalidPayload {
         /// The UTF-8 byte range matched by the rule with the invalid payload.
-        span: Range<usize>,
+        span: Span,
         /// The payload conversion error's message.
         message: String,
     },
     /// Input ended while a pushed lexer mode was still active.
     UnterminatedMode {
         /// The range from the mode-opening rule through end of input.
-        span: Range<usize>,
+        span: Span,
         /// The unclosed mode's declared name.
         mode: &'static str,
     },
@@ -197,7 +202,7 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
                 self.finished = true;
                 if let Some(frame) = self.modes.get(1) {
                     return Some(Err(ScanError::UnterminatedMode {
-                        span: frame.opened_at..self.offset,
+                        span: Span::new(frame.opened_at as u64, self.offset as u64),
                         mode: T::mode_name(frame.id),
                     }));
                 }
@@ -214,7 +219,7 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
                     .next()
                     .expect("a non-empty UTF-8 string has a first character")
                     .len_utf8();
-                let span = self.offset..self.offset + width;
+                let span = Span::new(self.offset as u64, (self.offset + width) as u64);
                 self.offset += width;
                 return Some(Err(ScanError::Unrecognized { span }));
             };
@@ -222,8 +227,8 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
             let (token, consumed, transition) = match result {
                 Ok(result) => result,
                 Err((error, consumed)) => {
-                    let span = start..start + consumed;
-                    self.offset = span.end;
+                    let span = Span::new(start as u64, (start + consumed) as u64);
+                    self.offset = start + consumed;
                     return Some(Err(ScanError::InvalidPayload {
                         span,
                         message: error.to_string(),
@@ -254,7 +259,7 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
             if let Some(token) = token {
                 return Some(Ok(Spanned {
                     token,
-                    span: start..self.offset,
+                    span: Span::new(start as u64, self.offset as u64),
                 }));
             }
         }
@@ -331,6 +336,6 @@ pub trait Lexer: __private::Sealed + Sized {
         Self::scanner(input)
             .next()?
             .ok()
-            .map(|spanned| (spanned.token, spanned.span.end))
+            .map(|spanned| (spanned.token, spanned.span.end as usize))
     }
 }
