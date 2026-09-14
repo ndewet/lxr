@@ -11,3 +11,4 @@ cargo run -p lxr --example <name>
 - `errors` shows recoverable scan errors and byte spans.
 - `modes` shows start conditions and nested comments.
 - `patterns` shows the supported regex building blocks.
+- `sources` shows in-memory byte slices and standard readers as input.

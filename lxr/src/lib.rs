@@ -6,6 +6,9 @@
 #![deny(dead_code)]
 
 pub use lxr_derive::Lexer;
+pub use source::{Reader, Remainder, Slice, Source};
+
+mod source;
 
 mod payload;
 mod span;
@@ -104,16 +107,21 @@ where
 /// ```
 /// use lxr::{ScanError, Span};
 ///
-/// let error = ScanError::Unrecognized {
+/// let error: ScanError = ScanError::Unrecognized {
 ///     span: Span::new(4, 5),
 /// };
 /// assert!(matches!(error, ScanError::Unrecognized { span } if span.len() == 1));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ScanError {
+pub enum ScanError<E = std::convert::Infallible> {
     /// No rule accepted the character at this UTF-8 byte range.
     Unrecognized {
         /// The UTF-8 byte range of the unrecognized character.
+        span: Span,
+    },
+    /// The source contained a byte sequence that is not valid UTF-8.
+    InvalidUtf8 {
+        /// The byte range of the invalid sequence.
         span: Span,
     },
     /// A winning rule's payload conversion failed.
@@ -130,14 +138,52 @@ pub enum ScanError {
         /// The unclosed mode's declared name.
         mode: &'static str,
     },
+    /// Reading more input from the source failed.
+    Source {
+        /// The byte offset at which the read failed.
+        offset: u64,
+        /// The error returned by the source.
+        error: E,
+    },
 }
 
-/// Iterates over tokens and recoverable invalid-input errors.
+impl<E: Display> Display for ScanError<E> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unrecognized { span } => write!(formatter, "unrecognized input at {span}"),
+            Self::InvalidUtf8 { span } => write!(formatter, "invalid UTF-8 at {span}"),
+            Self::InvalidPayload { span, message } => {
+                write!(formatter, "invalid token payload at {span}: {message}")
+            }
+            Self::UnterminatedMode { span, mode } => {
+                write!(formatter, "unterminated lexer mode {mode} at {span}")
+            }
+            Self::Source { offset, error } => {
+                write!(formatter, "source error at byte {offset}: {error}")
+            }
+        }
+    }
+}
+
+impl<E: Error + 'static> Error for ScanError<E> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Source { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
+
+/// Iterates over tokens and scanning errors.
+///
+/// Invalid input and payload errors consume their byte ranges and scanning
+/// continues. A source error ends iteration because maximal-munch selection
+/// cannot know whether unread bytes would extend the current token.
 ///
 /// # Examples
 ///
 /// ```
-/// use lxr::{Lexer, Scanner};
+/// use lxr::{Lexer, Scanner, Slice};
 ///
 /// #[derive(Debug, PartialEq, Lexer)]
 /// enum Token {
@@ -145,29 +191,32 @@ pub enum ScanError {
 ///     Word,
 /// }
 ///
-/// let scanner = Scanner::<Token>::new("word");
+/// let scanner = Scanner::<Token, _>::new(Slice::from("word"));
 /// assert_eq!(scanner.count(), 1);
 /// ```
-pub struct Scanner<'input, T> {
-    input: &'input str,
-    offset: usize,
+pub struct Scanner<T, S> {
+    source: S,
+    buffer: Vec<u8>,
+    buffer_start: usize,
+    offset: u64,
     modes: Vec<ModeFrame>,
+    eof: bool,
     finished: bool,
     marker: PhantomData<T>,
 }
 
 struct ModeFrame {
     id: usize,
-    opened_at: usize,
+    opened_at: u64,
 }
 
-impl<'input, T> Scanner<'input, T> {
-    /// Creates a scanner at the beginning of `input`.
+impl<T, S: Source> Scanner<T, S> {
+    /// Creates a scanner at the beginning of `source`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use lxr::{Lexer, Scanner};
+    /// use lxr::{Lexer, Scanner, Slice};
     ///
     /// #[derive(Lexer)]
     /// enum Token {
@@ -175,93 +224,226 @@ impl<'input, T> Scanner<'input, T> {
     ///     X,
     /// }
     ///
-    /// assert!(Scanner::<Token>::new("x").next().is_some());
+    /// let source = Slice::from("x");
+    /// assert!(Scanner::<Token, _>::new(source).next().is_some());
     /// ```
-    pub fn new(input: &'input str) -> Self {
+    pub fn new(source: S) -> Self {
         Self {
-            input,
+            source,
+            buffer: Vec::new(),
+            buffer_start: 0,
             offset: 0,
             modes: vec![ModeFrame {
                 id: 0,
                 opened_at: 0,
             }],
+            eof: false,
             finished: false,
             marker: PhantomData,
         }
     }
+
+    /// Returns the byte offset at which the next token will begin.
+    pub const fn position(&self) -> u64 {
+        self.offset
+    }
+
+    /// Stops scanning and returns all unread input.
+    ///
+    /// The returned source first replays bytes read during token lookahead,
+    /// then continues with the original source.
+    pub fn into_source(self) -> Remainder<S> {
+        Remainder::new(self.buffer, self.buffer_start, self.source)
+    }
+
+    fn unread(&self) -> &[u8] {
+        &self.buffer[self.buffer_start..]
+    }
+
+    fn read_more(&mut self) -> Result<(), S::Error> {
+        const CHUNK_SIZE: usize = 8 * 1024;
+
+        if self.buffer_start > 0 {
+            self.buffer.drain(..self.buffer_start);
+            self.buffer_start = 0;
+        }
+        let mut chunk = [0; CHUNK_SIZE];
+        let length = self.source.read(&mut chunk)?;
+        assert!(
+            length <= chunk.len(),
+            "a Source returned more bytes than its buffer can hold"
+        );
+        if length == 0 {
+            self.eof = true;
+        } else {
+            self.buffer.extend_from_slice(&chunk[..length]);
+        }
+        Ok(())
+    }
+
+    fn byte_at(&mut self, index: usize) -> Result<Option<u8>, S::Error> {
+        while index >= self.unread().len() && !self.eof {
+            self.read_more()?;
+        }
+        Ok(self.unread().get(index).copied())
+    }
+
+    fn commit(&mut self, length: usize) {
+        self.buffer_start += length;
+        self.offset = self
+            .offset
+            .checked_add(length as u64)
+            .expect("a source byte offset exceeds u64");
+    }
+
+    fn buffered_end(&self) -> u64 {
+        self.offset
+            .checked_add(self.unread().len() as u64)
+            .expect("a source byte offset exceeds u64")
+    }
+
+    fn invalid_input_length(&mut self) -> Result<(usize, bool), S::Error> {
+        let first = self
+            .byte_at(0)?
+            .expect("invalid input is only measured when one byte is available");
+        let expected = match first {
+            0x00..=0x7f => 1,
+            0xc2..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf4 => 4,
+            _ => 1,
+        };
+        for index in 1..expected {
+            if self.byte_at(index)?.is_none() {
+                break;
+            }
+        }
+        let available = expected.min(self.unread().len());
+        match std::str::from_utf8(&self.unread()[..available]) {
+            Ok(_) => Ok((available, false)),
+            Err(error) => Ok((error.error_len().unwrap_or(available), true)),
+        }
+    }
 }
 
-impl<T: Lexer> Iterator for Scanner<'_, T> {
-    type Item = Result<Spanned<T>, ScanError>;
+impl<T: Lexer, S: Source> Scanner<T, S> {
+    fn select_rule(&mut self, mode: usize) -> Result<Option<(usize, usize)>, S::Error> {
+        let mut state = T::start_state(mode).expect("the mode stack contains a generated mode");
+        let mut latest = T::accepting_rule(state).map(|rule| (rule, 0));
+        let mut index = 0;
+
+        while let Some(byte) = self.byte_at(index)? {
+            let Some(next) = T::next_state(state, byte) else {
+                break;
+            };
+            state = next;
+            index += 1;
+            if let Some(rule) = T::accepting_rule(state) {
+                latest = Some((rule, index));
+            }
+        }
+        Ok(latest)
+    }
+
+    fn apply_transition(&mut self, transition: Transition, start: u64) {
+        match transition {
+            Transition::Stay => {}
+            Transition::Begin(id) => {
+                let frame = self
+                    .modes
+                    .last_mut()
+                    .expect("the mode stack contains INITIAL");
+                frame.id = id;
+                frame.opened_at = start;
+            }
+            Transition::Push(id) => self.modes.push(ModeFrame {
+                id,
+                opened_at: start,
+            }),
+            Transition::Pop => {
+                if self.modes.len() > 1 {
+                    self.modes.pop();
+                }
+            }
+        }
+    }
+}
+
+impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
+    type Item = Result<Spanned<T>, ScanError<S::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
         loop {
-            let input = &self.input[self.offset..];
-            if input.is_empty() {
-                if self.finished {
-                    return None;
-                }
-                self.finished = true;
-                if let Some(frame) = self.modes.get(1) {
-                    return Some(Err(ScanError::UnterminatedMode {
-                        span: Span::new(frame.opened_at as u64, self.offset as u64),
-                        mode: T::mode_name(frame.id),
-                    }));
-                }
-                return None;
-            }
             let mode = self
                 .modes
                 .last()
                 .expect("the mode stack contains INITIAL")
                 .id;
-            let Some(result) = T::scan_one(input, mode) else {
-                let width = self.input[self.offset..]
-                    .chars()
-                    .next()
-                    .expect("a non-empty UTF-8 string has a first character")
-                    .len_utf8();
-                let span = Span::new(self.offset as u64, (self.offset + width) as u64);
-                self.offset += width;
-                return Some(Err(ScanError::Unrecognized { span }));
+            let selected = match self.select_rule(mode) {
+                Ok(selected) => selected,
+                Err(error) => {
+                    self.finished = true;
+                    return Some(Err(ScanError::Source {
+                        offset: self.buffered_end(),
+                        error,
+                    }));
+                }
             };
+            let Some((rule, consumed)) = selected else {
+                if self.eof && self.unread().is_empty() {
+                    self.finished = true;
+                    if let Some(frame) = self.modes.get(1) {
+                        return Some(Err(ScanError::UnterminatedMode {
+                            span: Span::new(frame.opened_at, self.offset),
+                            mode: T::mode_name(frame.id),
+                        }));
+                    }
+                    return None;
+                }
+                let (length, invalid_utf8) = match self.invalid_input_length() {
+                    Ok(result) => result,
+                    Err(error) => {
+                        self.finished = true;
+                        return Some(Err(ScanError::Source {
+                            offset: self.buffered_end(),
+                            error,
+                        }));
+                    }
+                };
+                let start = self.offset;
+                self.commit(length);
+                let span = Span::new(start, self.offset);
+                return Some(Err(if invalid_utf8 {
+                    ScanError::InvalidUtf8 { span }
+                } else {
+                    ScanError::Unrecognized { span }
+                }));
+            };
+
             let start = self.offset;
-            let (token, consumed, transition) = match result {
+            let result = {
+                let text = std::str::from_utf8(&self.unread()[..consumed])
+                    .expect("a generated lexer only accepts valid UTF-8");
+                T::run_action(rule, text)
+            };
+            self.commit(consumed);
+            let (token, transition) = match result {
                 Ok(result) => result,
-                Err((error, consumed)) => {
-                    let span = Span::new(start as u64, (start + consumed) as u64);
-                    self.offset = start + consumed;
+                Err(error) => {
                     return Some(Err(ScanError::InvalidPayload {
-                        span,
+                        span: Span::new(start, self.offset),
                         message: error.to_string(),
                     }));
                 }
             };
-            self.offset += consumed;
-            match transition {
-                Transition::Stay => {}
-                Transition::Begin(id) => {
-                    let frame = self
-                        .modes
-                        .last_mut()
-                        .expect("the mode stack contains INITIAL");
-                    frame.id = id;
-                    frame.opened_at = start;
-                }
-                Transition::Push(id) => self.modes.push(ModeFrame {
-                    id,
-                    opened_at: start,
-                }),
-                Transition::Pop => {
-                    if self.modes.len() > 1 {
-                        self.modes.pop();
-                    }
-                }
-            }
+            self.apply_transition(transition, start);
             if let Some(token) = token {
                 return Some(Ok(Spanned {
                     token,
-                    span: Span::new(start as u64, self.offset as u64),
+                    span: Span::new(start, self.offset),
                 }));
             }
         }
@@ -351,8 +533,16 @@ pub trait Lexer: __private::Sealed + Sized {
     ///
     /// assert_eq!(Token::scanner("word").count(), 1);
     /// ```
-    fn scanner(input: &str) -> Scanner<'_, Self> {
-        Scanner::new(input)
+    fn scanner(input: &str) -> Scanner<Self, Slice<'_>> {
+        Self::scanner_from(Slice::from(input))
+    }
+
+    /// Creates a recoverable scanner over any byte source.
+    ///
+    /// Use [`Slice`] for in-memory input, [`Reader`] for [`std::io::Read`]
+    /// values such as files, or implement [`Source`] for custom storage.
+    fn scanner_from<S: Source>(source: S) -> Scanner<Self, S> {
+        Scanner::new(source)
     }
 
     /// Returns the first token in `input`, if one is accepted before an error.

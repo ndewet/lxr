@@ -54,6 +54,37 @@ the number of bytes consumed before it, including preceding trivia.
 Rules use longest-match semantics. Declaration order resolves equal-length
 matches.
 
+## Input sources
+
+The scanner consumes a `Source`, a small trait that fills a byte buffer and has
+an associated error type. It does not require seeking, token-boundary-aware
+chunks, or access to the source's complete contents. The scanner owns the
+lookahead needed for longest-match selection and records absolute byte spans.
+
+`Token::scanner(&str)` remains the convenient in-memory entry point. Use
+`Slice` for a byte slice and `Reader` for files, network streams, and other
+standard `Read` implementations:
+
+```rust
+use lxr::{Lexer, Reader};
+use std::fs::File;
+
+# #[derive(Lexer)]
+# enum Token { #[lxr("x")] X }
+let file = File::open("input.txt")?;
+for item in Token::scanner_from(Reader::new(file)) {
+    let token = item?;
+    println!("{:?}", token.span);
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Implement `Source` directly when input comes from another storage model. Its
+error becomes the type parameter of `ScanError<E>`. Input is always interpreted
+as UTF-8; arbitrary byte sources receive a recoverable `InvalidUtf8` error for
+invalid sequences. `Scanner::into_source` returns unread lookahead together
+with the original source when a parser stops before end of input.
+
 ## More examples
 
 The runnable examples are in [`lxr/examples`](lxr/examples).
@@ -68,6 +99,8 @@ The runnable examples are in [`lxr/examples`](lxr/examples).
   `pop`, including nested comments and an unterminated mode error.
 - [`patterns.rs`](lxr/examples/patterns.rs) shows literals, groups,
   alternation, character classes, escapes, repetition, and Unicode.
+- [`sources.rs`](lxr/examples/sources.rs) shows byte slices and standard
+  readers as input sources.
 
 Run an example from the workspace root:
 
