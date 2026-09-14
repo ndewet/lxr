@@ -13,11 +13,45 @@ use syn::{
     parse_macro_input,
 };
 
-/// Derives [`lxr::Lexer`](::lxr::Lexer) for an enum of token kinds.
+/// Derives the `lxr::Lexer` trait for an enum of token kinds.
 ///
 /// Every variant needs one `#[lxr("pattern")]` attribute. Unit variants
 /// emit no payload; a single-field tuple variant parses an owned payload.
 /// Rules are considered in declaration order when equal-length matches tie.
+///
+/// # Examples
+///
+/// ```
+/// # extern crate self as lxr;
+/// # pub struct PayloadError;
+/// # impl PayloadError {
+/// #     pub fn new(_: impl Into<String>) -> Self {
+/// #         Self
+/// #     }
+/// # }
+/// # pub enum Transition {
+/// #     Stay,
+/// #     Begin(usize),
+/// #     Push(usize),
+/// #     Pop,
+/// # }
+/// # pub type RuleScan<T> = Result<(Option<T>, usize, Transition), (PayloadError, usize)>;
+/// # pub trait Lexer: Sized {
+/// #     fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
+/// #     fn mode_name(mode: usize) -> &'static str;
+/// # }
+/// # fn main() {
+/// use lxr_derive::Lexer;
+///
+/// #[derive(Debug, PartialEq, Lexer)]
+/// enum Token {
+///     #[lxr("[a-z]+")]
+///     Word,
+/// }
+///
+/// assert!(<Token as lxr::Lexer>::scan_one("word", 0).is_some());
+/// # }
+/// ```
 #[proc_macro_derive(Lexer, attributes(lxr))]
 pub fn derive_lexer(input: TokenStream) -> TokenStream {
     match derive_lexer_inner(parse_macro_input!(input as DeriveInput)) {

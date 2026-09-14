@@ -12,6 +12,15 @@ use quote::quote;
 use std::fmt::{Display, Formatter};
 
 /// One rule supplied to the code generator.
+///
+/// # Examples
+///
+/// ```
+/// use lxr_codegen::RuleSpec;
+///
+/// let rule = RuleSpec::skip(r"\s+");
+/// let _ = rule;
+/// ```
 pub struct RuleSpec {
     pattern: String,
     action: RuleAction,
@@ -20,6 +29,15 @@ pub struct RuleSpec {
 }
 
 /// A state-stack operation performed after a rule is accepted.
+///
+/// # Examples
+///
+/// ```
+/// use lxr_codegen::Transition;
+///
+/// let transition = Transition::Push("String".into());
+/// assert!(matches!(transition, Transition::Push(name) if name == "String"));
+/// ```
 #[derive(Clone)]
 pub enum Transition {
     /// Leave the stack unchanged.
@@ -34,6 +52,15 @@ pub enum Transition {
 
 impl RuleSpec {
     /// Creates a rule from its regex pattern and generated Rust action.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr_codegen::RuleSpec;
+    ///
+    /// let rule = RuleSpec::emit("[a-z]+", quote::quote!(Ok(Some(Self::Word))));
+    /// let _ = rule;
+    /// ```
     pub fn emit(pattern: impl Into<String>, action: TokenStream) -> Self {
         Self {
             pattern: pattern.into(),
@@ -43,6 +70,15 @@ impl RuleSpec {
         }
     }
     /// Creates a rule that consumes input without producing a token.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr_codegen::RuleSpec;
+    ///
+    /// let rule = RuleSpec::skip(r"\s+");
+    /// let _ = rule;
+    /// ```
     pub fn skip(pattern: impl Into<String>) -> Self {
         Self {
             pattern: pattern.into(),
@@ -53,18 +89,45 @@ impl RuleSpec {
     }
 
     /// Restricts this rule to named start conditions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr_codegen::RuleSpec;
+    ///
+    /// let rule = RuleSpec::skip("end").in_modes(vec!["String".into()]);
+    /// let _ = rule;
+    /// ```
     pub fn in_modes(mut self, modes: Vec<String>) -> Self {
         self.modes = modes;
         self
     }
 
     /// Sets the start-condition-stack transition after this rule matches.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr_codegen::{RuleSpec, Transition};
+    ///
+    /// let rule = RuleSpec::skip("end").transition(Transition::Pop);
+    /// let _ = rule;
+    /// ```
     pub fn transition(mut self, transition: Transition) -> Self {
         self.transition = transition;
         self
     }
 }
 /// Reports a lexer compilation failure.
+///
+/// # Examples
+///
+/// ```
+/// use lxr_codegen::{RuleSpec, compile};
+///
+/// let error = compile(vec![RuleSpec::skip("^")]).expect_err("anchors are invalid");
+/// assert!(error.to_string().contains("anchor"));
+/// ```
 #[derive(Debug)]
 pub struct CompileError {
     message: String,
@@ -338,6 +401,19 @@ impl Lexer {
 /// # Errors
 ///
 /// Returns an error for invalid regex syntax or an automaton capacity limit.
+///
+/// # Examples
+///
+/// ```
+/// use lxr_codegen::{RuleSpec, compile};
+///
+/// let generated = compile(vec![
+///     RuleSpec::skip(r"\s+"),
+///     RuleSpec::emit("[a-z]+", quote::quote!(Ok(Some(Self::Word)))),
+/// ])?;
+/// assert!(generated.to_string().contains("__lxr_scan"));
+/// # Ok::<(), lxr_codegen::CompileError>(())
+/// ```
 pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileError> {
     compile_with_modes(Vec::new(), specifications)
 }
@@ -349,6 +425,24 @@ pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileErro
 ///
 /// Returns an error for invalid rules, duplicate or unknown modes, invalid
 /// stack transitions, regex syntax, or an automaton capacity limit.
+///
+/// # Examples
+///
+/// ```
+/// use lxr_codegen::{RuleSpec, Transition, compile_with_modes};
+///
+/// let generated = compile_with_modes(
+///     vec!["String".into()],
+///     vec![
+///         RuleSpec::skip(r#"\""#).transition(Transition::Push("String".into())),
+///         RuleSpec::skip(r#"\""#)
+///             .in_modes(vec!["String".into()])
+///             .transition(Transition::Pop),
+///     ],
+/// )?;
+/// assert!(generated.to_string().contains("Transition :: Push"));
+/// # Ok::<(), lxr_codegen::CompileError>(())
+/// ```
 pub fn compile_with_modes(
     modes: Vec<String>,
     specifications: Vec<RuleSpec>,

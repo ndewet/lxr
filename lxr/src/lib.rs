@@ -16,6 +16,18 @@ use std::{
 };
 
 /// A token together with its byte range in the input.
+///
+/// # Examples
+///
+/// ```
+/// use lxr::Spanned;
+///
+/// let token = Spanned {
+///     token: "name",
+///     span: 0..4,
+/// };
+/// assert_eq!(token.span, 0..4);
+/// ```
 #[derive(Debug, PartialEq, Eq)]
 pub struct Spanned<T> {
     /// The token accepted by the lexer.
@@ -74,6 +86,15 @@ where
 }
 
 /// An error encountered while scanning input.
+///
+/// # Examples
+///
+/// ```
+/// use lxr::ScanError;
+///
+/// let error = ScanError::Unrecognized { span: 4..5 };
+/// assert!(matches!(error, ScanError::Unrecognized { span } if span == (4..5)));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanError {
     /// No rule accepted the character at this UTF-8 byte range.
@@ -98,6 +119,21 @@ pub enum ScanError {
 }
 
 /// Iterates over tokens and recoverable invalid-input errors.
+///
+/// # Examples
+///
+/// ```
+/// use lxr::{Lexer, Scanner};
+///
+/// #[derive(Debug, PartialEq, Lexer)]
+/// enum Token {
+///     #[lxr("[a-z]+")]
+///     Word,
+/// }
+///
+/// let scanner = Scanner::<Token>::new("word");
+/// assert_eq!(scanner.count(), 1);
+/// ```
 pub struct Scanner<'input, T> {
     input: &'input str,
     offset: usize,
@@ -113,6 +149,20 @@ struct ModeFrame {
 
 impl<'input, T> Scanner<'input, T> {
     /// Creates a scanner at the beginning of `input`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::{Lexer, Scanner};
+    ///
+    /// #[derive(Lexer)]
+    /// enum Token {
+    ///     #[lxr("x")]
+    ///     X,
+    /// }
+    ///
+    /// assert!(Scanner::<Token>::new("x").next().is_some());
+    /// ```
     pub fn new(input: &'input str) -> Self {
         Self {
             input,
@@ -205,6 +255,20 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
 }
 
 /// Scans UTF-8 input with a generated lexer.
+///
+/// # Examples
+///
+/// ```
+/// use lxr::Lexer;
+///
+/// #[derive(Debug, PartialEq, Lexer)]
+/// enum Token {
+///     #[lxr("[a-z]+")]
+///     Word,
+/// }
+///
+/// assert_eq!(Token::scan("word"), Some((Token::Word, 4)));
+/// ```
 pub trait Lexer: Sized {
     /// Scans one token or skipped rule from the start of a string.
     ///
@@ -219,11 +283,39 @@ pub trait Lexer: Sized {
     fn mode_name(mode: usize) -> &'static str;
 
     /// Creates a recoverable scanner for `input`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    ///
+    /// #[derive(Lexer)]
+    /// enum Token {
+    ///     #[lxr("[a-z]+")]
+    ///     Word,
+    /// }
+    ///
+    /// assert_eq!(Token::scanner("word").count(), 1);
+    /// ```
     fn scanner(input: &str) -> Scanner<'_, Self> {
         Scanner::new(input)
     }
 
     /// Returns the first token in `input`, if one is accepted before an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::Lexer;
+    ///
+    /// #[derive(Debug, PartialEq, Lexer)]
+    /// enum Token {
+    ///     #[lxr("[0-9]+")]
+    ///     Integer,
+    /// }
+    ///
+    /// assert_eq!(Token::scan("42!"), Some((Token::Integer, 2)));
+    /// ```
     fn scan(input: &str) -> Option<(Self, usize)> {
         Self::scanner(input)
             .next()?
