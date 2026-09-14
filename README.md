@@ -13,17 +13,23 @@ use lxr::{Lexer, Spanned};
 #[lxr(skip = r"//[^\n]*")]
 enum Token {
     #[lxr("[a-z]+")]
-    Identifier,
+    Identifier(String),
     #[lxr("[0-9]+")]
-    Integer,
+    Integer(u64),
 }
 
 let scanned: Vec<_> = Token::scanner("name // note\n42").collect();
-assert_eq!(scanned[0], Ok(Spanned { token: Token::Identifier, span: 0..4 }));
-assert_eq!(scanned[1], Ok(Spanned { token: Token::Integer, span: 13..15 }));
+assert_eq!(scanned[0], Ok(Spanned { token: Token::Identifier("name".into()), span: 0..4 }));
+assert_eq!(scanned[1], Ok(Spanned { token: Token::Integer(42), span: 13..15 }));
 ```
 
-Each unit variant has one `#[lxr("pattern")]` attribute. Enum-level
+Each variant has one `#[lxr("pattern")]` attribute. A variant may be unit or
+contain one owned tuple payload. Payloads use their `FromStr` implementation,
+so `String`, numeric types, and user types that implement `FromStr` work with
+no converter. For custom conversion, add a second argument that returns
+`Result<payload, error>`: `#[lxr("![a-z]+", strip_bang)]`.
+
+Enum-level
 `#[lxr(skip = "pattern")]` attributes consume whitespace, comments, or other
 trivia before the next token. Rules use longest-match semantics; declaration
 order resolves equal-length matches.
@@ -34,8 +40,9 @@ character produces `ScanError` for that character and scanning continues.
 `Token::scan(input)` is a convenience method that returns the first token and
 the number of bytes consumed before it, including preceding trivia.
 
-Token variants are currently unit variants. Use a `Spanned` range to slice the
-original input when a consumer needs the matched text.
+Payload conversion failures are reported as `ScanError::InvalidPayload` with
+the matched span, then scanning continues. `Spanned` remains useful when a
+consumer also needs the original matched text.
 
 ## What is here
 

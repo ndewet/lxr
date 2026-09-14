@@ -168,11 +168,11 @@ pub(crate) enum RuleAction {
 }
 
 impl RuleAction {
-    /// Creates an action from its generated Rust expression.
+    /// Renders the generated action for the selected rule.
     pub(crate) fn rendered(&self) -> TokenStream {
         match self {
-            Self::Emit(tokens) => quote!(Some(#tokens)),
-            Self::Skip => quote!(None),
+            Self::Emit(tokens) => quote!(#tokens),
+            Self::Skip => quote!(Ok(None)),
         }
     }
 }
@@ -197,6 +197,7 @@ impl Lexer {
     /// # Panics
     ///
     /// Panics if `id` is not a rule in this lexer.
+    #[cfg(test)]
     pub(crate) fn rule(&self, id: RuleId) -> &Rule {
         self.rules.get(id.index()).unwrap_or_else(|| {
             panic!(
@@ -208,7 +209,6 @@ impl Lexer {
     }
 
     /// Returns the lexer rules in declaration order.
-    #[cfg(test)]
     pub(crate) fn rules(&self) -> &[Rule] {
         &self.rules
     }
@@ -334,10 +334,7 @@ mod tests {
             rule.pattern(),
             &Expression::from_str("[a-z]+").expect("the test pattern is valid")
         );
-        assert_eq!(
-            rule.action().rendered().to_string(),
-            "Some (Token :: Identifier)"
-        );
+        assert_eq!(rule.action().rendered().to_string(), "Token :: Identifier");
         assert_eq!(rule.start_conditions(), &[StartConditionId::new(0)]);
         assert_eq!(lexer.rules().len(), 1);
     }

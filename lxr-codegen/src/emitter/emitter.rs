@@ -40,14 +40,23 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         .filter_map(|index| {
             let state = crate::automata::StateId::new(index);
             dfa.accept(state).map(|accept| {
-                let accept = lexer.rule(*accept).action().rendered();
+                let accept = accept.index();
                 quote! { #index => Some(#accept), }
             })
         })
         .collect();
+    let actions: Vec<_> = lexer
+        .rules()
+        .iter()
+        .enumerate()
+        .map(|(index, rule)| {
+            let action = rule.action().rendered();
+            quote! { #index => #action, }
+        })
+        .collect();
 
     quote! {
-        fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(Option<Self>, usize)> {
+        fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(usize, usize)> {
             let mut state = match start_condition {
                 #(#starts)*
                 _ => return None,
@@ -56,7 +65,7 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
                 #(#accepts)*
                 _ => None,
             };
-            let mut length = latest.as_ref().map(|_| 0);
+            let mut length = latest.map(|_| 0);
 
             for (index, &byte) in input.iter().enumerate() {
                 let Some(next) = (match state {
@@ -77,6 +86,16 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
             }
 
             latest.zip(length)
+        }
+
+        fn __lxr_action(
+            rule: usize,
+            text: &str,
+        ) -> Result<Option<Self>, ::lxr::PayloadError> {
+            match rule {
+                #(#actions)*
+                _ => unreachable!("generated lexer selected an unknown rule"),
+            }
         }
     }
 }
@@ -110,7 +129,7 @@ mod tests {
 
         let actual = emit(&dfa, &Lexer::new(vec![], vec![]));
         let expected = quote! {
-            fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(Option<Self>, usize)> {
+            fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(usize, usize)> {
                 let mut state = match start_condition {
                     0usize => 0usize,
                     _ => return None,
@@ -118,7 +137,7 @@ mod tests {
                 let mut latest = match state {
                     _ => None,
                 };
-                let mut length = latest.as_ref().map(|_| 0);
+                let mut length = latest.map(|_| 0);
 
                 for (index, &byte) in input.iter().enumerate() {
                     let Some(next) = (match state {
@@ -138,13 +157,22 @@ mod tests {
 
                 latest.zip(length)
             }
+
+            fn __lxr_action(
+                rule: usize,
+                text: &str,
+            ) -> Result<Option<Self>, ::lxr::PayloadError> {
+                match rule {
+                    _ => unreachable!("generated lexer selected an unknown rule"),
+                }
+            }
         };
 
         assert_eq!(actual.to_string(), expected.to_string());
     }
 
     #[test]
-    fn emitting_a_transition_and_accept_uses_the_rule_action() {
+    fn emitting_a_transition_and_accept_selects_the_rule_before_its_action() {
         let mut builder: Builder<ByteRange, RuleId> = Builder::new();
         let start = builder.add_state();
         let accept = builder.add_state();
@@ -156,6 +184,7 @@ mod tests {
         let emitted = emit(&dfa, &lexer(quote!(Rule::Token(7)))).to_string();
 
         assert!(emitted.contains("97u8 ..= 122u8 => Some (1usize)"));
-        assert!(emitted.contains("1usize => Some (Some (Rule :: Token (7)))"));
+        assert!(emitted.contains("1usize => Some (0usize)"));
+        assert!(emitted.contains("0usize => Rule :: Token (7)"));
     }
 }

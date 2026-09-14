@@ -8,13 +8,16 @@ use lxr_codegen::{RuleSpec, compile};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Data, DeriveInput, Error, Expr, Fields, Lit, LitStr, MetaNameValue, Result, parse_macro_input,
+    Data, DeriveInput, Error, Expr, Fields, Lit, LitStr, MetaNameValue, Result, Type,
+    parse::{Parse, ParseStream},
+    parse_macro_input,
 };
 
 /// Derives [`lxr::Lexer`](::lxr::Lexer) for an enum of token kinds.
 ///
-/// Every unit variant needs one `#[lxr("pattern")]` attribute. Rules are
-/// considered in declaration order when equal-length matches tie.
+/// Every variant needs one `#[lxr("pattern")]` attribute. Unit variants
+/// emit no payload; a single-field tuple variant parses an owned payload.
+/// Rules are considered in declaration order when equal-length matches tie.
 #[proc_macro_derive(Lexer, attributes(lxr))]
 pub fn derive_lexer(input: TokenStream) -> TokenStream {
     match derive_lexer_inner(parse_macro_input!(input as DeriveInput)) {
@@ -33,18 +36,52 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
 
     let mut rules = skip_rules(&input.attrs)?;
     for variant in data.variants {
-        if !matches!(variant.fields, Fields::Unit) {
-            return Err(Error::new_spanned(
-                variant.ident,
-                "lexer token variants must be unit variants",
-            ));
-        }
-        let pattern = rule_pattern(&variant.attrs, &variant.ident)?;
+        let RuleAttribute { pattern, converter } = rule_attribute(&variant.attrs, &variant.ident)?;
         let variant_ident = variant.ident;
-        rules.push(RuleSpec::emit(
-            pattern.value(),
-            quote!(Self::#variant_ident),
-        ));
+        let action = match variant.fields {
+            Fields::Unit => {
+                if converter.is_some() {
+                    return Err(Error::new_spanned(
+                        variant_ident,
+                        "unit token variants cannot have a payload converter",
+                    ));
+                }
+                quote!(Ok(Some(Self::#variant_ident)))
+            }
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                let field = fields.unnamed.first().expect("one field was checked");
+                let Type::Reference(_) = field.ty else {
+                    let payload_type = &field.ty;
+                    let action = match converter {
+                        Some(converter) => quote! {
+                            (#converter)(text)
+                                .map(|payload| Some(Self::#variant_ident(payload)))
+                                .map_err(|error| ::lxr::PayloadError::new(error.to_string()))
+                        },
+                        None => quote! {
+                            ::lxr::parse_payload::<#payload_type>(text)
+                                .map(|payload| Some(Self::#variant_ident(payload)))
+                        },
+                    };
+                    rules.push(RuleSpec::emit(pattern.value(), action));
+                    continue;
+                };
+                return Err(Error::new_spanned(field, "token payloads must be owned"));
+            }
+            Fields::Unnamed(_) => {
+                return Err(Error::new_spanned(
+                    variant_ident,
+                    "lexer token variants may have at most one tuple payload",
+                ));
+            }
+            Fields::Named(_) => {
+                return Err(Error::new_spanned(
+                    variant_ident,
+                    "lexer token variants must be unit variants or have one tuple payload",
+                ));
+            }
+        };
+        rules.push(RuleSpec::emit(pattern.value(), action));
     }
 
     let matcher = compile(rules).map_err(|error| Error::new_spanned(input.ident.clone(), error))?;
@@ -57,8 +94,15 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
 
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
-            fn scan_one(input: &[u8]) -> Option<(Option<Self>, usize)> {
-                Self::__lxr_scan(input, 0)
+            fn scan_one(
+                input: &str,
+            ) -> Option<::lxr::RuleScan<Self>> {
+                let (rule, length) = Self::__lxr_scan(input.as_bytes(), 0)?;
+                Some(
+                    Self::__lxr_action(rule, &input[..length])
+                        .map(|token| (token, length))
+                        .map_err(|error| (error, length)),
+                )
             }
         }
     })
@@ -90,7 +134,25 @@ fn skip_rules(attributes: &[syn::Attribute]) -> Result<Vec<RuleSpec>> {
         .collect()
 }
 
-fn rule_pattern(attributes: &[syn::Attribute], variant: &syn::Ident) -> Result<LitStr> {
+struct RuleAttribute {
+    pattern: LitStr,
+    converter: Option<Expr>,
+}
+
+impl Parse for RuleAttribute {
+    fn parse(input: ParseStream<'_>) -> Result<Self> {
+        let pattern = input.parse()?;
+        let converter = if input.is_empty() {
+            None
+        } else {
+            input.parse::<syn::Token![,]>()?;
+            Some(input.parse()?)
+        };
+        Ok(Self { pattern, converter })
+    }
+}
+
+fn rule_attribute(attributes: &[syn::Attribute], variant: &syn::Ident) -> Result<RuleAttribute> {
     let mut patterns = attributes
         .iter()
         .filter(|attribute| attribute.path().is_ident("lxr"));
