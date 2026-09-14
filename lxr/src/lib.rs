@@ -9,6 +9,7 @@ pub use lxr_derive::Lexer;
 
 mod limits;
 mod location;
+mod payload;
 mod scanner;
 mod source;
 mod source_error;
@@ -16,6 +17,7 @@ mod span;
 
 pub use limits::Limits;
 pub use location::{Locate, LocatedSpan, Location};
+pub use payload::PayloadResult;
 pub use scanner::{Remainder, Scanner};
 pub use source::{Replay, Tracking};
 pub use source_error::SourceError;

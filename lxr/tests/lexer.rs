@@ -189,9 +189,9 @@ enum Value {
     Integer(u64),
     #[lxr("[a-z]+")]
     Identifier(Identifier),
-    #[lxr("![a-z]+", strip_bang)]
+    #[lxr("![a-z]+", with = strip_bang)]
     Shouted(String),
-    #[lxr("#[a-z]+", reject_hash)]
+    #[lxr("#[a-z]+", with = reject_hash)]
     Rejected(String),
 }
 
@@ -539,5 +539,85 @@ fn rust_like_lexer_prefers_the_longest_compound_punctuation() {
             )
             .collect::<Vec<_>>(),
         vec!["a", "==", "=", "b", "..", "c", "..", ".", "d"]
+    );
+}
+
+#[derive(Debug, PartialEq, Lexer)]
+enum Converters {
+    #[lxr("![a-z]+", with = direct)]
+    Direct(String),
+    #[lxr("[0-9]+", with = short_number)]
+    Short(String),
+    #[lxr(r"\?[a-z]+", with = failing)]
+    Checked(String),
+}
+
+fn direct(text: &str) -> String {
+    text[1..].to_uppercase()
+}
+
+fn short_number(text: &str) -> Option<String> {
+    (text.len() <= 2).then(|| text.to_owned())
+}
+
+fn failing(_: &str) -> Result<String, &'static str> {
+    Err("a question is not a value")
+}
+
+#[test]
+fn a_converter_returns_a_payload_an_option_or_a_result() {
+    assert_eq!(
+        Converters::scanner("!hi").next(),
+        Some(Ok(Spanned {
+            token: Converters::Direct("HI".to_owned()),
+            span: Span::new(0, 3),
+        }))
+    );
+    assert_eq!(
+        Converters::scanner("42").next(),
+        Some(Ok(Spanned {
+            token: Converters::Short("42".to_owned()),
+            span: Span::new(0, 2),
+        }))
+    );
+    assert_eq!(
+        Converters::scanner("123").next(),
+        Some(Err(ScanError::InvalidPayload {
+            span: Span::new(0, 3),
+            message: "the converter rejected the lexeme".to_owned(),
+        }))
+    );
+    assert_eq!(
+        Converters::scanner("?why").next(),
+        Some(Err(ScanError::InvalidPayload {
+            span: Span::new(0, 4),
+            message: "a question is not a value".to_owned(),
+        }))
+    );
+}
+
+thread_local! {
+    static SEEN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn record(text: &str) {
+    SEEN.with(|seen| seen.borrow_mut().push(text.to_owned()));
+}
+
+#[derive(Debug, PartialEq, Lexer)]
+#[lxr(skip = r"\s+", with = record)]
+enum Recorded {
+    #[lxr("[a-z]+", with = record)]
+    Word,
+}
+
+#[test]
+fn a_unit_variant_and_a_skip_rule_each_accept_a_converter() {
+    SEEN.with(|seen| seen.borrow_mut().clear());
+    let scanned: Vec<_> = Recorded::scanner("one two").collect();
+    assert_eq!(scanned.len(), 2);
+    assert_eq!(
+        SEEN.with(|seen| seen.borrow().clone()),
+        vec!["one".to_owned(), " ".to_owned(), "two".to_owned()]
     );
 }
