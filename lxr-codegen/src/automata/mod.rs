@@ -17,6 +17,8 @@ pub(crate) mod dfa;
 mod error;
 mod id;
 mod label;
+#[cfg(test)]
+mod language_tests;
 mod state_set;
 mod table;
 #[cfg(test)]
