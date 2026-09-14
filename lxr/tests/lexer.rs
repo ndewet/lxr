@@ -563,27 +563,27 @@ fn a_converter_returns_a_payload_an_option_or_a_result() {
         Converters::scanner("!hi").next(),
         Some(Ok(Spanned {
             token: Converters::Direct("HI".to_owned()),
-            span: 0..3,
+            span: Span::new(0, 3),
         }))
     );
     assert_eq!(
         Converters::scanner("42").next(),
         Some(Ok(Spanned {
             token: Converters::Short("42".to_owned()),
-            span: 0..2,
+            span: Span::new(0, 2),
         }))
     );
     assert_eq!(
         Converters::scanner("123").next(),
         Some(Err(ScanError::InvalidPayload {
-            span: 0..3,
+            span: Span::new(0, 3),
             message: "the converter rejected the lexeme".to_owned(),
         }))
     );
     assert_eq!(
         Converters::scanner("?why").next(),
         Some(Err(ScanError::InvalidPayload {
-            span: 0..4,
+            span: Span::new(0, 4),
             message: "a question is not a value".to_owned(),
         }))
     );
