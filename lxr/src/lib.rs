@@ -288,13 +288,49 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
 /// assert_eq!(Token::scan("word"), Some((Token::Word, 4)));
 /// ```
 pub trait Lexer: __private::Sealed + Sized {
+    /// Returns the DFA start state for a generated start condition.
+    #[doc(hidden)]
+    fn start_state(mode: usize) -> Option<usize>;
+
+    /// Advances the generated DFA by one byte.
+    #[doc(hidden)]
+    fn next_state(state: usize, byte: u8) -> Option<usize>;
+
+    /// Returns the winning rule at an accepting DFA state.
+    #[doc(hidden)]
+    fn accepting_rule(state: usize) -> Option<usize>;
+
+    /// Executes a generated rule action for an accepted lexeme.
+    #[doc(hidden)]
+    fn run_action(rule: usize, text: &str) -> Result<(Option<Self>, Transition), PayloadError>;
+
     /// Scans one token or skipped rule from the start of a string.
     ///
     /// `None` means no rule accepts a prefix. A successful result contains a
     /// skipped rule or token plus its consumed byte length. An error means a
     /// winning rule could not convert its payload.
     #[doc(hidden)]
-    fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
+    fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>> {
+        let mut state = Self::start_state(mode)?;
+        let mut latest = Self::accepting_rule(state).map(|rule| (rule, 0));
+
+        for (index, &byte) in input.as_bytes().iter().enumerate() {
+            let Some(next) = Self::next_state(state, byte) else {
+                break;
+            };
+            state = next;
+            if let Some(rule) = Self::accepting_rule(state) {
+                latest = Some((rule, index + 1));
+            }
+        }
+
+        let (rule, length) = latest?;
+        Some(
+            Self::run_action(rule, &input[..length])
+                .map(|(token, transition)| (token, length, transition))
+                .map_err(|error| (error, length)),
+        )
+    }
 
     /// Returns a generated start-condition name for diagnostics.
     #[doc(hidden)]
