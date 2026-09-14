@@ -44,6 +44,31 @@ Payload conversion failures are reported as `ScanError::InvalidPayload` with
 the matched span, then scanning continues. `Spanned` remains useful when a
 consumer also needs the original matched text.
 
+## Start conditions
+
+Declare a mode with `#[lxr(mode = Name)]`. Rules without `modes = ...` are
+enabled only in the implicit `INITIAL` mode. A rule may use `modes = Name` or
+`modes = [INITIAL, Name]`, and may change the mode stack with `begin = Name`,
+`push = Name`, or `pop`. `push` and `pop` support nested constructs such as
+block comments.
+
+```rust
+#[derive(Lexer)]
+#[lxr(mode = Comment)]
+#[lxr(skip = r"/\*", push = Comment)]
+#[lxr(skip = r"/\*", modes = Comment, push = Comment)]
+#[lxr(skip = r"\*/", modes = Comment, pop)]
+#[lxr(skip = r"[^*/]+|[*/]", modes = Comment)]
+enum Token {
+    #[lxr("[a-z]+")]
+    Identifier(String),
+}
+```
+
+The comment delimiter rules win over the one-character fallback by
+longest-match. Reaching end of input with a pushed mode still active produces
+`ScanError::UnterminatedMode`.
+
 ## What is here
 
 `lxr-codegen` holds each part that exists.

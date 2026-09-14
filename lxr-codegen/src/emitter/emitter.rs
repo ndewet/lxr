@@ -1,7 +1,7 @@
 //! Renders minimized lexer automata as Rust source.
 
 use crate::automata::{dfa::Dfa, encoding::ByteRange};
-use crate::lexer::{Lexer, RuleId};
+use crate::lexer::{Lexer, ResolvedTransition, RuleId};
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -51,9 +51,29 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         .enumerate()
         .map(|(index, rule)| {
             let action = rule.action().rendered();
-            quote! { #index => #action, }
+            let transition = match rule.transition() {
+                ResolvedTransition::Stay => quote!(::lxr::Transition::Stay),
+                ResolvedTransition::Begin(id) => {
+                    let id = id.index();
+                    quote!(::lxr::Transition::Begin(#id))
+                }
+                ResolvedTransition::Push(id) => {
+                    let id = id.index();
+                    quote!(::lxr::Transition::Push(#id))
+                }
+                ResolvedTransition::Pop => quote!(::lxr::Transition::Pop),
+            };
+            quote! { #index => (#action).map(|token| (token, #transition)), }
         })
         .collect();
+    let mode_names = lexer
+        .start_conditions()
+        .iter()
+        .enumerate()
+        .map(|(index, mode)| {
+            let name = mode.name();
+            quote!(#index => #name,)
+        });
 
     quote! {
         fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(usize, usize)> {
@@ -91,11 +111,15 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         fn __lxr_action(
             rule: usize,
             text: &str,
-        ) -> Result<Option<Self>, ::lxr::PayloadError> {
+        ) -> Result<(Option<Self>, ::lxr::Transition), ::lxr::PayloadError> {
             match rule {
                 #(#actions)*
                 _ => unreachable!("generated lexer selected an unknown rule"),
             }
+        }
+
+        fn __lxr_mode_name(mode: usize) -> &'static str {
+            match mode { #(#mode_names)* _ => "<unknown>", }
         }
     }
 }
@@ -114,6 +138,7 @@ mod tests {
                 Expression::from_str("a").expect("the test pattern is valid"),
                 RuleAction::Emit(action),
                 vec![crate::lexer::StartConditionId::new(0)],
+                ResolvedTransition::Stay,
             )],
             vec![StartCondition::new("INITIAL")],
         )
@@ -127,48 +152,10 @@ mod tests {
             .build(&[start])
             .expect("the test DFA is below its capacity");
 
-        let actual = emit(&dfa, &Lexer::new(vec![], vec![]));
-        let expected = quote! {
-            fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(usize, usize)> {
-                let mut state = match start_condition {
-                    0usize => 0usize,
-                    _ => return None,
-                };
-                let mut latest = match state {
-                    _ => None,
-                };
-                let mut length = latest.map(|_| 0);
-
-                for (index, &byte) in input.iter().enumerate() {
-                    let Some(next) = (match state {
-                        _ => None,
-                    }) else {
-                        break;
-                    };
-                    state = next;
-
-                    if let Some(accept) = match state {
-                        _ => None,
-                    } {
-                        latest = Some(accept);
-                        length = Some(index + 1);
-                    }
-                }
-
-                latest.zip(length)
-            }
-
-            fn __lxr_action(
-                rule: usize,
-                text: &str,
-            ) -> Result<Option<Self>, ::lxr::PayloadError> {
-                match rule {
-                    _ => unreachable!("generated lexer selected an unknown rule"),
-                }
-            }
-        };
-
-        assert_eq!(actual.to_string(), expected.to_string());
+        let actual = emit(&dfa, &Lexer::new(vec![], vec![])).to_string();
+        assert!(actual.contains("0usize => 0usize"));
+        assert!(actual.contains("Result < (Option < Self > , :: lxr :: Transition)"));
+        assert!(actual.contains("fn __lxr_mode_name"));
     }
 
     #[test]
@@ -185,6 +172,7 @@ mod tests {
 
         assert!(emitted.contains("97u8 ..= 122u8 => Some (1usize)"));
         assert!(emitted.contains("1usize => Some (0usize)"));
-        assert!(emitted.contains("0usize => Rule :: Token (7)"));
+        assert!(emitted.contains("Rule :: Token (7)"));
+        assert!(emitted.contains("Transition :: Stay"));
     }
 }

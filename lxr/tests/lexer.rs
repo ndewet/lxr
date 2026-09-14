@@ -54,6 +54,90 @@ enum WithTrivia {
     Identifier,
 }
 
+#[derive(Debug, PartialEq, Lexer)]
+#[lxr(mode = Comment)]
+#[lxr(skip = r"[ \t\r\n]+")]
+#[lxr(skip = r"/\*", push = Comment)]
+#[lxr(skip = r"/\*", modes = Comment, push = Comment)]
+#[lxr(skip = r"\*/", modes = Comment, pop)]
+#[lxr(skip = r"[^*/]+|[*/]", modes = Comment)]
+enum WithNestedComments {
+    #[lxr("[a-z]+")]
+    Identifier,
+}
+
+#[test]
+fn derived_lexer_skips_arbitrarily_nested_block_comments() {
+    let input = "one /* outer /* nested */ still outer */ two";
+    let scanned: Vec<_> = WithNestedComments::scanner(input).collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Ok(Spanned {
+                token: WithNestedComments::Identifier,
+                span: 0..3
+            }),
+            Ok(Spanned {
+                token: WithNestedComments::Identifier,
+                span: 41..44
+            }),
+        ]
+    );
+}
+
+#[test]
+fn derived_lexer_reports_an_unterminated_nested_comment() {
+    let input = "one /* outer /* nested */";
+    let scanned: Vec<_> = WithNestedComments::scanner(input).collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Ok(Spanned {
+                token: WithNestedComments::Identifier,
+                span: 0..3
+            }),
+            Err(ScanError::UnterminatedMode {
+                span: 4..25,
+                mode: "Comment"
+            }),
+        ]
+    );
+}
+
+#[derive(Debug, PartialEq, Lexer)]
+#[lxr(mode = String)]
+enum ModeTokens {
+    #[lxr("[a-z]+")]
+    Identifier,
+    #[lxr("\"", push = String)]
+    StringStart,
+    #[lxr(r#"[^"\\]+"#, modes = String)]
+    StringText,
+    #[lxr("\"", modes = String, pop)]
+    StringEnd,
+}
+
+#[test]
+fn derived_lexer_only_enables_tokens_in_their_declared_mode() {
+    let scanned: Vec<_> = ModeTokens::scanner("name \"text\" tail")
+        .map(|item| item.map(|spanned| spanned.token))
+        .collect();
+    assert_eq!(
+        scanned,
+        vec![
+            Ok(ModeTokens::Identifier),
+            Err(ScanError::Unrecognized { span: 4..5 }),
+            Ok(ModeTokens::StringStart),
+            Ok(ModeTokens::StringText),
+            Ok(ModeTokens::StringEnd),
+            Err(ScanError::Unrecognized { span: 11..12 }),
+            Ok(ModeTokens::Identifier),
+        ]
+    );
+}
+
 #[test]
 fn derived_lexer_skips_whitespace_and_comments() {
     assert_eq!(

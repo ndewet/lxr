@@ -15,4 +15,4 @@ mod emitter;
 mod lexer;
 mod regex;
 
-pub use lexer::{CompileError, RuleSpec, compile};
+pub use lexer::{CompileError, RuleSpec, Transition, compile, compile_with_modes};

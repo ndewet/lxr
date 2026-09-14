@@ -4,11 +4,11 @@
 
 #![deny(dead_code)]
 
-use lxr_codegen::{RuleSpec, compile};
+use lxr_codegen::{RuleSpec, Transition, compile_with_modes};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Data, DeriveInput, Error, Expr, Fields, Lit, LitStr, MetaNameValue, Result, Type,
+    Data, DeriveInput, Error, Expr, Fields, LitStr, Result, Type,
     parse::{Parse, ParseStream},
     parse_macro_input,
 };
@@ -34,9 +34,11 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         ));
     };
 
-    let mut rules = skip_rules(&input.attrs)?;
+    let (modes, mut rules) = lexer_attributes(&input.attrs)?;
     for variant in data.variants {
-        let RuleAttribute { pattern, converter } = rule_attribute(&variant.attrs, &variant.ident)?;
+        let attribute = rule_attribute(&variant.attrs, &variant.ident)?;
+        let pattern = attribute.pattern.clone();
+        let converter = attribute.converter;
         let variant_ident = variant.ident;
         let action = match variant.fields {
             Fields::Unit => {
@@ -63,7 +65,11 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                                 .map(|payload| Some(Self::#variant_ident(payload)))
                         },
                     };
-                    rules.push(RuleSpec::emit(pattern.value(), action));
+                    rules.push(rule_spec(
+                        RuleSpec::emit(pattern.value(), action),
+                        &attribute.modes,
+                        &attribute.transition,
+                    ));
                     continue;
                 };
                 return Err(Error::new_spanned(field, "token payloads must be owned"));
@@ -81,10 +87,15 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                 ));
             }
         };
-        rules.push(RuleSpec::emit(pattern.value(), action));
+        rules.push(rule_spec(
+            RuleSpec::emit(pattern.value(), action),
+            &attribute.modes,
+            &attribute.transition,
+        ));
     }
 
-    let matcher = compile(rules).map_err(|error| Error::new_spanned(input.ident.clone(), error))?;
+    let matcher = compile_with_modes(modes, rules)
+        .map_err(|error| Error::new_spanned(input.ident.clone(), error))?;
     let ident = input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
 
@@ -96,60 +107,185 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
             fn scan_one(
                 input: &str,
+                mode: usize,
             ) -> Option<::lxr::RuleScan<Self>> {
-                let (rule, length) = Self::__lxr_scan(input.as_bytes(), 0)?;
+                let (rule, length) = Self::__lxr_scan(input.as_bytes(), mode)?;
                 Some(
                     Self::__lxr_action(rule, &input[..length])
-                        .map(|token| (token, length))
+                        .map(|(token, transition)| (token, length, transition))
                         .map_err(|error| (error, length)),
                 )
+            }
+
+            fn mode_name(mode: usize) -> &'static str {
+                Self::__lxr_mode_name(mode)
             }
         }
     })
 }
 
-fn skip_rules(attributes: &[syn::Attribute]) -> Result<Vec<RuleSpec>> {
+fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<(Vec<String>, Vec<RuleSpec>)> {
+    let mut modes = Vec::new();
+    let mut rules = Vec::new();
     attributes
         .iter()
         .filter(|attribute| attribute.path().is_ident("lxr"))
-        .map(|attribute| {
-            let MetaNameValue { path, value, .. } = attribute.parse_args()?;
-            if !path.is_ident("skip") {
-                return Err(Error::new_spanned(path, "expected `skip = \"pattern\"`"));
+        .try_for_each(|attribute| {
+            let config: LexerAttribute = attribute.parse_args()?;
+            if config.name == "mode" {
+                let Some(mode) = config.mode else {
+                    unreachable!()
+                };
+                modes.push(mode);
+                return Ok(());
             }
-            let Expr::Lit(expression) = value else {
+            if config.name != "skip" {
                 return Err(Error::new_spanned(
-                    value,
-                    "a skipped pattern must be a string literal",
+                    attribute,
+                    "expected `mode = Name` or `skip = \"pattern\"`",
                 ));
-            };
-            let Lit::Str(pattern) = expression.lit else {
-                return Err(Error::new_spanned(
-                    expression,
-                    "a skipped pattern must be a string literal",
-                ));
-            };
-            Ok(RuleSpec::skip(pattern.value()))
+            }
+            let pattern = config.pattern.expect("skip attribute has a pattern");
+            rules.push(rule_spec(
+                RuleSpec::skip(pattern),
+                &config.rule.modes,
+                &config.rule.transition,
+            ));
+            Ok(())
+        })?;
+    Ok((modes, rules))
+}
+
+struct LexerAttribute {
+    name: String,
+    mode: Option<String>,
+    pattern: Option<String>,
+    rule: RuleConfig,
+}
+
+struct RuleConfig {
+    modes: Vec<String>,
+    transition: Transition,
+}
+
+impl Parse for LexerAttribute {
+    fn parse(input: ParseStream<'_>) -> Result<Self> {
+        let name: syn::Ident = input.parse()?;
+        input.parse::<syn::Token![=]>()?;
+        if name == "mode" {
+            let mode: syn::Ident = input.parse()?;
+            if !input.is_empty() {
+                return Err(input.error("unexpected lexer mode attribute content"));
+            }
+            return Ok(Self {
+                name: name.to_string(),
+                mode: Some(mode.to_string()),
+                pattern: None,
+                rule: RuleConfig::stay(),
+            });
+        }
+        let pattern: LitStr = input.parse()?;
+        let rule = parse_rule_modifiers(input)?;
+        Ok(Self {
+            name: name.to_string(),
+            mode: None,
+            pattern: Some(pattern.value()),
+            rule,
         })
-        .collect()
+    }
+}
+
+impl RuleConfig {
+    fn stay() -> Self {
+        Self {
+            modes: vec!["INITIAL".into()],
+            transition: Transition::Stay,
+        }
+    }
+}
+
+fn parse_rule_modifiers(input: ParseStream<'_>) -> Result<RuleConfig> {
+    let mut config = RuleConfig::stay();
+    while !input.is_empty() {
+        input.parse::<syn::Token![,]>()?;
+        let name: syn::Ident = input.parse()?;
+        match name.to_string().as_str() {
+            "modes" => {
+                input.parse::<syn::Token![=]>()?;
+                config.modes = parse_modes(input)?;
+            }
+            "push" => {
+                input.parse::<syn::Token![=]>()?;
+                config.transition = Transition::Push(input.parse::<syn::Ident>()?.to_string());
+            }
+            "begin" => {
+                input.parse::<syn::Token![=]>()?;
+                config.transition = Transition::Begin(input.parse::<syn::Ident>()?.to_string());
+            }
+            "pop" => config.transition = Transition::Pop,
+            _ => {
+                return Err(Error::new_spanned(
+                    name,
+                    "expected `modes`, `push`, `begin`, or `pop`",
+                ));
+            }
+        }
+    }
+    Ok(config)
+}
+
+fn parse_modes(input: ParseStream<'_>) -> Result<Vec<String>> {
+    if input.peek(syn::token::Bracket) {
+        let content;
+        syn::bracketed!(content in input);
+        let modes = content.parse_terminated(syn::Ident::parse, syn::Token![,])?;
+        Ok(modes.into_iter().map(|mode| mode.to_string()).collect())
+    } else {
+        Ok(vec![input.parse::<syn::Ident>()?.to_string()])
+    }
+}
+
+fn rule_spec(spec: RuleSpec, modes: &[String], transition: &Transition) -> RuleSpec {
+    spec.in_modes(modes.to_vec()).transition(transition.clone())
 }
 
 struct RuleAttribute {
     pattern: LitStr,
     converter: Option<Expr>,
+    modes: Vec<String>,
+    transition: Transition,
 }
 
 impl Parse for RuleAttribute {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let pattern = input.parse()?;
-        let converter = if input.is_empty() {
+        let converter = if input.is_empty() || next_is_modifier(input)? {
             None
         } else {
             input.parse::<syn::Token![,]>()?;
             Some(input.parse()?)
         };
-        Ok(Self { pattern, converter })
+        let config = parse_rule_modifiers(input)?;
+        Ok(Self {
+            pattern,
+            converter,
+            modes: config.modes,
+            transition: config.transition,
+        })
     }
+}
+
+fn next_is_modifier(input: ParseStream<'_>) -> Result<bool> {
+    if !input.peek(syn::Token![,]) {
+        return Ok(false);
+    }
+    let fork = input.fork();
+    fork.parse::<syn::Token![,]>()?;
+    let name: syn::Ident = fork.parse()?;
+    Ok(matches!(
+        name.to_string().as_str(),
+        "modes" | "push" | "begin" | "pop"
+    ))
 }
 
 fn rule_attribute(attributes: &[syn::Attribute], variant: &syn::Ident) -> Result<RuleAttribute> {

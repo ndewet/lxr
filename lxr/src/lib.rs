@@ -32,7 +32,17 @@ pub struct PayloadError {
 
 /// The result of selecting and executing one lexer rule.
 #[doc(hidden)]
-pub type RuleScan<T> = Result<(Option<T>, usize), (PayloadError, usize)>;
+pub type RuleScan<T> = Result<(Option<T>, usize, Transition), (PayloadError, usize)>;
+
+/// A generated lexer rule's update to the start-condition stack.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transition {
+    Stay,
+    Begin(usize),
+    Push(usize),
+    Pop,
+}
 
 impl PayloadError {
     /// Creates a payload-conversion error with a human-readable message.
@@ -78,13 +88,27 @@ pub enum ScanError {
         /// The payload conversion error's message.
         message: String,
     },
+    /// Input ended while a pushed lexer mode was still active.
+    UnterminatedMode {
+        /// The range from the mode-opening rule through end of input.
+        span: Range<usize>,
+        /// The unclosed mode's declared name.
+        mode: &'static str,
+    },
 }
 
 /// Iterates over tokens and recoverable invalid-input errors.
 pub struct Scanner<'input, T> {
     input: &'input str,
     offset: usize,
+    modes: Vec<ModeFrame>,
+    finished: bool,
     marker: PhantomData<T>,
+}
+
+struct ModeFrame {
+    id: usize,
+    opened_at: usize,
 }
 
 impl<'input, T> Scanner<'input, T> {
@@ -93,6 +117,11 @@ impl<'input, T> Scanner<'input, T> {
         Self {
             input,
             offset: 0,
+            modes: vec![ModeFrame {
+                id: 0,
+                opened_at: 0,
+            }],
+            finished: false,
             marker: PhantomData,
         }
     }
@@ -105,9 +134,24 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
         loop {
             let input = &self.input[self.offset..];
             if input.is_empty() {
+                if self.finished {
+                    return None;
+                }
+                self.finished = true;
+                if let Some(frame) = self.modes.get(1) {
+                    return Some(Err(ScanError::UnterminatedMode {
+                        span: frame.opened_at..self.offset,
+                        mode: T::mode_name(frame.id),
+                    }));
+                }
                 return None;
             }
-            let Some(result) = T::scan_one(input) else {
+            let mode = self
+                .modes
+                .last()
+                .expect("the mode stack contains INITIAL")
+                .id;
+            let Some(result) = T::scan_one(input, mode) else {
                 let width = self.input[self.offset..]
                     .chars()
                     .next()
@@ -118,7 +162,7 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
                 return Some(Err(ScanError::Unrecognized { span }));
             };
             let start = self.offset;
-            let (token, consumed) = match result {
+            let (token, consumed, transition) = match result {
                 Ok(result) => result,
                 Err((error, consumed)) => {
                     let span = start..start + consumed;
@@ -130,6 +174,26 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
                 }
             };
             self.offset += consumed;
+            match transition {
+                Transition::Stay => {}
+                Transition::Begin(id) => {
+                    let frame = self
+                        .modes
+                        .last_mut()
+                        .expect("the mode stack contains INITIAL");
+                    frame.id = id;
+                    frame.opened_at = start;
+                }
+                Transition::Push(id) => self.modes.push(ModeFrame {
+                    id,
+                    opened_at: start,
+                }),
+                Transition::Pop => {
+                    if self.modes.len() > 1 {
+                        self.modes.pop();
+                    }
+                }
+            }
             if let Some(token) = token {
                 return Some(Ok(Spanned {
                     token,
@@ -148,7 +212,11 @@ pub trait Lexer: Sized {
     /// skipped rule or token plus its consumed byte length. An error means a
     /// winning rule could not convert its payload.
     #[doc(hidden)]
-    fn scan_one(input: &str) -> Option<RuleScan<Self>>;
+    fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
+
+    /// Returns a generated start-condition name for diagnostics.
+    #[doc(hidden)]
+    fn mode_name(mode: usize) -> &'static str;
 
     /// Creates a recoverable scanner for `input`.
     fn scanner(input: &str) -> Scanner<'_, Self> {
