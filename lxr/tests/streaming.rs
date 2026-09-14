@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use lxr::{Lexer, Limits, Locate, Location, Replay, ScanError, Scanner, Spanned, Tracking};
+use lxr::{Lexer, Limits, Locate, Location, Replay, ScanError, Spanned, Tracking};
 
 struct Chunks<'a> {
     bytes: &'a [u8],
@@ -461,7 +461,7 @@ fn tracking_resolves_discarded_input_without_replay() {
 #[test]
 fn configuration_rejects_invalid_bounds() {
     assert!(
-        Scanner::<()>::new("")
+        Text::scanner("")
             .with_limits(Limits {
                 retained_bytes: 0,
                 mode_depth: 1
@@ -469,7 +469,7 @@ fn configuration_rejects_invalid_bounds() {
             .is_err()
     );
     assert!(
-        Scanner::<()>::new("")
+        Text::scanner("")
             .with_limits(Limits {
                 retained_bytes: 1,
                 mode_depth: 0

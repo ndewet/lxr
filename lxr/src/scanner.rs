@@ -38,39 +38,24 @@ struct ModeFrame {
 impl<T> Scanner<T> {
     /// Creates a scanner over borrowed UTF-8 text with lazy location lookup.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lxr::{Lexer, Scanner};
-    /// #[derive(Lexer)]
-    /// enum Token { #[lxr("x")] X }
-    /// assert_eq!(Scanner::<Token>::new("x").count(), 1);
-    /// ```
-    pub fn new(input: &str) -> Scanner<T, Replay<Cursor<&[u8]>>> {
+    /// [`Lexer::scanner`](crate::Lexer::scanner) is the public entry point.
+    pub(crate) fn new(input: &str) -> Scanner<T, Replay<Cursor<&[u8]>>> {
         Self::from_bufread(Replay::memory(input.as_bytes()))
     }
 
     /// Adds buffering to a blocking reader.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// let scanner = lxr::Scanner::<()>::from_reader(&b"text"[..]);
-    /// # let _ = scanner;
-    /// ```
-    pub fn from_reader<R: Read>(reader: R) -> Scanner<T, BufReader<R>> {
+    /// [`Lexer::from_reader`](crate::Lexer::from_reader) is the public entry
+    /// point.
+    pub(crate) fn from_reader<R: Read>(reader: R) -> Scanner<T, BufReader<R>> {
         Self::from_bufread(BufReader::new(reader))
     }
 
     /// Uses an existing blocking buffered source.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// let scanner = lxr::Scanner::<()>::from_bufread(&b"text"[..]);
-    /// # let _ = scanner;
-    /// ```
-    pub fn from_bufread<S: BufRead>(source: S) -> Scanner<T, S> {
+    /// [`Lexer::from_bufread`](crate::Lexer::from_bufread) is the public
+    /// entry point.
+    pub(crate) fn from_bufread<S: BufRead>(source: S) -> Scanner<T, S> {
         Scanner {
             source,
             buffer: Vec::new(),
@@ -98,8 +83,10 @@ impl<T, S: BufRead> Scanner<T, S> {
     /// # Examples
     ///
     /// ```
-    /// use lxr::{Limits, Scanner};
-    /// let scanner = Scanner::<()>::new("x").with_limits(Limits {
+    /// use lxr::{Lexer, Limits};
+    /// #[derive(Lexer)]
+    /// enum Token { #[lxr("x")] X }
+    /// let scanner = Token::scanner("x").with_limits(Limits {
     ///     retained_bytes: 4096, mode_depth: 32,
     /// })?;
     /// # let _ = scanner;
@@ -127,7 +114,10 @@ impl<T, S: BufRead> Scanner<T, S> {
     /// # Examples
     ///
     /// ```
-    /// assert_eq!(lxr::Scanner::<()>::new("x").position(), 0);
+    /// use lxr::Lexer;
+    /// #[derive(Lexer)]
+    /// enum Token { #[lxr("x")] X }
+    /// assert_eq!(Token::scanner("x").position(), 0);
     /// ```
     pub fn position(&self) -> u64 {
         self.offset
@@ -138,8 +128,11 @@ impl<T, S: BufRead> Scanner<T, S> {
     /// # Examples
     ///
     /// ```
+    /// use lxr::Lexer;
     /// use std::io::Read;
-    /// let mut remainder = lxr::Scanner::<()>::new("text").into_remainder();
+    /// #[derive(Lexer)]
+    /// enum Token { #[lxr("x")] X }
+    /// let mut remainder = Token::scanner("text").into_remainder();
     /// let mut text = String::new();
     /// remainder.read_to_string(&mut text)?;
     /// assert_eq!(text, "text");

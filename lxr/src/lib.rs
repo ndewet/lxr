@@ -204,6 +204,11 @@ pub trait Lexer: __private::Sealed + Sized {
 
     /// Creates a scanner with buffering for a blocking reader.
     ///
+    /// This scanner does not resolve a line and a column. Memory stays
+    /// bounded, thus a large stream is safe. Use
+    /// [`from_tracked_reader`](Lexer::from_tracked_reader) for a diagnostic
+    /// that needs a line number.
+    ///
     /// # Examples
     ///
     /// ```
@@ -214,6 +219,31 @@ pub trait Lexer: __private::Sealed + Sized {
     /// ```
     fn from_reader<R: std::io::Read>(reader: R) -> Scanner<Self, std::io::BufReader<R>> {
         Scanner::<Self>::from_reader(reader)
+    }
+
+    /// Creates a scanner that resolves a line and a column for a reader.
+    ///
+    /// The adapter retains one `u64` for each line that it reads. This index
+    /// has no bound, and [`Limits`] excludes it. Use
+    /// [`from_reader`](Lexer::from_reader) for a large stream that needs no
+    /// line number.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr::{Lexer, Locate};
+    /// #[derive(Lexer)]
+    /// #[lxr(skip = r"\n")]
+    /// enum Token { #[lxr("x")] X }
+    /// let mut scanner = Token::from_tracked_reader(&b"x\nx"[..]);
+    /// assert_eq!(scanner.by_ref().count(), 2);
+    /// assert_eq!(scanner.locate(2)?.line, 2);
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    fn from_tracked_reader<R: std::io::Read>(
+        reader: R,
+    ) -> Scanner<Self, Tracking<std::io::BufReader<R>>> {
+        Scanner::<Self>::from_bufread(Tracking::new(std::io::BufReader::new(reader)))
     }
 
     /// Creates a scanner from an existing blocking buffer.
