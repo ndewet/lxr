@@ -53,9 +53,12 @@ pub struct PayloadError {
     message: String,
 }
 
-/// The result of selecting and executing one lexer rule.
+/// Holds the items that generated code names, and that callers do not.
 #[doc(hidden)]
-pub type RuleScan<T> = Result<(Option<T>, usize, Transition), (PayloadError, usize)>;
+pub mod __private {
+    /// Restricts [`Lexer`](crate::Lexer) to the types that the derive makes.
+    pub trait Sealed {}
+}
 
 /// A generated lexer rule's update to the start-condition stack.
 #[doc(hidden)]
@@ -165,6 +168,10 @@ pub enum ScanError {
 
 /// Scans UTF-8 input with a generated lexer.
 ///
+/// Only the `Lexer` derive macro implements this trait. The scanner trusts
+/// the automaton methods, thus a hand-written implementation can break a
+/// scan.
+///
 /// # Examples
 ///
 /// ```
@@ -178,7 +185,7 @@ pub enum ScanError {
 ///
 /// assert_eq!(Token::scan("word"), Some((Token::Word, 4)));
 /// ```
-pub trait Lexer: Sized {
+pub trait Lexer: __private::Sealed + Sized {
     /// Returns the initial execution state for a mode.
     #[doc(hidden)]
     fn start(mode: usize) -> usize;
@@ -222,14 +229,6 @@ pub trait Lexer: Sized {
     fn from_bufread<S: std::io::BufRead>(source: S) -> Scanner<Self, S> {
         Scanner::<Self>::from_bufread(source)
     }
-
-    /// Scans one token or skipped rule from the start of a string.
-    ///
-    /// `None` means no rule accepts a prefix. A successful result contains a
-    /// skipped rule or token plus its consumed byte length. An error means a
-    /// winning rule could not convert its payload.
-    #[doc(hidden)]
-    fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
 
     /// Returns a generated start-condition name for diagnostics.
     #[doc(hidden)]

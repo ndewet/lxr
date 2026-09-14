@@ -35,9 +35,8 @@ use syn::{
 /// #     Push(usize),
 /// #     Pop,
 /// # }
-/// # pub type RuleScan<T> = Result<(Option<T>, usize, Transition), (PayloadError, usize)>;
-/// # pub trait Lexer: Sized {
-/// #     fn scan_one(input: &str, mode: usize) -> Option<RuleScan<Self>>;
+/// # pub mod __private { pub trait Sealed {} }
+/// # pub trait Lexer: __private::Sealed + Sized {
 /// #     fn mode_name(mode: usize) -> &'static str;
 /// #     fn start(mode: usize) -> usize;
 /// #     fn step(state: usize, byte: u8) -> Option<usize>;
@@ -54,7 +53,7 @@ use syn::{
 ///     Word,
 /// }
 ///
-/// assert!(<Token as lxr::Lexer>::scan_one("word", 0).is_some());
+/// assert_eq!(<Token as lxr::Lexer>::accept(<Token as lxr::Lexer>::start(0)), None);
 /// # }
 /// ```
 #[proc_macro_derive(Lexer, attributes(lxr))]
@@ -143,6 +142,8 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
             #matcher
         }
 
+        impl #impl_generics ::lxr::__private::Sealed for #ident #type_generics #where_clause {}
+
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
             fn start(mode: usize) -> usize { Self::__lxr_start(mode) }
             fn step(state: usize, byte: u8) -> Option<usize> { Self::__lxr_step(state, byte) }
@@ -151,18 +152,6 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
             fn action(rule: usize, text: &str) -> Result<(Option<Self>, ::lxr::Transition), ::lxr::PayloadError> {
                 Self::__lxr_action(rule, text)
             }
-            fn scan_one(
-                input: &str,
-                mode: usize,
-            ) -> Option<::lxr::RuleScan<Self>> {
-                let (rule, length) = Self::__lxr_scan(input.as_bytes(), mode)?;
-                Some(
-                    Self::__lxr_action(rule, &input[..length])
-                        .map(|(token, transition)| (token, length, transition))
-                        .map_err(|error| (error, length)),
-                )
-            }
-
             fn mode_name(mode: usize) -> &'static str {
                 Self::__lxr_mode_name(mode)
             }

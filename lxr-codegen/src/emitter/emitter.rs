@@ -102,38 +102,6 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
             match state { #(#continuing => true,)* _ => false }
         }
 
-        fn __lxr_scan(input: &[u8], start_condition: usize) -> Option<(usize, usize)> {
-            let mut state = match start_condition {
-                #(#starts)*
-                _ => return None,
-            };
-            let mut latest = match state {
-                #(#accepts)*
-                _ => None,
-            };
-            let mut length = latest.map(|_| 0);
-
-            for (index, &byte) in input.iter().enumerate() {
-                let Some(next) = (match state {
-                    #(#transitions)*
-                    _ => None,
-                }) else {
-                    break;
-                };
-                state = next;
-
-                if let Some(accept) = match state {
-                    #(#accepts)*
-                    _ => None,
-                } {
-                    latest = Some(accept);
-                    length = Some(index + 1);
-                }
-            }
-
-            latest.zip(length)
-        }
-
         fn __lxr_action(
             rule: usize,
             text: &str,
