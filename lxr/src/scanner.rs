@@ -8,8 +8,7 @@ use std::{
 };
 
 use crate::{
-    Lexer, Limits, Locate, LocatedSpan, Location, Replay, ReplaySource, ScanError, Spanned,
-    Transition,
+    Lexer, Limits, Locate, Location, Replay, ReplaySource, ScanError, Spanned, Transition,
 };
 
 /// Unconsumed lookahead followed by the remaining buffered source.
@@ -330,15 +329,6 @@ impl<T, S: BufRead + Locate> Locate for Scanner<T, S> {
             .checked_add(offset)
             .ok_or_else(|| io::Error::other("source position exceeds u64"))?;
         self.source.locate(position)
-    }
-
-    fn locate_span(&mut self, span: Range<u64>) -> io::Result<LocatedSpan> {
-        if span.start > span.end {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "reversed span"));
-        }
-        let start = self.locate(span.start)?;
-        let end = self.locate(span.end)?;
-        Ok(LocatedSpan { start, end })
     }
 }
 
