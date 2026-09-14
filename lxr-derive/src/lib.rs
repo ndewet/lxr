@@ -80,7 +80,7 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                 if converter.is_some() {
                     return Err(Error::new_spanned(
                         variant_ident,
-                        "unit token variants cannot have a payload converter",
+                        "a unit token variant has no payload, thus it cannot have `with`",
                     ));
                 }
                 quote!(Ok(Some(Self::#variant_ident)))
@@ -91,9 +91,10 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                     let payload_type = &field.ty;
                     let action = match converter {
                         Some(converter) => quote! {
-                            (#converter)(text)
-                                .map(|payload| Some(Self::#variant_ident(payload)))
-                                .map_err(|error| ::lxr::PayloadError::new(error.to_string()))
+                            ::lxr::PayloadResult::<#payload_type>::into_payload(
+                                (#converter)(text),
+                            )
+                            .map(|payload| Some(Self::#variant_ident(payload)))
                         },
                         None => quote! {
                             ::lxr::parse_payload::<#payload_type>(text)
@@ -183,6 +184,12 @@ fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<(Vec<String>, Vec<R
                 ));
             }
             let pattern = config.pattern.expect("skip attribute has a pattern");
+            if config.rule.converter.is_some() {
+                return Err(Error::new_spanned(
+                    attribute,
+                    "a `skip` rule emits no token, thus it cannot have `with`",
+                ));
+            }
             rules.push(rule_spec(
                 RuleSpec::skip(pattern),
                 &config.rule.modes,
@@ -203,6 +210,7 @@ struct LexerAttribute {
 struct RuleConfig {
     modes: Vec<String>,
     transition: Transition,
+    converter: Option<Expr>,
 }
 
 impl Parse for LexerAttribute {
@@ -237,6 +245,7 @@ impl RuleConfig {
         Self {
             modes: vec!["INITIAL".into()],
             transition: Transition::Stay,
+            converter: None,
         }
     }
 }
@@ -259,11 +268,15 @@ fn parse_rule_modifiers(input: ParseStream<'_>) -> Result<RuleConfig> {
                 input.parse::<syn::Token![=]>()?;
                 config.transition = Transition::Begin(input.parse::<syn::Ident>()?.to_string());
             }
+            "with" => {
+                input.parse::<syn::Token![=]>()?;
+                config.converter = Some(input.parse()?);
+            }
             "pop" => config.transition = Transition::Pop,
             _ => {
                 return Err(Error::new_spanned(
                     name,
-                    "expected `modes`, `push`, `begin`, or `pop`",
+                    "expected `modes`, `with`, `push`, `begin`, or `pop`",
                 ));
             }
         }
@@ -296,33 +309,14 @@ struct RuleAttribute {
 impl Parse for RuleAttribute {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let pattern = input.parse()?;
-        let converter = if input.is_empty() || next_is_modifier(input)? {
-            None
-        } else {
-            input.parse::<syn::Token![,]>()?;
-            Some(input.parse()?)
-        };
         let config = parse_rule_modifiers(input)?;
         Ok(Self {
             pattern,
-            converter,
+            converter: config.converter,
             modes: config.modes,
             transition: config.transition,
         })
     }
-}
-
-fn next_is_modifier(input: ParseStream<'_>) -> Result<bool> {
-    if !input.peek(syn::Token![,]) {
-        return Ok(false);
-    }
-    let fork = input.fork();
-    fork.parse::<syn::Token![,]>()?;
-    let name: syn::Ident = fork.parse()?;
-    Ok(matches!(
-        name.to_string().as_str(),
-        "modes" | "push" | "begin" | "pop"
-    ))
 }
 
 fn rule_attribute(attributes: &[syn::Attribute], variant: &syn::Ident) -> Result<RuleAttribute> {

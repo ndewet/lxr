@@ -189,9 +189,9 @@ enum Value {
     Integer(u64),
     #[lxr("[a-z]+")]
     Identifier(Identifier),
-    #[lxr("![a-z]+", strip_bang)]
+    #[lxr("![a-z]+", with = strip_bang)]
     Shouted(String),
-    #[lxr("#[a-z]+", reject_hash)]
+    #[lxr("#[a-z]+", with = reject_hash)]
     Rejected(String),
 }
 
@@ -533,5 +533,60 @@ fn rust_like_lexer_prefers_the_longest_compound_punctuation() {
             .map(|spanned| spanned.span.text(input).expect("the span is in the input"))
             .collect::<Vec<_>>(),
         vec!["a", "==", "=", "b", "..", "c", "..", ".", "d"]
+    );
+}
+
+#[derive(Debug, PartialEq, Lexer)]
+enum Converters {
+    #[lxr("![a-z]+", with = direct)]
+    Direct(String),
+    #[lxr("[0-9]+", with = checked)]
+    Checked(u8),
+    #[lxr(r"\?[a-z]+", with = failing)]
+    Rejected(String),
+}
+
+fn direct(text: &str) -> String {
+    text[1..].to_uppercase()
+}
+
+fn checked(text: &str) -> Result<u8, String> {
+    text.parse()
+        .map_err(|_| format!("{text} is not a byte value"))
+}
+
+fn failing(_: &str) -> Result<String, &'static str> {
+    Err("a question is not a value")
+}
+
+#[test]
+fn a_converter_returns_a_payload_or_a_result() {
+    assert_eq!(
+        Converters::scanner("!hi").next(),
+        Some(Ok(Spanned {
+            token: Converters::Direct("HI".to_owned()),
+            span: Span::new(0, 3),
+        }))
+    );
+    assert_eq!(
+        Converters::scanner("42").next(),
+        Some(Ok(Spanned {
+            token: Converters::Checked(42),
+            span: Span::new(0, 2),
+        }))
+    );
+    assert_eq!(
+        Converters::scanner("999").next(),
+        Some(Err(ScanError::InvalidPayload {
+            span: Span::new(0, 3),
+            message: "999 is not a byte value".to_owned(),
+        }))
+    );
+    assert_eq!(
+        Converters::scanner("?why").next(),
+        Some(Err(ScanError::InvalidPayload {
+            span: Span::new(0, 4),
+            message: "a question is not a value".to_owned(),
+        }))
     );
 }

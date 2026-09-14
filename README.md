@@ -26,6 +26,22 @@ Each variant has one `#[lxr("pattern")]` attribute. A variant may be unit or
 contain one owned tuple payload. Payloads use their `FromStr` implementation,
 so `String`, numeric types, and user types that implement `FromStr` work.
 
+Add `with = path` to name a converter function. The converter receives the
+matched lexeme. It returns the payload when a conversion cannot fail. It
+returns a `Result` of the payload when a conversion can fail. An `Err`
+gives `ScanError::InvalidPayload`, and the `Display` of the `Err` value
+becomes the message of that error. Only a variant with a payload accepts a
+converter.
+
+```rust
+#[lxr("![a-z]+", with = strip_bang)]
+Shouted(String),
+
+fn strip_bang(text: &str) -> String {
+    text[1..].to_uppercase()
+}
+```
+
 `Token::scanner(input)` returns `Result<Spanned<Token>, ScanError>` items.
 `Spanned` records the matched token's UTF-8 byte range as a `Span`. Call
 `span.text(input)` to get the lexeme, and `span.range()` for an index of
