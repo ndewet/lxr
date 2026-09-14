@@ -2,8 +2,9 @@
 
 #![deny(dead_code)]
 
-use lxr::{Lexer, ScanError, Span, Spanned};
+use lxr::{Lexer, Reader, ScanError, Slice, Source, Span, Spanned};
 use std::convert::Infallible;
+use std::io::Cursor;
 use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Lexer)]
@@ -589,4 +590,163 @@ fn a_converter_returns_a_payload_or_a_result() {
             message: "a question is not a value".to_owned(),
         }))
     );
+}
+
+#[derive(Debug, PartialEq, Lexer)]
+enum Streaming {
+    #[lxr("a")]
+    A,
+    #[lxr("ab+c")]
+    Abc,
+    #[lxr("b+")]
+    Bs,
+    #[lxr("x")]
+    X,
+    #[lxr("Ã©")]
+    EAcute,
+}
+
+struct OneByteAtATime<'input> {
+    remaining: &'input [u8],
+}
+
+impl Source for OneByteAtATime<'_> {
+    type Error = Infallible;
+
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
+        let Some((&byte, remaining)) = self.remaining.split_first() else {
+            return Ok(0);
+        };
+        buffer[0] = byte;
+        self.remaining = remaining;
+        Ok(1)
+    }
+}
+
+#[test]
+fn scanner_streams_across_chunks_and_replays_longest_match_lookahead() {
+    let input = "abbbxÃ©";
+    let source = OneByteAtATime {
+        remaining: input.as_bytes(),
+    };
+    let scanned: Vec<_> = Streaming::scanner_from(source).collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Ok(Spanned {
+                token: Streaming::A,
+                span: Span::new(0, 1),
+            }),
+            Ok(Spanned {
+                token: Streaming::Bs,
+                span: Span::new(1, 4),
+            }),
+            Ok(Spanned {
+                token: Streaming::X,
+                span: Span::new(4, 5),
+            }),
+            Ok(Spanned {
+                token: Streaming::EAcute,
+                span: Span::new(5, input.len() as u64),
+            }),
+        ]
+    );
+}
+
+#[test]
+fn scanner_accepts_standard_readers_through_the_reader_adapter() {
+    let source = Reader::new(Cursor::new(b"abbbcx"));
+    let scanned: Vec<_> = Streaming::scanner_from(source)
+        .map(|item| item.expect("the in-memory reader does not fail"))
+        .collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Spanned {
+                token: Streaming::Abc,
+                span: Span::new(0, 5),
+            },
+            Spanned {
+                token: Streaming::X,
+                span: Span::new(5, 6),
+            },
+        ]
+    );
+}
+
+#[test]
+fn scanner_reports_invalid_utf8_and_recovers_at_the_next_byte() {
+    let source = Slice::new(b"\xffx");
+    let scanned: Vec<_> = Streaming::scanner_from(source).collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Err(ScanError::InvalidUtf8 {
+                span: Span::new(0, 1),
+            }),
+            Ok(Spanned {
+                token: Streaming::X,
+                span: Span::new(1, 2),
+            }),
+        ]
+    );
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct BrokenSource {
+    sent: bool,
+}
+
+impl Source for BrokenSource {
+    type Error = &'static str;
+
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
+        if self.sent {
+            return Err("disconnected");
+        }
+        buffer[..3].copy_from_slice(b"bbb");
+        self.sent = true;
+        Ok(3)
+    }
+}
+
+#[test]
+fn scanner_reports_source_errors_without_accepting_an_ambiguous_prefix() {
+    let mut scanner = Streaming::scanner_from(BrokenSource { sent: false });
+
+    assert_eq!(
+        scanner.next(),
+        Some(Err(ScanError::Source {
+            offset: 3,
+            error: "disconnected",
+        }))
+    );
+    assert_eq!(scanner.next(), None);
+}
+
+#[test]
+fn scanner_returns_lookahead_before_the_original_source() {
+    let mut scanner = Streaming::scanner_from(Reader::new(Cursor::new(b"abbbx")));
+    let first = scanner
+        .next()
+        .expect("the input has a token")
+        .expect("the in-memory reader does not fail");
+    assert_eq!(
+        first,
+        Spanned {
+            token: Streaming::A,
+            span: Span::new(0, 1),
+        }
+    );
+
+    let mut remainder = scanner.into_source();
+    let mut bytes = [0; 4];
+    assert_eq!(
+        Source::read(&mut remainder, &mut bytes).expect("the in-memory reader does not fail"),
+        4
+    );
+    assert_eq!(&bytes, b"bbbx");
 }
