@@ -653,7 +653,7 @@ fn an_action_reads_and_writes_the_caller_state() {
         scanned.first(),
         Some(&Ok(Spanned {
             token: Counted::Word(1),
-            span: 0..3,
+            span: Span::new(0, 3),
         }))
     );
     assert_eq!(
@@ -679,7 +679,7 @@ fn the_caller_state_starts_from_default_or_from_with_extras() {
         scanner.next(),
         Some(Ok(Spanned {
             token: Counted::Word(11),
-            span: 0..3,
+            span: Span::new(0, 3),
         }))
     );
 
@@ -689,7 +689,7 @@ fn the_caller_state_starts_from_default_or_from_with_extras() {
         scanner.next(),
         Some(Ok(Spanned {
             token: Counted::Word(21),
-            span: 0..3,
+            span: Span::new(0, 3),
         }))
     );
 }
