@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use lxr::{Lexer, Limits, Locate, Location, Replay, ScanError, Spanned, Tracking};
+use lxr::{Lexer, Limits, Locate, Location, Replay, ScanError, Span, Spanned, Tracking};
 
 struct Chunks<'a> {
     bytes: &'a [u8],
@@ -56,17 +56,19 @@ fn every_chunk_partition_preserves_tokens_unicode_skips_and_errors() {
     let expected = vec![
         Ok(Spanned {
             token: Text::Word("aa".into()),
-            span: 0..2,
+            span: Span::new(0, 2),
         }),
         Ok(Spanned {
             token: Text::Word("é".into()),
-            span: 3..5,
+            span: Span::new(3, 5),
         }),
         Ok(Spanned {
             token: Text::Number(7),
-            span: 6..7,
+            span: Span::new(6, 7),
         }),
-        Err(ScanError::Unrecognized { span: 7..8 }),
+        Err(ScanError::Unrecognized {
+            span: Span::new(7, 8),
+        }),
     ];
     assert_eq!(Text::scanner(input).collect::<Vec<_>>(), expected);
     for mask in 0..1usize << (input.len() - 1) {
@@ -107,7 +109,7 @@ fn forward_only_input_retains_unbounded_speculation_and_the_remainder() {
         scanner.next(),
         Some(Ok(Spanned {
             token: Rollback::A,
-            span: 0..1
+            span: Span::new(0, 1)
         }))
     );
     let mut remainder = String::new();
@@ -121,15 +123,15 @@ fn forward_only_input_retains_unbounded_speculation_and_the_remainder() {
         vec![
             Ok(Spanned {
                 token: Rollback::A,
-                span: 0..1
+                span: Span::new(0, 1)
             }),
             Ok(Spanned {
                 token: Rollback::Bs,
-                span: 1..20_001
+                span: Span::new(1, 20_001)
             }),
             Ok(Spanned {
                 token: Rollback::End,
-                span: 20_001..20_002
+                span: Span::new(20_001, 20_002)
             }),
         ]
     );
@@ -248,7 +250,7 @@ fn a_terminal_accept_does_not_read_again() {
         scanner.next(),
         Some(Ok(Spanned {
             token: Rollback::End,
-            span: 0..1
+            span: Span::new(0, 1)
         }))
     );
     assert!(matches!(
@@ -301,7 +303,7 @@ fn limits_report_failure_instead_of_shortening_a_token() {
     assert_eq!(
         scanner.next(),
         Some(Err(ScanError::ModeLimit {
-            span: 1..2,
+            span: Span::new(1, 2),
             limit: 2
         }))
     );
@@ -358,7 +360,7 @@ fn replay_locations_are_lazy_cached_and_preserve_scanning() {
             .expect("first token")
             .expect("valid token")
             .span,
-        0..1
+        Span::new(0, 1)
     );
     assert_eq!(
         seeks.get(),
@@ -382,15 +384,11 @@ fn replay_locations_are_lazy_cached_and_preserve_scanning() {
     );
     assert_eq!(consumed.get(), cached);
     assert_eq!(
-        scanner.locate_span(2..5).expect("span").end,
+        scanner.locate_span(Span::new(2, 5)).expect("span").end,
         Location { line: 3, column: 2 }
     );
     assert!(scanner.locate(99).is_err());
-    assert!(
-        scanner
-            .locate_span(std::ops::Range { start: 3, end: 2 })
-            .is_err()
-    );
+    assert!(scanner.locate_span(Span::new(3, 2)).is_err());
     assert_eq!(
         scanner
             .map(|token| token.expect("valid token").token)
@@ -443,7 +441,7 @@ fn lookup_uses_the_initial_source_position_as_origin() {
     );
     assert_eq!(
         scanner.next().expect("token").expect("valid token").span,
-        0..1
+        Span::new(0, 1)
     );
 }
 
@@ -489,7 +487,7 @@ fn already_consumed_adapters_keep_their_original_line_coordinates() {
     );
     assert_eq!(
         scanner.next().expect("token").expect("valid token").span,
-        0..1
+        Span::new(0, 1)
     );
     assert_eq!(
         scanner.locate(1).expect("scanner EOF"),
@@ -589,7 +587,7 @@ fn failed_location_reads_restore_the_source_position() {
     let mut scanner = Text::from_bufread(Replay::new(source).expect("source"));
     assert_eq!(
         scanner.next().expect("token").expect("valid token").span,
-        0..1
+        Span::new(0, 1)
     );
     fail_read.set(true);
     assert!(scanner.locate(2).is_err());
@@ -604,7 +602,7 @@ fn failed_location_reads_restore_the_source_position() {
             .expect("next token")
             .expect("valid token")
             .span,
-        2..3
+        Span::new(2, 3)
     );
 }
 

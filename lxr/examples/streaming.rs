@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 scanned.push(Ok(token));
             }
             Err(ScanError::Unrecognized { span }) => {
-                let location = scanner.locate_span(span.clone())?.start;
+                let location = scanner.locate_span(span)?.start;
                 assert_eq!((location.line, location.column), (2, 1));
                 println!(
                     "unrecognized input at {}:{}",

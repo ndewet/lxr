@@ -1,6 +1,7 @@
 //! Resolves byte positions for diagnostics.
 
-use std::{io, ops::Range};
+use crate::Span;
+use std::io;
 
 /// A one-based line number and byte column.
 ///
@@ -69,12 +70,12 @@ pub trait Locate {
     /// # Examples
     ///
     /// ```
-    /// use lxr::{Locate, Replay};
+    /// use lxr::{Locate, Replay, Span};
     /// let mut source = Replay::new(std::io::Cursor::new(b"abc"))?;
-    /// assert_eq!(source.locate_span(0..3)?.end.column, 4);
+    /// assert_eq!(source.locate_span(Span::new(0, 3))?.end.column, 4);
     /// # Ok::<(), std::io::Error>(())
     /// ```
-    fn locate_span(&mut self, span: Range<u64>) -> io::Result<LocatedSpan> {
+    fn locate_span(&mut self, span: Span) -> io::Result<LocatedSpan> {
         if span.start > span.end {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "reversed span"));
         }

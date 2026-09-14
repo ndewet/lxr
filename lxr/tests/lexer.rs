@@ -2,7 +2,7 @@
 
 #![deny(dead_code)]
 
-use lxr::{Lexer, ScanError, Spanned};
+use lxr::{Lexer, ScanError, Span, Spanned};
 use std::convert::Infallible;
 use std::str::FromStr;
 
@@ -76,11 +76,11 @@ fn derived_lexer_skips_arbitrarily_nested_block_comments() {
         vec![
             Ok(Spanned {
                 token: WithNestedComments::Identifier,
-                span: 0..3
+                span: Span::new(0, 3)
             }),
             Ok(Spanned {
                 token: WithNestedComments::Identifier,
-                span: 41..44
+                span: Span::new(41, 44)
             }),
         ]
     );
@@ -96,10 +96,10 @@ fn derived_lexer_reports_an_unterminated_nested_comment() {
         vec![
             Ok(Spanned {
                 token: WithNestedComments::Identifier,
-                span: 0..3
+                span: Span::new(0, 3)
             }),
             Err(ScanError::UnterminatedMode {
-                span: 4..25,
+                span: Span::new(4, 25),
                 mode: "Comment"
             }),
         ]
@@ -128,11 +128,15 @@ fn derived_lexer_only_enables_tokens_in_their_declared_mode() {
         scanned,
         vec![
             Ok(ModeTokens::Identifier),
-            Err(ScanError::Unrecognized { span: 4..5 }),
+            Err(ScanError::Unrecognized {
+                span: Span::new(4, 5)
+            }),
             Ok(ModeTokens::StringStart),
             Ok(ModeTokens::StringText),
             Ok(ModeTokens::StringEnd),
-            Err(ScanError::Unrecognized { span: 11..12 }),
+            Err(ScanError::Unrecognized {
+                span: Span::new(11, 12)
+            }),
             Ok(ModeTokens::Identifier),
         ]
     );
@@ -155,12 +159,14 @@ fn scanner_keeps_spans_and_recovers_after_invalid_input() {
         vec![
             Ok(Spanned {
                 token: WithTrivia::Identifier,
-                span: 0..3,
+                span: Span::new(0, 3),
             }),
-            Err(ScanError::Unrecognized { span: 4..5 }),
+            Err(ScanError::Unrecognized {
+                span: Span::new(4, 5)
+            }),
             Ok(Spanned {
                 token: WithTrivia::Identifier,
-                span: 6..9,
+                span: Span::new(6, 9),
             }),
         ]
     );
@@ -206,17 +212,21 @@ fn derived_lexer_parses_owned_payloads() {
         vec![
             Ok(Spanned {
                 token: Value::Integer(42),
-                span: 0..2,
+                span: Span::new(0, 2),
             }),
-            Err(ScanError::Unrecognized { span: 2..3 }),
+            Err(ScanError::Unrecognized {
+                span: Span::new(2, 3)
+            }),
             Ok(Spanned {
                 token: Value::Identifier(Identifier("name".to_owned())),
-                span: 3..7,
+                span: Span::new(3, 7),
             }),
-            Err(ScanError::Unrecognized { span: 7..8 }),
+            Err(ScanError::Unrecognized {
+                span: Span::new(7, 8)
+            }),
             Ok(Spanned {
                 token: Value::Shouted("HELLO".to_owned()),
-                span: 8..14,
+                span: Span::new(8, 14),
             }),
         ]
     );
@@ -228,13 +238,13 @@ fn scanner_reports_payload_conversion_errors_and_recovers() {
 
     assert!(matches!(
         scanned.first(),
-        Some(Err(ScanError::InvalidPayload { span, .. })) if span == &(0..20)
+        Some(Err(ScanError::InvalidPayload { span, .. })) if span == &Span::new(0, 20)
     ));
     assert_eq!(
         scanned.last(),
         Some(&Ok(Spanned {
             token: Value::Integer(7),
-            span: 21..22,
+            span: Span::new(21, 22),
         }))
     );
 }
@@ -247,13 +257,15 @@ fn scanner_reports_explicit_converter_errors_and_recovers() {
         scanned,
         vec![
             Err(ScanError::InvalidPayload {
-                span: 0..3,
+                span: Span::new(0, 3),
                 message: "hash-prefixed values are not permitted".to_owned(),
             }),
-            Err(ScanError::Unrecognized { span: 3..4 }),
+            Err(ScanError::Unrecognized {
+                span: Span::new(3, 4)
+            }),
             Ok(Spanned {
                 token: Value::Integer(7),
-                span: 4..5,
+                span: Span::new(4, 5),
             }),
         ]
     );
@@ -291,17 +303,19 @@ fn derived_lexer_matches_utf8_boundaries_and_keeps_byte_spans() {
         vec![
             Ok(Spanned {
                 token: UnicodeBoundaries::Boundary,
-                span: 0..1,
+                span: Span::new(0, 1),
             }),
             Ok(Spanned {
                 token: UnicodeBoundaries::Boundary,
-                span: 1..3,
+                span: Span::new(1, 3),
             }),
             Ok(Spanned {
                 token: UnicodeBoundaries::Scalar,
-                span: 3..12,
+                span: Span::new(3, 12),
             }),
-            Err(ScanError::Unrecognized { span: 12..13 }),
+            Err(ScanError::Unrecognized {
+                span: Span::new(12, 13)
+            }),
         ]
     );
 }
@@ -323,15 +337,15 @@ fn derived_lexer_matches_negated_classes_including_newlines_and_unicode() {
         vec![
             Ok(Spanned {
                 token: NegatedClass::A,
-                span: 0..1,
+                span: Span::new(0, 1),
             }),
             Ok(Spanned {
                 token: NegatedClass::NotA,
-                span: 1..2,
+                span: Span::new(1, 2),
             }),
             Ok(Spanned {
                 token: NegatedClass::NotA,
-                span: 2..4,
+                span: Span::new(2, 4),
             }),
         ]
     );

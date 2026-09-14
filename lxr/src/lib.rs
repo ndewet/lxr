@@ -12,14 +12,15 @@ mod location;
 mod scanner;
 mod source;
 mod source_error;
+mod span;
 
 pub use limits::Limits;
 pub use location::{Locate, LocatedSpan, Location};
 pub use scanner::{Remainder, Scanner};
 pub use source::{Replay, Tracking};
 pub use source_error::SourceError;
+pub use span::Span;
 
-use std::ops::Range;
 use std::str::FromStr;
 use std::{
     error::Error,
@@ -31,20 +32,20 @@ use std::{
 /// # Examples
 ///
 /// ```
-/// use lxr::Spanned;
+/// use lxr::{Span, Spanned};
 ///
 /// let token = Spanned {
 ///     token: "name",
-///     span: 0..4,
+///     span: Span::new(0, 4),
 /// };
-/// assert_eq!(token.span, 0..4);
+/// assert_eq!(token.span.text("name 42"), Some("name"));
 /// ```
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Spanned<T> {
     /// The token accepted by the lexer.
     pub token: T,
     /// The half-open UTF-8 byte range matched by this token.
-    pub span: Range<u64>,
+    pub span: Span,
 }
 
 /// A failure produced while converting an accepted lexeme into a payload.
@@ -110,10 +111,12 @@ where
 /// # Examples
 ///
 /// ```
-/// use lxr::ScanError;
+/// use lxr::{ScanError, Span};
 ///
-/// let error = ScanError::Unrecognized { span: 4..5 };
-/// assert!(matches!(error, ScanError::Unrecognized { span } if span == (4..5)));
+/// let error = ScanError::Unrecognized {
+///     span: Span::new(4, 5),
+/// };
+/// assert_eq!(error.to_string(), "unrecognized input at 4..5");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanError {
@@ -139,7 +142,7 @@ pub enum ScanError {
     /// The mode stack exceeds the configured limit. Scanning stops.
     ModeLimit {
         /// The rule's byte range.
-        span: Range<u64>,
+        span: Span,
         /// The configured stack depth.
         limit: usize,
     },
@@ -148,19 +151,19 @@ pub enum ScanError {
     /// No rule accepted the character at this UTF-8 byte range.
     Unrecognized {
         /// The UTF-8 byte range of the unrecognized character.
-        span: Range<u64>,
+        span: Span,
     },
     /// A winning rule's payload conversion failed.
     InvalidPayload {
         /// The UTF-8 byte range matched by the rule with the invalid payload.
-        span: Range<u64>,
+        span: Span,
         /// The payload conversion error's message.
         message: String,
     },
     /// Input ended while a pushed lexer mode was still active.
     UnterminatedMode {
         /// The range from the mode-opening rule through end of input.
-        span: Range<u64>,
+        span: Span,
         /// The unclosed mode's declared name.
         mode: &'static str,
     },
@@ -311,12 +314,12 @@ pub trait Lexer: __private::Sealed + Sized {
 impl Display for ScanError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unrecognized { span } => write!(formatter, "unrecognized input at {span:?}"),
+            Self::Unrecognized { span } => write!(formatter, "unrecognized input at {span}"),
             Self::InvalidPayload { span, message } => {
-                write!(formatter, "invalid payload at {span:?}: {message}")
+                write!(formatter, "invalid payload at {span}: {message}")
             }
             Self::UnterminatedMode { span, mode } => {
-                write!(formatter, "unterminated mode {mode} at {span:?}")
+                write!(formatter, "unterminated mode {mode} at {span}")
             }
             Self::Input { offset, .. } => write!(formatter, "input error at {offset}"),
             Self::InvalidEncoding { offset } => write!(formatter, "invalid UTF-8 at {offset}"),
@@ -325,7 +328,7 @@ impl Display for ScanError {
                 "retained input at {offset} exceeds {limit} bytes"
             ),
             Self::ModeLimit { span, limit } => {
-                write!(formatter, "mode depth at {span:?} exceeds {limit}")
+                write!(formatter, "mode depth at {span} exceeds {limit}")
             }
             Self::PositionOverflow => formatter.write_str("input position exceeds u64"),
         }

@@ -6,7 +6,7 @@ becomes an automaton, and the derive macro emits a matcher for it.
 ## Core example
 
 ```rust
-use lxr::{Lexer, Spanned};
+use lxr::{Lexer, Span, Spanned};
 
 #[derive(Debug, PartialEq, Lexer)]
 #[lxr(skip = r"[ \t\r\n]+")]
@@ -18,8 +18,8 @@ enum Token {
 }
 
 let scanned: Vec<_> = Token::scanner("name 42").collect();
-assert_eq!(scanned[0], Ok(Spanned { token: Token::Identifier("name".into()), span: 0..4 }));
-assert_eq!(scanned[1], Ok(Spanned { token: Token::Integer(42), span: 5..7 }));
+assert_eq!(scanned[0], Ok(Spanned { token: Token::Identifier("name".into()), span: Span::new(0, 4) }));
+assert_eq!(scanned[1], Ok(Spanned { token: Token::Integer(42), span: Span::new(5, 7) }));
 ```
 
 Each variant has one `#[lxr("pattern")]` attribute. A variant may be unit or
@@ -53,8 +53,9 @@ for item in scanner {
 }
 ```
 
-Spans use `Range<u64>` byte offsets relative to the scanner's initial
-position. Convert offsets to `usize` before indexing an in-memory string.
+`Span` holds two `u64` byte offsets relative to the initial position of
+the scanner. Call `span.text(input)` to get the lexeme from an in-memory
+string, and `span.range()` for an index of type `usize`.
 Token payloads remain owned. The scanner validates UTF-8 across chunks.
 It does not normalize line endings.
 

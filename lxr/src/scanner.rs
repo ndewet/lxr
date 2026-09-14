@@ -3,10 +3,9 @@
 use std::{
     io::{self, BufRead, BufReader, Cursor, Read},
     marker::PhantomData,
-    ops::Range,
 };
 
-use crate::{Lexer, Limits, Locate, Location, Replay, ScanError, Spanned, Transition};
+use crate::{Lexer, Limits, Locate, Location, Replay, ScanError, Span, Spanned, Transition};
 
 /// Unconsumed lookahead followed by the remaining buffered source.
 pub type Remainder<S> = io::Chain<Cursor<Vec<u8>>, S>;
@@ -207,12 +206,12 @@ impl<T, S: BufRead> Scanner<T, S> {
         Ok(Some(width))
     }
 
-    fn commit(&mut self, count: usize) -> Result<Range<u64>, ScanError> {
+    fn commit(&mut self, count: usize) -> Result<Span, ScanError> {
         let end = self
             .offset
             .checked_add(count as u64)
             .ok_or(ScanError::PositionOverflow)?;
-        let span = self.offset..end;
+        let span = Span::new(self.offset, end);
         self.head += count;
         self.offset = end;
         Ok(span)
@@ -252,7 +251,7 @@ impl<T: Lexer, S: BufRead> Scanner<T, S> {
                 self.finished = true;
                 if let Some(frame) = self.modes.get(1) {
                     return Err(ScanError::UnterminatedMode {
-                        span: frame.opened_at..self.offset,
+                        span: Span::new(frame.opened_at, self.offset),
                         mode: T::mode_name(frame.id),
                     });
                 }
@@ -286,7 +285,7 @@ impl<T: Lexer, S: BufRead> Scanner<T, S> {
             let action = T::action(rule, text);
             let span = self.commit(count)?;
             let (token, transition) = action.map_err(|error| ScanError::InvalidPayload {
-                span: span.clone(),
+                span,
                 message: error.to_string(),
             })?;
             match transition {
