@@ -514,7 +514,7 @@ mod tests {
             .build(&[start])
             .expect("the test NFA is below its capacity");
         let dfa = construct(&nfa, |_| ()).expect("the DFA is below its capacity");
-        let alphabet = [b'a', b'b', b'c', b'x'];
+        let alphabet = *b"abcx";
 
         for length in 0usize..=4 {
             for encoded in 0..alphabet.len().pow(length as u32) {
