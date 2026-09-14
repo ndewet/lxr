@@ -10,7 +10,7 @@ proc-macro = true
 lxr-codegen = { path = "../lxr-codegen" }
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "2", features = ["derive", "parsing"] }
+syn = { version = "3", features = ["derive", "parsing"] }
 
 [lints]
 workspace = true

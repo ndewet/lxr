@@ -39,6 +39,13 @@ pub struct Spanned<T> {
     pub span: Span,
 }
 
+/// Holds the items that generated code names, and that callers do not.
+#[doc(hidden)]
+pub mod __private {
+    /// Restricts [`Lexer`](crate::Lexer) to the types that the derive makes.
+    pub trait Sealed {}
+}
+
 /// A failure produced while converting an accepted lexeme into a payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadError {
@@ -261,6 +268,10 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
 
 /// Scans UTF-8 input with a generated lexer.
 ///
+/// Only the `Lexer` derive macro implements this trait. The scanner trusts
+/// the generated methods, thus a hand-written implementation can break a
+/// scan.
+///
 /// # Examples
 ///
 /// ```
@@ -274,7 +285,7 @@ impl<T: Lexer> Iterator for Scanner<'_, T> {
 ///
 /// assert_eq!(Token::scan("word"), Some((Token::Word, 4)));
 /// ```
-pub trait Lexer: Sized {
+pub trait Lexer: __private::Sealed + Sized {
     /// Scans one token or skipped rule from the start of a string.
     ///
     /// `None` means no rule accepts a prefix. A successful result contains a
