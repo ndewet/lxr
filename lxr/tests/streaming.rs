@@ -2,6 +2,7 @@
 
 use std::{
     cell::Cell,
+    error,
     io::{self, BufRead, BufReader, Cursor, Read, Seek, SeekFrom},
     rc::Rc,
 };
@@ -209,6 +210,32 @@ fn input_failure_is_not_eof_and_preserves_its_cause() {
         error => panic!("unexpected error: {error:?}"),
     }
     assert_eq!(scanner.next(), None);
+}
+
+#[test]
+fn an_input_error_chain_reports_the_cause_one_time() {
+    let mut scanner = Text::from_bufread(Failure {
+        bytes: Cursor::new(b"abc"),
+        interrupt: true,
+    });
+    let error = scanner
+        .next()
+        .expect("one failure")
+        .expect_err("identifier is incomplete");
+
+    let mut chain = vec![error.to_string()];
+    let mut cause = error::Error::source(&error);
+    while let Some(error) = cause {
+        chain.push(error.to_string());
+        cause = error.source();
+    }
+
+    let reported = chain
+        .iter()
+        .filter(|message| message.contains("injected failure"))
+        .count();
+    assert_eq!(reported, 1, "chain reports the cause one time: {chain:?}");
+    assert_eq!(chain.first().map(String::as_str), Some("input error at 3"));
 }
 
 #[test]

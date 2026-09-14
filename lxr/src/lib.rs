@@ -283,7 +283,7 @@ impl Display for ScanError {
             Self::UnterminatedMode { span, mode } => {
                 write!(formatter, "unterminated mode {mode} at {span:?}")
             }
-            Self::Input { offset, error } => write!(formatter, "input error at {offset}: {error}"),
+            Self::Input { offset, .. } => write!(formatter, "input error at {offset}"),
             Self::InvalidEncoding { offset } => write!(formatter, "invalid UTF-8 at {offset}"),
             Self::RetentionLimit { offset, limit } => write!(
                 formatter,

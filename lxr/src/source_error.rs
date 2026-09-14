@@ -37,7 +37,11 @@ impl fmt::Display for SourceError {
 }
 
 impl Error for SourceError {
+    /// Gives the cause of the I/O error, and not the I/O error.
+    ///
+    /// [`Display`](fmt::Display) already writes the message of the I/O error.
+    /// A chain reporter thus prints one message one time.
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.0.as_ref())
+        self.0.source()
     }
 }
