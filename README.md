@@ -136,7 +136,10 @@ for item in Token::scanner(input) {
 ```
 
 `Limits` defaults to 8 MiB of retained input and 1024 mode frames.
-Use `scanner.with_limits(limits)?` before scanning to change these bounds.
+Use `scanner.with_limits(limits)` to change these bounds. Each bound is a
+`NonZeroUsize`, thus a bound of zero cannot reach the scanner. The scanner
+reads each bound at the point of use, thus a change during a scan applies
+to the input that follows it.
 Retained input includes the lexeme, speculative input, and lookahead.
 A limit error never changes longest-match selection.
 The bounds exclude source buffers, token payloads, and line indexes.

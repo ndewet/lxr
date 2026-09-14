@@ -4,10 +4,15 @@ use std::{
     cell::Cell,
     error,
     io::{self, BufRead, BufReader, Cursor, Read, Seek, SeekFrom},
+    num::NonZeroUsize,
     rc::Rc,
 };
 
 use lxr::{Lexer, Limits, Locate, Location, Replay, ScanError, Span, Spanned, Tracking};
+
+fn nonzero(value: usize) -> NonZeroUsize {
+    NonZeroUsize::new(value).expect("the test bound is nonzero")
+}
 
 struct Chunks<'a> {
     bytes: &'a [u8],
@@ -279,11 +284,7 @@ fn limits_report_failure_instead_of_shortening_a_token() {
     for capacity in 1..=8 {
         let mut scanner =
             Rollback::from_bufread(BufReader::with_capacity(capacity, &b"abbbbb!"[..]))
-                .with_limits(Limits {
-                    retained_bytes: 4,
-                    mode_depth: 4,
-                })
-                .expect("valid limits");
+                .with_limits(Limits::new(nonzero(4), nonzero(4)));
         assert_eq!(
             scanner.next(),
             Some(Err(ScanError::RetentionLimit {
@@ -293,12 +294,7 @@ fn limits_report_failure_instead_of_shortening_a_token() {
         );
         assert_eq!(scanner.next(), None);
     }
-    let mut scanner = Modes::scanner("<<")
-        .with_limits(Limits {
-            retained_bytes: 8,
-            mode_depth: 2,
-        })
-        .expect("valid limits");
+    let mut scanner = Modes::scanner("<<").with_limits(Limits::new(nonzero(8), nonzero(2)));
     assert!(scanner.next().expect("opening token").is_ok());
     assert_eq!(
         scanner.next(),
@@ -453,26 +449,6 @@ fn tracking_resolves_discarded_input_without_replay() {
     assert_eq!(
         scanner.locate(2).expect("discarded input location"),
         Location { line: 2, column: 1 }
-    );
-}
-
-#[test]
-fn configuration_rejects_invalid_bounds() {
-    assert!(
-        Text::scanner("")
-            .with_limits(Limits {
-                retained_bytes: 0,
-                mode_depth: 1
-            })
-            .is_err()
-    );
-    assert!(
-        Text::scanner("")
-            .with_limits(Limits {
-                retained_bytes: 1,
-                mode_depth: 0
-            })
-            .is_err()
     );
 }
 
@@ -687,4 +663,25 @@ fn a_recoverable_error_continues_and_a_terminal_error_stops() {
         .expect("invalid encoding");
     assert!(error.is_terminal());
     assert_eq!(scanner.next(), None);
+}
+
+#[test]
+fn limits_apply_after_the_scan_starts() {
+    let mut scanner = Rollback::from_bufread(BufReader::with_capacity(1, &b"a!"[..]));
+    assert_eq!(
+        scanner.next(),
+        Some(Ok(Spanned {
+            token: Rollback::A,
+            span: Span::new(0, 1)
+        }))
+    );
+
+    let mut scanner = scanner.with_limits(Limits::new(nonzero(1), nonzero(1)));
+    assert_eq!(
+        scanner.next(),
+        Some(Ok(Spanned {
+            token: Rollback::End,
+            span: Span::new(1, 2)
+        }))
+    );
 }

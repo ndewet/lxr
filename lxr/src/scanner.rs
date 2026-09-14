@@ -152,39 +152,28 @@ impl<T: Lexer, S: BufRead> Scanner<T, S> {
         self.extras
     }
 
-    /// Sets bounds before scanning begins.
+    /// Sets the resource bounds for this scanner.
     ///
-    /// # Errors
-    ///
-    /// Returns an error for zero limits or a scanner that has read input.
+    /// The scanner reads each bound at the point of use, thus a change during
+    /// a scan applies to the input that follows it.
     ///
     /// # Examples
     ///
     /// ```
     /// use lxr::{Lexer, Limits};
+    /// use std::num::NonZeroUsize;
     /// #[derive(Lexer)]
     /// enum Token { #[lxr("x")] X }
-    /// let scanner = Token::scanner("x").with_limits(Limits {
-    ///     retained_bytes: 4096, mode_depth: 32,
-    /// })?;
+    /// let scanner = Token::scanner("x").with_limits(Limits::new(
+    ///     NonZeroUsize::new(4096).expect("a nonzero byte limit"),
+    ///     NonZeroUsize::new(32).expect("a nonzero mode depth"),
+    /// ));
     /// # let _ = scanner;
-    /// # Ok::<(), std::io::Error>(())
     /// ```
-    pub fn with_limits(mut self, limits: Limits) -> io::Result<Self> {
-        if limits.retained_bytes == 0
-            || limits.mode_depth == 0
-            || self.offset != 0
-            || !self.buffer.is_empty()
-            || self.eof
-            || self.finished
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "limits require a fresh scanner and nonzero bounds",
-            ));
-        }
+    #[must_use]
+    pub fn with_limits(mut self, limits: Limits) -> Self {
         self.limits = limits;
-        Ok(self)
+        self
     }
 
     /// Returns the byte position of the next token or lexical error.
@@ -240,11 +229,11 @@ impl<T: Lexer, S: BufRead> Scanner<T, S> {
                 self.eof = true;
                 break;
             }
-            let available = self.limits.retained_bytes.saturating_sub(retained);
+            let available = self.limits.retained_bytes.get().saturating_sub(retained);
             if available == 0 {
                 return Err(ScanError::RetentionLimit {
                     offset: self.offset,
-                    limit: self.limits.retained_bytes,
+                    limit: self.limits.retained_bytes.get(),
                 });
             }
             let amount = bytes.len().min(8192).min(available);
@@ -375,10 +364,10 @@ impl<T: Lexer, S: BufRead> Scanner<T, S> {
                     frame.opened_at = span.start;
                 }
                 Transition::Push(id) => {
-                    if self.modes.len() >= self.limits.mode_depth {
+                    if self.modes.len() >= self.limits.mode_depth.get() {
                         return Err(ScanError::ModeLimit {
                             span,
-                            limit: self.limits.mode_depth,
+                            limit: self.limits.mode_depth.get(),
                         });
                     }
                     self.modes.push(ModeFrame {
