@@ -25,6 +25,20 @@ pub struct Span {
 }
 
 impl Span {
+    /// Creates an empty span at `offset`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runeweaver::Span;
+    ///
+    /// assert_eq!(Span::at(3), Span::new(3, 3));
+    /// ```
+    #[must_use]
+    pub const fn at(offset: u64) -> Self {
+        Self::new(offset, offset)
+    }
+
     /// Creates a span from its two byte offsets.
     ///
     /// # Examples
@@ -67,6 +81,36 @@ impl Span {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.end <= self.start
+    }
+
+    /// Returns the smallest span that covers both spans.
+    ///
+    /// The result starts at the earlier start and ends at the later end. The
+    /// spans do not need to overlap or occur in a particular order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runeweaver::Span;
+    ///
+    /// let left = Span::new(2, 5);
+    /// let right = Span::new(8, 11);
+    /// assert_eq!(left.cover(right), Span::new(2, 11));
+    /// ```
+    #[must_use]
+    pub const fn cover(self, other: Self) -> Self {
+        Self::new(
+            if self.start < other.start {
+                self.start
+            } else {
+                other.start
+            },
+            if self.end > other.end {
+                self.end
+            } else {
+                other.end
+            },
+        )
     }
 
     /// Converts the range for an index into memory.
@@ -122,5 +166,31 @@ impl From<Span> for Range<u64> {
 impl fmt::Display for Span {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}..{}", self.start, self.end)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Span;
+
+    #[test]
+    fn an_offset_makes_an_empty_span() {
+        assert_eq!(Span::at(9), Span::new(9, 9));
+        assert!(Span::at(9).is_empty());
+    }
+
+    #[test]
+    fn covering_spans_uses_the_outer_bounds_in_either_order() {
+        let first = Span::new(8, 12);
+        let second = Span::new(3, 10);
+
+        assert_eq!(first.cover(second), Span::new(3, 12));
+        assert_eq!(second.cover(first), Span::new(3, 12));
+    }
+
+    #[test]
+    fn covering_an_empty_span_includes_its_position() {
+        assert_eq!(Span::new(3, 5).cover(Span::at(8)), Span::new(3, 8));
+        assert_eq!(Span::at(1).cover(Span::new(3, 5)), Span::new(1, 5));
     }
 }
