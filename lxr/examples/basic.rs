@@ -3,15 +3,15 @@
 use lxr::Lexer;
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(skip = r"[ \t\r\n]+")]
+#[lexer(skip = r"[ \t\r\n]+")]
 enum Token {
-    #[lxr("let")]
+    #[token("let")]
     Let,
-    #[lxr("[A-Za-z_][A-Za-z0-9_]*")]
+    #[token("[A-Za-z_][A-Za-z0-9_]*")]
     Identifier,
-    #[lxr("[0-9]+")]
+    #[token("[0-9]+")]
     Integer,
-    #[lxr("=")]
+    #[token("=")]
     Equal,
 }
 

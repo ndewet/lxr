@@ -6,52 +6,52 @@ use std::io::Cursor;
 use std::time::Instant;
 
 #[derive(Lexer)]
-#[lxr(skip = r"[ \t\r\n]+")]
-#[lxr(skip = r"//[^\n]*")]
+#[lexer(skip = r"[ \t\r\n]+")]
+#[lexer(skip = r"//[^\n]*")]
 enum Token {
-    #[lxr("let")]
+    #[token("let")]
     Let,
-    #[lxr("fn")]
+    #[token("fn")]
     Function,
-    #[lxr("if")]
+    #[token("if")]
     If,
-    #[lxr("else")]
+    #[token("else")]
     Else,
-    #[lxr("return")]
+    #[token("return")]
     Return,
-    #[lxr("[A-Za-z_][A-Za-z0-9_]*")]
+    #[token("[A-Za-z_][A-Za-z0-9_]*")]
     Identifier,
-    #[lxr(r"[0-9]+\.[0-9]+")]
+    #[token(r"[0-9]+\.[0-9]+")]
     Float,
-    #[lxr("[0-9]+")]
+    #[token("[0-9]+")]
     Integer,
-    #[lxr(r#""([^"\\]|\\.)*""#)]
+    #[token(r#""([^"\\]|\\.)*""#)]
     String,
-    #[lxr("==")]
+    #[token("==")]
     Equal,
-    #[lxr("=")]
+    #[token("=")]
     Assign,
-    #[lxr("->")]
+    #[token("->")]
     Arrow,
-    #[lxr(r"\+")]
+    #[token(r"\+")]
     Plus,
-    #[lxr("-")]
+    #[token("-")]
     Minus,
-    #[lxr(r"\*")]
+    #[token(r"\*")]
     Star,
-    #[lxr("/")]
+    #[token("/")]
     Slash,
-    #[lxr(r"\(")]
+    #[token(r"\(")]
     LeftParenthesis,
-    #[lxr(r"\)")]
+    #[token(r"\)")]
     RightParenthesis,
-    #[lxr(r"\{")]
+    #[token(r"\{")]
     LeftBrace,
-    #[lxr(r"\}")]
+    #[token(r"\}")]
     RightBrace,
-    #[lxr(",")]
+    #[token(",")]
     Comma,
-    #[lxr(";")]
+    #[token(";")]
     Semicolon,
 }
 

@@ -21,11 +21,11 @@ const CASES: &[Case] = &[
     Case {
         name: "invalid_pattern",
         message: "error: unclosed '[' at position 0",
-        location: "src/bin/invalid_pattern.rs:5:11",
+        location: "src/bin/invalid_pattern.rs:5:13",
     },
     Case {
         name: "missing_pattern",
-        message: "error: lexer token variants need one `#[lxr(\"pattern\")]` attribute",
+        message: "error: lexer token variants need one `#[token(\"pattern\")]` attribute",
         location: "src/bin/missing_pattern.rs:5:5",
     },
 ];

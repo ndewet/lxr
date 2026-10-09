@@ -3,13 +3,13 @@
 use lxr::{Lexer, ScanError, Span};
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(skip = r"\s+")]
+#[lexer(skip = r"\s+")]
 enum Token {
-    #[lxr("[0-9]+")]
+    #[token("[0-9]+")]
     Integer(u64),
-    #[lxr("![a-z]+", with = strip_bang)]
+    #[token("![a-z]+", with = strip_bang)]
     Shouted(String),
-    #[lxr(r"\?[a-z]+", with = reject_question)]
+    #[token(r"\?[a-z]+", with = reject_question)]
     Checked(String),
 }
 

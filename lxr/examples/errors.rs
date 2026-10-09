@@ -3,9 +3,9 @@
 use lxr::{Lexer, ScanError, Span, Spanned};
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(skip = r"\s+")]
+#[lexer(skip = r"\s+")]
 enum Token {
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Word,
 }
 

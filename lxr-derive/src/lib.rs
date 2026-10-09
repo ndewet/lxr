@@ -15,7 +15,7 @@ use syn::{
 
 /// Derives the `lxr::Lexer` trait for an enum of token kinds.
 ///
-/// Every variant needs one `#[lxr("pattern")]` attribute. Unit variants
+/// Every variant needs one `#[token("pattern")]` attribute. Unit variants
 /// emit no payload; a single-field tuple variant parses an owned payload.
 /// Rules are considered in declaration order when equal-length matches tie.
 ///
@@ -49,14 +49,14 @@ use syn::{
 ///
 /// #[derive(Debug, PartialEq, Lexer)]
 /// enum Token {
-///     #[lxr("[a-z]+")]
+///     #[token("[a-z]+")]
 ///     Word,
 /// }
 ///
 /// let _ = Token::Word;
 /// # }
 /// ```
-#[proc_macro_derive(Lexer, attributes(lxr))]
+#[proc_macro_derive(Lexer, attributes(lexer, token))]
 pub fn derive_lexer(input: TokenStream) -> TokenStream {
     match derive_lexer_inner(parse_macro_input!(input as DeriveInput)) {
         Ok(tokens) => tokens.into(),
@@ -191,7 +191,7 @@ fn lexer_attributes(
     let mut patterns = Vec::new();
     attributes
         .iter()
-        .filter(|attribute| attribute.path().is_ident("lxr"))
+        .filter(|attribute| attribute.path().is_ident("lexer"))
         .try_for_each(|attribute| {
             let config: LexerAttribute = attribute.parse_args()?;
             if config.name == "mode" {
@@ -347,17 +347,17 @@ impl Parse for RuleAttribute {
 fn rule_attribute(attributes: &[syn::Attribute], variant: &syn::Ident) -> Result<RuleAttribute> {
     let mut patterns = attributes
         .iter()
-        .filter(|attribute| attribute.path().is_ident("lxr"));
+        .filter(|attribute| attribute.path().is_ident("token"));
     let Some(attribute) = patterns.next() else {
         return Err(Error::new_spanned(
             variant,
-            "lexer token variants need one `#[lxr(\"pattern\")]` attribute",
+            "lexer token variants need one `#[token(\"pattern\")]` attribute",
         ));
     };
     if patterns.next().is_some() {
         return Err(Error::new_spanned(
             variant,
-            "lexer token variants can have only one `#[lxr(...)]` attribute",
+            "lexer token variants can have only one `#[token(...)]` attribute",
         ));
     }
     attribute.parse_args()
