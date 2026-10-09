@@ -98,6 +98,7 @@ jobs:
 
           crate_exists() {
             curl --fail --silent --show-error \
+              --user-agent "runeweaver-release-workflow/0.1 (github.com/ndewet/runeweaver)" \
               "https://crates.io/api/v1/crates/$1/$VERSION" >/dev/null 2>&1
           }
 
@@ -113,6 +114,7 @@ jobs:
 
           version_is_indexed() {
             curl --fail --silent --show-error \
+              --user-agent "runeweaver-release-workflow/0.1 (github.com/ndewet/runeweaver)" \
               "https://index.crates.io/$(index_path "$1")" 2>/dev/null \
               | grep --fixed-strings "\"vers\":\"$VERSION\"" >/dev/null
           }
