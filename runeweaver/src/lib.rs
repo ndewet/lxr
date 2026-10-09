@@ -286,6 +286,42 @@ impl<E> ScanError<E> {
             Self::Source { offset, .. } => *offset,
         }
     }
+
+    /// Transforms the source error while preserving the scan error.
+    ///
+    /// The operation is called only for [`ScanError::Source`]. This method can
+    /// also widen a scan error whose source error is
+    /// [`Infallible`](std::convert::Infallible).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runeweaver::{ScanError, Span};
+    /// use std::{convert::Infallible, io};
+    ///
+    /// let error: ScanError<Infallible> = ScanError::Unrecognized {
+    ///     span: Span::new(4, 5),
+    /// };
+    /// let error: ScanError<io::Error> =
+    ///     error.map_source_error(|never| match never {});
+    /// assert!(matches!(error, ScanError::Unrecognized { .. }));
+    /// ```
+    #[must_use]
+    pub fn map_source_error<F>(self, operation: impl FnOnce(E) -> F) -> ScanError<F> {
+        match self {
+            Self::Unrecognized { span } => ScanError::Unrecognized { span },
+            Self::InvalidUtf8 { span } => ScanError::InvalidUtf8 { span },
+            Self::InvalidPayload { span, message } => {
+                ScanError::<F>::InvalidPayload { span, message }
+            }
+            Self::TokenTooLong { span, limit } => ScanError::TokenTooLong { span, limit },
+            Self::UnterminatedMode { span, mode } => ScanError::UnterminatedMode { span, mode },
+            Self::Source { offset, error } => ScanError::Source {
+                offset,
+                error: operation(error),
+            },
+        }
+    }
 }
 
 impl<E: Display> Display for ScanError<E> {
