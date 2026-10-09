@@ -388,13 +388,14 @@ impl Lexer {
     ///
     /// # Errors
     ///
-    /// Returns an error if the automaton exceeds its representable capacity.
+    /// Returns an error if a rule cannot win or the automaton exceeds its
+    /// representable capacity.
     ///
     /// # Panics
     ///
     /// Panics if a rule enables a start condition that this lexer does not
     /// define.
-    fn emit(&self) -> Result<TokenStream, BuildError> {
+    fn emit(&self) -> Result<TokenStream, CompileError> {
         let mut builder = nfa::Builder::new();
         let starts: Vec<_> = self
             .start_conditions
@@ -425,6 +426,22 @@ impl Lexer {
                 .min()
                 .expect("an accepting subset contains an accepting NFA state")
         })?;
+        let mut selected = vec![false; self.rules.len()];
+        for index in 0..dfa.state_count() {
+            let state = crate::automata::StateId::new(index);
+            if let Some(rule) = dfa.accept(state) {
+                selected[rule.index()] = true;
+            }
+        }
+        if let Some(index) = selected.iter().position(|is_selected| !is_selected) {
+            return Err(CompileError {
+                message: format!(
+                    "lexer rule {} can never win because earlier rules take priority",
+                    index + 1
+                ),
+                rule_index: Some(index),
+            });
+        }
         let dfa = dfa.minimize()?;
 
         Ok(emitter::emit(&dfa, self))
@@ -561,7 +578,7 @@ pub fn compile_with_modes(
             rule_index: None,
         });
     }
-    Lexer::new(rules, conditions).emit().map_err(Into::into)
+    Lexer::new(rules, conditions).emit()
 }
 
 #[cfg(test)]
@@ -628,5 +645,23 @@ mod tests {
             error.to_string(),
             "lexer patterns expand past the limit of 100000 nodes"
         );
+    }
+
+    #[test]
+    fn compilation_rejects_a_rule_that_can_never_win() {
+        let error = compile(vec![RuleSpec::skip("a"), RuleSpec::skip("a")])
+            .expect_err("the second rule is fully shadowed");
+
+        assert_eq!(
+            error.to_string(),
+            "lexer rule 2 can never win because earlier rules take priority"
+        );
+        assert_eq!(error.rule_index(), Some(1));
+    }
+
+    #[test]
+    fn compilation_keeps_an_overlapping_rule_that_wins_other_input() {
+        compile(vec![RuleSpec::skip("a"), RuleSpec::skip("[a-z]")])
+            .expect("the second rule wins for other letters");
     }
 }

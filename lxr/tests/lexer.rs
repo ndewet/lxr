@@ -27,7 +27,7 @@ fn derived_lexer_returns_the_longest_prefix() {
 enum Priority {
     #[lxr("a")]
     First,
-    #[lxr("a")]
+    #[lxr("[a-z]")]
     Second,
 }
 
