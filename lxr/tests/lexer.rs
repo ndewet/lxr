@@ -2,7 +2,7 @@
 
 #![deny(dead_code)]
 
-use lxr::{Lexer, Reader, ScanError, Slice, Source, Span, Spanned};
+use lxr::{DEFAULT_MAX_TOKEN_BYTES, Lexer, Reader, ScanError, Slice, Source, Span, Spanned};
 use std::convert::Infallible;
 use std::io::Cursor;
 use std::str::FromStr;
@@ -606,6 +606,14 @@ enum Streaming {
     EAcute,
 }
 
+#[derive(Debug, PartialEq, Lexer)]
+#[lexer(max_token_bytes = 3)]
+#[lexer(skip = " +")]
+enum Limited {
+    #[token("[a-z]+")]
+    Word,
+}
+
 struct OneByteAtATime<'input> {
     remaining: &'input [u8],
 }
@@ -621,6 +629,85 @@ impl Source for OneByteAtATime<'_> {
         self.remaining = remaining;
         Ok(1)
     }
+}
+
+#[test]
+fn generated_lexers_use_the_default_token_limit() {
+    assert_eq!(
+        <Streaming as Lexer>::max_token_bytes(),
+        DEFAULT_MAX_TOKEN_BYTES
+    );
+}
+
+#[test]
+fn a_lexer_accepts_a_token_at_its_configured_limit() {
+    let scanned: Vec<_> = Limited::scanner("abc!").collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Ok(Spanned {
+                token: Limited::Word,
+                span: Span::new(0, 3),
+            }),
+            Err(ScanError::Unrecognized {
+                span: Span::new(3, 4),
+            }),
+        ]
+    );
+}
+
+#[test]
+fn a_lexer_stops_when_a_token_exceeds_its_configured_limit() {
+    let mut scanner = Limited::scanner("a abcd");
+
+    assert_eq!(
+        scanner.next(),
+        Some(Ok(Spanned {
+            token: Limited::Word,
+            span: Span::new(0, 1),
+        }))
+    );
+    assert_eq!(
+        scanner.next(),
+        Some(Err(ScanError::TokenTooLong {
+            span: Span::new(2, 6),
+            limit: 3,
+        }))
+    );
+    assert_eq!(scanner.next(), None);
+}
+
+#[test]
+fn the_token_limit_applies_to_skipped_rules_and_chunked_sources() {
+    let source = OneByteAtATime { remaining: b"    " };
+    let scanned: Vec<_> = Limited::scanner_from(source).collect();
+
+    assert_eq!(
+        scanned,
+        vec![Err(ScanError::TokenTooLong {
+            span: Span::new(0, 4),
+            limit: 3,
+        })]
+    );
+}
+
+#[test]
+fn an_over_limit_scanner_returns_its_candidate_and_lookahead() {
+    let source = Reader::new(Cursor::new(b"abcd!"));
+    let mut scanner = Limited::scanner_from(source);
+    assert!(matches!(
+        scanner.next(),
+        Some(Err(ScanError::TokenTooLong { .. }))
+    ));
+
+    let mut remainder = scanner.into_source();
+    let mut bytes = [0; 5];
+    assert_eq!(
+        Source::read(&mut remainder, &mut bytes).expect("the in-memory reader does not fail"),
+        bytes.len()
+    );
+    assert_eq!(&bytes, b"abcd!");
 }
 
 #[test]

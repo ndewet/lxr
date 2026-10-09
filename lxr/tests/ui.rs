@@ -28,6 +28,11 @@ const CASES: &[Case] = &[
         message: "error: lexer token variants need one `#[token(\"pattern\")]` attribute",
         location: "src/bin/missing_pattern.rs:5:5",
     },
+    Case {
+        name: "zero_token_limit",
+        message: "error: `max_token_bytes` must be greater than zero",
+        location: "src/bin/zero_token_limit.rs:4:27",
+    },
 ];
 
 fn make_test_project(root: &Path) -> Result<(), Box<dyn Error>> {
