@@ -327,3 +327,11 @@ After the initial `v0.1.0` release, the workflow chooses the next version from
 conventional commits since the latest release tag. A breaking change (`!` or a
 `BREAKING CHANGE:` footer) bumps the major version, `feat` bumps the minor
 version, and `fix` bumps the patch version. Only the largest change is applied.
+
+## Acknowledgements
+
+Runeweaver's derive-based lexer declaration syntax was inspired by
+[Logos](https://github.com/maciejhirsz/logos). Runeweaver is an independent
+implementation with its own regex parser and automata pipeline, designed around
+streaming input, lexical modes, owned payloads, and structured error recovery.
+Runeweaver does not incorporate Logos source code.
