@@ -891,6 +891,38 @@ fn a_failed_spanned_transformation_returns_its_error() {
 }
 
 #[test]
+fn a_scan_error_can_transform_its_source_error() {
+    let error = ScanError::Source {
+        offset: 3,
+        error: "disconnected",
+    };
+
+    assert_eq!(
+        error.map_source_error(str::to_owned),
+        ScanError::Source {
+            offset: 3,
+            error: "disconnected".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn source_error_mapping_preserves_non_source_variants() {
+    let error: ScanError<&str> = ScanError::TokenTooLong {
+        span: Span::new(2, 6),
+        limit: 3,
+    };
+
+    assert_eq!(
+        error.map_source_error(str::to_owned),
+        ScanError::TokenTooLong {
+            span: Span::new(2, 6),
+            limit: 3,
+        }
+    );
+}
+
+#[test]
 fn scanner_returns_lookahead_before_the_original_source() {
     let mut scanner = Streaming::scanner_from(Reader::new(Cursor::new(b"abbbx")));
     let first = scanner
