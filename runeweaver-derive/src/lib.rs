@@ -32,6 +32,9 @@ use syn::{
 /// #     pub fn new(_: impl Into<String>) -> Self {
 /// #         Self
 /// #     }
+/// #     pub fn with_transition(self, _: Transition) -> Self {
+/// #         self
+/// #     }
 /// # }
 /// # pub enum Transition {
 /// #     Stay,

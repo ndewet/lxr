@@ -273,6 +273,39 @@ fn scanner_reports_explicit_converter_errors_and_recovers() {
 }
 
 #[derive(Debug, PartialEq, Lexer)]
+#[lexer(mode = Payload)]
+#[lexer(skip = r"\[", push = Payload)]
+enum FailedModePayload {
+    #[token("x", modes = Payload, with = reject_mode_payload, pop)]
+    Rejected(String),
+    #[token("a")]
+    A,
+}
+
+fn reject_mode_payload(_: &str) -> Result<String, &'static str> {
+    Err("invalid mode payload")
+}
+
+#[test]
+fn a_failed_payload_still_applies_its_mode_transition() {
+    let scanned: Vec<_> = FailedModePayload::scanner("[xa").collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            Err(ScanError::InvalidPayload {
+                span: Span::new(1, 2),
+                message: "invalid mode payload".to_owned(),
+            }),
+            Ok(Spanned {
+                token: FailedModePayload::A,
+                span: Span::new(2, 3),
+            }),
+        ]
+    );
+}
+
+#[derive(Debug, PartialEq, Lexer)]
 enum Repetition {
     #[token("a{2,}b")]
     OpenEnded,
