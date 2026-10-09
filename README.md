@@ -1,8 +1,8 @@
-# lxr
+# runeweaver
 
-[![CI](https://github.com/ndewet/lxr/actions/workflows/ci.yml/badge.svg)](https://github.com/ndewet/lxr/actions/workflows/ci.yml)
+[![CI](https://github.com/ndewet/runeweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/ndewet/runeweaver/actions/workflows/ci.yml)
 
-`lxr` is a compile-time lexer generator for Rust. Describe tokens with regular
+`runeweaver` is a compile-time lexer generator for Rust. Describe tokens with regular
 expressions on an enum, derive `Lexer`, and receive a typed scanner backed by a
 generated deterministic finite automaton.
 
@@ -16,19 +16,19 @@ generated deterministic finite automaton.
 
 ## Installation
 
-Add `lxr` to your manifest:
+Add `runeweaver` to your manifest:
 
 ```toml
 [dependencies]
-lxr = "0.2"
+runeweaver = "0.1"
 ```
 
-`lxr` requires Rust 1.85 or newer.
+`runeweaver` requires Rust 1.85 or newer.
 
 ## Quick start
 
 ```rust
-use lxr::{Lexer, Span, Spanned};
+use runeweaver::{Lexer, Span, Spanned};
 
 #[derive(Debug, PartialEq, Lexer)]
 #[lexer(skip = r"[ \t\r\n]+")]
@@ -79,7 +79,7 @@ rule declared first wins.
 This makes keywords and identifiers straightforward:
 
 ```rust
-use lxr::Lexer;
+use runeweaver::Lexer;
 
 #[derive(Lexer)]
 enum Token {
@@ -98,7 +98,7 @@ takes priority is also rejected.
 
 ## Pattern syntax
 
-`lxr` implements the regular-language subset needed by lexers:
+`runeweaver` implements the regular-language subset needed by lexers:
 
 | Syntax | Meaning |
 | --- | --- |
@@ -130,7 +130,7 @@ model.
 By default, a tuple variant's field is parsed with `FromStr`:
 
 ```rust
-use lxr::Lexer;
+use runeweaver::Lexer;
 
 #[derive(Lexer)]
 enum Token {
@@ -143,7 +143,7 @@ Use `with` when a lexeme needs custom conversion. A converter receives the
 matched text and may return the payload directly or return a `Result`:
 
 ```rust
-use lxr::Lexer;
+use runeweaver::Lexer;
 
 #[derive(Lexer)]
 enum Token {
@@ -166,7 +166,7 @@ input.
 a half-open range of absolute UTF-8 byte offsets:
 
 ```rust
-use lxr::Span;
+use runeweaver::Span;
 
 let span = Span::new(5, 7);
 assert_eq!(span.text("name 42"), Some("42"));
@@ -196,7 +196,7 @@ The scanner accepts any `Source`. Use `&str` for in-memory text, `Slice` for an
 arbitrary byte slice, and `Reader` for standard `Read` implementations:
 
 ```rust,no_run
-use lxr::{Lexer, Reader};
+use runeweaver::{Lexer, Reader};
 use std::fs::File;
 
 #[derive(Lexer)]
@@ -235,7 +235,7 @@ current mode with `begin`, push a nested mode with `push`, or return to the
 previous mode with `pop`:
 
 ```rust
-use lxr::Lexer;
+use runeweaver::Lexer;
 
 #[derive(Lexer)]
 #[lexer(mode = Comment)]
@@ -255,7 +255,7 @@ mode's name and the range from its opening rule through end of input.
 
 ## Examples
 
-The [`lxr/examples`](lxr/examples) directory contains runnable programs for:
+The [`runeweaver/examples`](runeweaver/examples) directory contains runnable programs for:
 
 - basic matching, skipped input, and rule priority;
 - automatic and custom payload conversion;
@@ -267,19 +267,19 @@ The [`lxr/examples`](lxr/examples) directory contains runnable programs for:
 Run an example from the workspace root:
 
 ```console
-cargo run -p lxr --example modes
+cargo run -p runeweaver --example modes
 ```
 
 ## Stability and support
 
-`lxr` is currently pre-1.0. It follows Cargo's compatibility conventions for
-0.x releases: patch releases within the 0.2 series preserve the documented
+`runeweaver` is currently pre-1.0. It follows Cargo's compatibility conventions for
+0.x releases: patch releases within the 0.1 series preserve the documented
 public API, while a new minor release may include breaking changes. Deprecated
 APIs will be called out in release notes when a practical migration path
 exists.
 
-The supported public surface is the `lxr` runtime crate and its re-exported
-derive macro. `lxr-codegen` is an implementation-facing crate and does not
+The supported public surface is the `runeweaver` runtime crate and its re-exported
+derive macro. `runeweaver-codegen` is an implementation-facing crate and does not
 carry the same compatibility guarantee.
 
 Rust 1.85 is the minimum supported Rust version. Raising the MSRV requires at
@@ -303,3 +303,21 @@ Performance benchmarks are included for lexer generation and scanning:
 ```console
 cargo bench --workspace
 ```
+
+On Windows, put the target directory outside the project. A build in
+`./target` fails with os error 4551.
+
+```console
+set CARGO_TARGET_DIR=%TEMP%\runeweaver-target
+```
+
+## Releasing
+
+The dispatch-only `Release` GitHub Actions workflow publishes the three crates
+in dependency order. It needs a crates.io API token in the
+`CARGO_REGISTRY_TOKEN` repository secret.
+
+After the initial `v0.1.0` release, the workflow chooses the next version from
+conventional commits since the latest release tag. A breaking change (`!` or a
+`BREAKING CHANGE:` footer) bumps the major version, `feat` bumps the minor
+version, and `fix` bumps the patch version. Only the largest change is applied.

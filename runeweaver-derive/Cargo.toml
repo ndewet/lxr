@@ -1,0 +1,22 @@
+[package]
+name = "runeweaver-derive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Derive macros for runeweaver"
+repository.workspace = true
+documentation = "https://docs.rs/runeweaver-derive"
+publish = ["crates-io"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+runeweaver-codegen = { version = "=0.1.0", path = "../runeweaver-codegen" }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "3", features = ["derive", "parsing"] }
+
+[lints]
+workspace = true
