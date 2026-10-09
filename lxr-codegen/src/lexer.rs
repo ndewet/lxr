@@ -11,6 +11,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use std::fmt::{Display, Formatter};
 
+const MAX_EXPANDED_PATTERN_SIZE: usize = 100_000;
+
 /// One rule supplied to the code generator.
 ///
 /// # Examples
@@ -507,6 +509,16 @@ pub fn compile_with_modes(
             message: "a lexer rule must consume at least one byte".into(),
         });
     }
+    let expanded_size = rules.iter().fold(0usize, |size, rule| {
+        size.saturating_add(rule.pattern.expanded_size())
+    });
+    if expanded_size > MAX_EXPANDED_PATTERN_SIZE {
+        return Err(CompileError {
+            message: format!(
+                "lexer patterns expand past the limit of {MAX_EXPANDED_PATTERN_SIZE} nodes"
+            ),
+        });
+    }
     Lexer::new(rules, conditions).emit().map_err(Into::into)
 }
 
@@ -563,5 +575,16 @@ mod tests {
     #[should_panic(expected = "start condition 1 is outside a lexer with 1 start conditions")]
     fn reading_a_start_condition_outside_the_lexer_panics() {
         example().start_condition(StartConditionId::new(1));
+    }
+
+    #[test]
+    fn compilation_rejects_patterns_that_expand_past_the_budget() {
+        let error = compile(vec![RuleSpec::skip("(a{317}){317}")])
+            .expect_err("the expanded pattern is too large");
+
+        assert_eq!(
+            error.to_string(),
+            "lexer patterns expand past the limit of 100000 nodes"
+        );
     }
 }
