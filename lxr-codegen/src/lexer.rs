@@ -558,6 +558,7 @@ pub fn compile_with_modes(
             message: format!(
                 "lexer patterns expand past the limit of {MAX_EXPANDED_PATTERN_SIZE} nodes"
             ),
+            rule_index: None,
         });
     }
     Lexer::new(rules, conditions).emit().map_err(Into::into)
