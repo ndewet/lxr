@@ -2,7 +2,9 @@
 
 #![deny(dead_code)]
 
-use runeweaver::{DEFAULT_MAX_TOKEN_BYTES, Lexer, Reader, ScanError, Slice, Source, Span, Spanned};
+use runeweaver::{
+    DEFAULT_MAX_TOKEN_BYTES, Lexer, Reader, ScanError, Slice, Source, Span, Spanned, SpannedLexeme,
+};
 use std::convert::Infallible;
 use std::io::Cursor;
 use std::str::FromStr;
@@ -794,6 +796,63 @@ fn scanner_accepts_standard_readers_through_the_reader_adapter() {
             },
         ]
     );
+}
+
+#[test]
+fn a_lexeme_scanner_owns_matched_text_from_a_stream() {
+    let source = OneByteAtATime {
+        remaining: b"abbbcx",
+    };
+    let scanned: Vec<_> = Streaming::scanner_from(source)
+        .with_lexemes()
+        .map(|item| item.expect("the byte stream is valid"))
+        .collect();
+
+    assert_eq!(
+        scanned,
+        vec![
+            SpannedLexeme {
+                token: Streaming::Abc,
+                span: Span::new(0, 5),
+                lexeme: "abbbc".to_owned(),
+            },
+            SpannedLexeme {
+                token: Streaming::X,
+                span: Span::new(5, 6),
+                lexeme: "x".to_owned(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_lexeme_scanner_skips_trivia_and_preserves_recovery() {
+    let mut scanner = RustToken::scanner("fn  @name").with_lexemes();
+
+    assert_eq!(
+        scanner.next(),
+        Some(Ok(SpannedLexeme {
+            token: RustToken::Fn,
+            span: Span::new(0, 2),
+            lexeme: "fn".to_owned(),
+        }))
+    );
+    assert_eq!(
+        scanner.next(),
+        Some(Err(ScanError::Unrecognized {
+            span: Span::new(4, 5),
+        }))
+    );
+    assert_eq!(
+        scanner.next(),
+        Some(Ok(SpannedLexeme {
+            token: RustToken::Identifier,
+            span: Span::new(5, 9),
+            lexeme: "name".to_owned(),
+        }))
+    );
+    assert_eq!(scanner.position(), 9);
+    assert_eq!(scanner.next(), None);
 }
 
 #[test]
