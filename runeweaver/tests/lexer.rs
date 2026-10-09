@@ -848,6 +848,32 @@ fn scanner_reports_source_errors_without_accepting_an_ambiguous_prefix() {
 }
 
 #[test]
+fn spanned_transformations_preserve_the_original_span() {
+    let token = Spanned {
+        token: "17",
+        span: Span::new(4, 6),
+    };
+    let parsed = token
+        .try_map(str::parse::<u8>)
+        .expect("the token is an integer");
+
+    assert_eq!(parsed.token, 17);
+    assert_eq!(parsed.span, Span::new(4, 6));
+    assert_eq!(parsed.map(u16::from).span, Span::new(4, 6));
+}
+
+#[test]
+fn a_failed_spanned_transformation_returns_its_error() {
+    let token = Spanned {
+        token: "not a number",
+        span: Span::new(2, 14),
+    };
+    let result = token.try_map(str::parse::<u8>);
+
+    assert!(result.is_err());
+}
+
+#[test]
 fn scanner_returns_lookahead_before_the_original_source() {
     let mut scanner = Streaming::scanner_from(Reader::new(Cursor::new(b"abbbx")));
     let first = scanner

@@ -53,6 +53,62 @@ pub struct Spanned<T> {
     pub span: Span,
 }
 
+impl<T> Spanned<T> {
+    /// Transforms the token while preserving its span.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runeweaver::{Span, Spanned};
+    ///
+    /// let token = Spanned {
+    ///     token: "name",
+    ///     span: Span::new(2, 6),
+    /// };
+    /// let length = token.map(str::len);
+    /// assert_eq!(length.token, 4);
+    /// assert_eq!(length.span, Span::new(2, 6));
+    /// ```
+    #[must_use]
+    pub fn map<U>(self, operation: impl FnOnce(T) -> U) -> Spanned<U> {
+        Spanned {
+            token: operation(self.token),
+            span: self.span,
+        }
+    }
+
+    /// Tries to transform the token while preserving its span.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error from `transformation` when the token cannot be
+    /// transformed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runeweaver::{Span, Spanned};
+    ///
+    /// let token = Spanned {
+    ///     token: "42",
+    ///     span: Span::new(5, 7),
+    /// };
+    /// let number = token.try_map(str::parse::<u8>)?;
+    /// assert_eq!(number.token, 42);
+    /// assert_eq!(number.span, Span::new(5, 7));
+    /// # Ok::<(), std::num::ParseIntError>(())
+    /// ```
+    pub fn try_map<U, E>(
+        self,
+        transformation: impl FnOnce(T) -> Result<U, E>,
+    ) -> Result<Spanned<U>, E> {
+        transformation(self.token).map(|token| Spanned {
+            token,
+            span: self.span,
+        })
+    }
+}
+
 /// Holds the items that generated code names, and that callers do not.
 #[doc(hidden)]
 pub mod __private {
