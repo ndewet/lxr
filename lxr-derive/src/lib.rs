@@ -72,7 +72,7 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         ));
     };
 
-    let (modes, mut rules) = lexer_attributes(&input.attrs)?;
+    let (modes, mut rules, mut patterns) = lexer_attributes(&input.attrs)?;
     for variant in data.variants {
         let attribute = rule_attribute(&variant.attrs, &variant.ident)?;
         let pattern = attribute.pattern.clone();
@@ -109,6 +109,7 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                         &attribute.modes,
                         &attribute.transition,
                     ));
+                    patterns.push(pattern);
                     continue;
                 };
                 return Err(Error::new_spanned(field, "token payloads must be owned"));
@@ -131,10 +132,20 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
             &attribute.modes,
             &attribute.transition,
         ));
+        patterns.push(pattern);
     }
 
-    let matcher = compile_with_modes(modes, rules)
-        .map_err(|error| Error::new_spanned(input.ident.clone(), error))?;
+    let matcher = compile_with_modes(modes, rules).map_err(|error| {
+        error.rule_index().map_or_else(
+            || Error::new_spanned(input.ident.clone(), error.to_string()),
+            |index| {
+                let pattern = patterns
+                    .get(index)
+                    .expect("a code generation rule has a pattern span");
+                Error::new_spanned(pattern, error.to_string())
+            },
+        )
+    })?;
     let ident = input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
 
@@ -172,9 +183,12 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
     })
 }
 
-fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<(Vec<String>, Vec<RuleSpec>)> {
+fn lexer_attributes(
+    attributes: &[syn::Attribute],
+) -> Result<(Vec<String>, Vec<RuleSpec>, Vec<LitStr>)> {
     let mut modes = Vec::new();
     let mut rules = Vec::new();
+    let mut patterns = Vec::new();
     attributes
         .iter()
         .filter(|attribute| attribute.path().is_ident("lxr"))
@@ -201,19 +215,20 @@ fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<(Vec<String>, Vec<R
                 ));
             }
             rules.push(rule_spec(
-                RuleSpec::skip(pattern),
+                RuleSpec::skip(pattern.value()),
                 &config.rule.modes,
                 &config.rule.transition,
             ));
+            patterns.push(pattern);
             Ok(())
         })?;
-    Ok((modes, rules))
+    Ok((modes, rules, patterns))
 }
 
 struct LexerAttribute {
     name: String,
     mode: Option<String>,
-    pattern: Option<String>,
+    pattern: Option<LitStr>,
     rule: RuleConfig,
 }
 
@@ -244,7 +259,7 @@ impl Parse for LexerAttribute {
         Ok(Self {
             name: name.to_string(),
             mode: None,
-            pattern: Some(pattern.value()),
+            pattern: Some(pattern),
             rule,
         })
     }

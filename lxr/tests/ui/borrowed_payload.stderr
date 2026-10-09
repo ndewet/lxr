@@ -1,0 +1,5 @@
+error: token payloads must be owned
+ --> tests/ui/borrowed_payload.rs:6:10
+  |
+6 |     Word(&'input str),
+  |          ^^^^^^^^^^^

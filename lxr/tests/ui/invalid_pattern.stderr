@@ -1,0 +1,5 @@
+error: unclosed '[' at position 0
+ --> tests/ui/invalid_pattern.rs:5:11
+  |
+5 |     #[lxr("[")]
+  |           ^^^

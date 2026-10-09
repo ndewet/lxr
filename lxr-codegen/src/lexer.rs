@@ -133,6 +133,37 @@ impl RuleSpec {
 #[derive(Debug)]
 pub struct CompileError {
     message: String,
+    rule_index: Option<usize>,
+}
+
+impl CompileError {
+    /// Returns the declaration index of the rule that caused the error.
+    ///
+    /// Errors that apply to the complete lexer have no rule index.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lxr_codegen::{RuleSpec, compile};
+    ///
+    /// let error = compile(vec![RuleSpec::skip("^")]).expect_err("the anchor is invalid");
+    /// assert_eq!(error.rule_index(), Some(0));
+    /// ```
+    pub const fn rule_index(&self) -> Option<usize> {
+        self.rule_index
+    }
+
+    fn for_rule(rule_index: usize, error: impl Display) -> Self {
+        Self {
+            message: error.to_string(),
+            rule_index: Some(rule_index),
+        }
+    }
+
+    fn with_rule(mut self, rule_index: usize) -> Self {
+        self.rule_index = Some(rule_index);
+        self
+    }
 }
 impl Display for CompileError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -144,6 +175,7 @@ impl From<ParseError> for CompileError {
     fn from(error: ParseError) -> Self {
         Self {
             message: error.to_string(),
+            rule_index: None,
         }
     }
 }
@@ -151,6 +183,7 @@ impl From<BuildError> for CompileError {
     fn from(error: BuildError) -> Self {
         Self {
             message: error.to_string(),
+            rule_index: None,
         }
     }
 }
@@ -455,6 +488,7 @@ pub fn compile_with_modes(
         {
             return Err(CompileError {
                 message: format!("duplicate or reserved lexer mode `{mode}`"),
+                rule_index: None,
             });
         }
         conditions.push(StartCondition::new(mode));
@@ -467,29 +501,35 @@ pub fn compile_with_modes(
             .map(StartConditionId::new)
             .ok_or_else(|| CompileError {
                 message: format!("unknown lexer mode `{name}`"),
+                rule_index: None,
             })
     };
     let rules = specifications
         .into_iter()
-        .map(|specification| {
+        .enumerate()
+        .map(|(rule_index, specification)| {
+            let resolve_rule =
+                |name: &str| resolve(name).map_err(|error| error.with_rule(rule_index));
             let enabled = specification
                 .modes
                 .iter()
-                .map(|name| resolve(name))
+                .map(|name| resolve_rule(name))
                 .collect::<Result<Vec<_>, _>>()?;
             if enabled.is_empty() {
                 return Err(CompileError {
                     message: "a lexer rule must be enabled in at least one mode".into(),
+                    rule_index: Some(rule_index),
                 });
             }
             let transition = match specification.transition {
                 Transition::Stay => ResolvedTransition::Stay,
-                Transition::Begin(name) => ResolvedTransition::Begin(resolve(&name)?),
-                Transition::Push(name) => ResolvedTransition::Push(resolve(&name)?),
+                Transition::Begin(name) => ResolvedTransition::Begin(resolve_rule(&name)?),
+                Transition::Push(name) => ResolvedTransition::Push(resolve_rule(&name)?),
                 Transition::Pop => {
                     if enabled.iter().any(|id| id.index() == 0) {
                         return Err(CompileError {
                             message: "a `pop` rule cannot be enabled in INITIAL".into(),
+                            rule_index: Some(rule_index),
                         });
                     }
                     ResolvedTransition::Pop
@@ -501,12 +541,13 @@ pub fn compile_with_modes(
                 enabled,
                 transition,
             )
-            .map_err(Into::into)
+            .map_err(|error| CompileError::for_rule(rule_index, error))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if rules.iter().any(|rule| rule.pattern.is_nullable()) {
+    if let Some(rule_index) = rules.iter().position(|rule| rule.pattern.is_nullable()) {
         return Err(CompileError {
             message: "a lexer rule must consume at least one byte".into(),
+            rule_index: Some(rule_index),
         });
     }
     let expanded_size = rules.iter().fold(0usize, |size, rule| {
