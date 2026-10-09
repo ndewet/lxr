@@ -100,3 +100,57 @@ fn lexer_declaration_errors_name_the_invalid_input() -> Result<(), Box<dyn Error
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+#[test]
+fn derive_supports_a_renamed_runeweaver_dependency() -> Result<(), Box<dyn Error>> {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "runeweaver-renamed-{}-{unique}",
+        std::process::id()
+    ));
+    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dependency_path = source_dir.to_string_lossy().replace('\\', "/");
+    let manifest = format!(
+        r#"[package]
+name = "runeweaver-renamed-test"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+renamed_runeweaver = {{ package = "runeweaver", path = "{dependency_path}" }}
+"#,
+    );
+    let source = r#"use renamed_runeweaver::Lexer;
+
+#[derive(Lexer)]
+enum Token {
+    #[token("[a-z]+")]
+    Word,
+}
+
+fn main() {
+    assert_eq!(Token::scanner("word").count(), 1);
+}
+"#;
+
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(root.join("Cargo.toml"), manifest)?;
+    fs::write(root.join("src/main.rs"), source)?;
+    let output = Command::new(env!("CARGO"))
+        .args(["check", "--quiet", "--offline"])
+        .current_dir(&root)
+        .env("CARGO_TARGET_DIR", root.join("target"))
+        .env("CARGO_TERM_COLOR", "never")
+        .output()?;
+
+    assert!(
+        output.status.success(),
+        "renamed runeweaver dependency did not compile:\n{}",
+        String::from_utf8(output.stderr)?,
+    );
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

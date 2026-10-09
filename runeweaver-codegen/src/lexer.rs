@@ -395,7 +395,7 @@ impl Lexer {
     ///
     /// Panics if a rule enables a start condition that this lexer does not
     /// define.
-    fn emit(&self) -> Result<TokenStream, CompileError> {
+    fn emit(&self, runtime: &TokenStream) -> Result<TokenStream, CompileError> {
         let mut builder = nfa::Builder::new();
         let starts: Vec<_> = self
             .start_conditions
@@ -444,7 +444,7 @@ impl Lexer {
         }
         let dfa = dfa.minimize()?;
 
-        Ok(emitter::emit(&dfa, self))
+        Ok(emitter::emit(&dfa, self, runtime))
     }
 }
 
@@ -471,7 +471,6 @@ pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileErro
 }
 
 /// Builds a lexer with named start conditions in addition to `INITIAL`.
-/// Builds a lexer with named start conditions in addition to `INITIAL`.
 ///
 /// # Errors
 ///
@@ -496,6 +495,19 @@ pub fn compile(specifications: Vec<RuleSpec>) -> Result<TokenStream, CompileErro
 /// # Ok::<(), runeweaver_codegen::CompileError>(())
 /// ```
 pub fn compile_with_modes(
+    modes: Vec<String>,
+    specifications: Vec<RuleSpec>,
+) -> Result<TokenStream, CompileError> {
+    compile_with_modes_at(quote!(::runeweaver), modes, specifications)
+}
+
+/// Builds a lexer whose generated code refers to `runtime` for Runeweaver's runtime API.
+///
+/// This is used by the derive macro after resolving a possibly renamed `runeweaver`
+/// dependency. Lexer authors should use [`compile_with_modes`] instead.
+#[doc(hidden)]
+pub fn compile_with_modes_at(
+    runtime: TokenStream,
     modes: Vec<String>,
     specifications: Vec<RuleSpec>,
 ) -> Result<TokenStream, CompileError> {
@@ -578,7 +590,7 @@ pub fn compile_with_modes(
             rule_index: None,
         });
     }
-    Lexer::new(rules, conditions).emit()
+    Lexer::new(rules, conditions).emit(&runtime)
 }
 
 #[cfg(test)]

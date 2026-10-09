@@ -6,7 +6,11 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 /// Renders a minimized byte-oriented lexer DFA as Rust matcher tokens.
-pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
+pub(crate) fn emit(
+    dfa: &Dfa<ByteRange, RuleId>,
+    lexer: &Lexer,
+    runtime: &TokenStream,
+) -> TokenStream {
     let starts: Vec<_> = dfa
         .start_states()
         .iter()
@@ -52,16 +56,16 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         .map(|(index, rule)| {
             let action = rule.action().rendered();
             let transition = match rule.transition() {
-                ResolvedTransition::Stay => quote!(::runeweaver::Transition::Stay),
+                ResolvedTransition::Stay => quote!(#runtime::Transition::Stay),
                 ResolvedTransition::Begin(id) => {
                     let id = id.index();
-                    quote!(::runeweaver::Transition::Begin(#id))
+                    quote!(#runtime::Transition::Begin(#id))
                 }
                 ResolvedTransition::Push(id) => {
                     let id = id.index();
-                    quote!(::runeweaver::Transition::Push(#id))
+                    quote!(#runtime::Transition::Push(#id))
                 }
-                ResolvedTransition::Pop => quote!(::runeweaver::Transition::Pop),
+                ResolvedTransition::Pop => quote!(#runtime::Transition::Pop),
             };
             quote! { #index => (#action).map(|token| (token, #transition)), }
         })
@@ -100,7 +104,7 @@ pub(crate) fn emit(dfa: &Dfa<ByteRange, RuleId>, lexer: &Lexer) -> TokenStream {
         fn __runeweaver_action(
             rule: usize,
             text: &str,
-        ) -> Result<(Option<Self>, ::runeweaver::Transition), ::runeweaver::PayloadError> {
+        ) -> Result<(Option<Self>, #runtime::Transition), #runtime::PayloadError> {
             match rule {
                 #(#actions)*
                 _ => unreachable!("generated lexer selected an unknown rule"),
@@ -141,7 +145,7 @@ mod tests {
             .build(&[start])
             .expect("the test DFA is below its capacity");
 
-        let actual = emit(&dfa, &Lexer::new(vec![], vec![])).to_string();
+        let actual = emit(&dfa, &Lexer::new(vec![], vec![]), &quote!(::runeweaver)).to_string();
         assert!(actual.contains("0usize => Some (0usize)"));
         assert!(actual.contains("Result < (Option < Self > , :: runeweaver :: Transition)"));
         assert!(actual.contains("fn __runeweaver_mode_name"));
@@ -159,7 +163,7 @@ mod tests {
         let dfa = builder
             .build(&[start])
             .expect("the test DFA is below its capacity");
-        let emitted = emit(&dfa, &lexer(quote!(Rule::Token(7)))).to_string();
+        let emitted = emit(&dfa, &lexer(quote!(Rule::Token(7))), &quote!(::runeweaver)).to_string();
 
         assert!(emitted.contains("97u8 ..= 122u8 => Some (1usize)"));
         assert!(emitted.contains("1usize => Some (0usize)"));

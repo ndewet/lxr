@@ -5,8 +5,10 @@
 #![deny(dead_code)]
 
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
+use proc_macro2::{Ident, Span};
 use quote::quote;
-use runeweaver_codegen::{RuleSpec, Transition, compile_with_modes};
+use runeweaver_codegen::{RuleSpec, Transition, compile_with_modes_at};
 use syn::{
     Data, DeriveInput, Error, Expr, Fields, LitInt, LitStr, Result, Type,
     parse::{Parse, ParseStream},
@@ -76,6 +78,7 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         ));
     };
 
+    let runtime = runtime_path();
     let LexerConfig {
         modes,
         mut rules,
@@ -103,13 +106,13 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                     let payload_type = &field.ty;
                     let action = match converter {
                         Some(converter) => quote! {
-                            ::runeweaver::PayloadResult::<#payload_type>::into_payload(
+                            #runtime::PayloadResult::<#payload_type>::into_payload(
                                 (#converter)(text),
                             )
                             .map(|payload| Some(Self::#variant_ident(payload)))
                         },
                         None => quote! {
-                            ::runeweaver::parse_payload::<#payload_type>(text)
+                            #runtime::parse_payload::<#payload_type>(text)
                                 .map(|payload| Some(Self::#variant_ident(payload)))
                         },
                     };
@@ -144,7 +147,7 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         patterns.push(pattern);
     }
 
-    let matcher = compile_with_modes(modes, rules).map_err(|error| {
+    let matcher = compile_with_modes_at(runtime.clone(), modes, rules).map_err(|error| {
         error.rule_index().map_or_else(
             || Error::new_spanned(input.ident.clone(), error.to_string()),
             |index| {
@@ -170,9 +173,9 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
             #matcher
         }
 
-        impl #impl_generics ::runeweaver::__private::Sealed for #ident #type_generics #where_clause {}
+        impl #impl_generics #runtime::__private::Sealed for #ident #type_generics #where_clause {}
 
-        impl #impl_generics ::runeweaver::Lexer for #ident #type_generics #where_clause {
+        impl #impl_generics #runtime::Lexer for #ident #type_generics #where_clause {
             #max_token_bytes
 
             fn start_state(mode: usize) -> Option<usize> {
@@ -190,7 +193,7 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
             fn run_action(
                 rule: usize,
                 text: &str,
-            ) -> Result<(Option<Self>, ::runeweaver::Transition), ::runeweaver::PayloadError> {
+            ) -> Result<(Option<Self>, #runtime::Transition), #runtime::PayloadError> {
                 Self::__runeweaver_action(rule, text)
             }
 
@@ -270,6 +273,17 @@ fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<LexerConfig> {
         patterns,
         max_token_bytes,
     })
+}
+
+fn runtime_path() -> proc_macro2::TokenStream {
+    match crate_name("runeweaver") {
+        Ok(FoundCrate::Itself) => quote!(::runeweaver),
+        Ok(FoundCrate::Name(name)) => {
+            let ident = Ident::new(&name, Span::call_site());
+            quote!(::#ident)
+        }
+        Err(_) => quote!(::runeweaver),
+    }
 }
 
 struct LexerAttribute {
