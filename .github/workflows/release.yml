@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Publish crates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Test release versioning
+        run: node --test .github/scripts/prepare_release.test.mjs
+
+      - name: Prepare release
+        id: release
+        run: node .github/scripts/prepare_release.mjs >> "$GITHUB_OUTPUT"
+
+      - name: Update lockfile
+        run: cargo check --workspace
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace --release
+
+      - name: Check packages
+        run: |
+          cargo package -p runeweaver-codegen --locked --allow-dirty
+          cargo package -p runeweaver-derive --allow-dirty --list >/dev/null
+          cargo package -p runeweaver --allow-dirty --list >/dev/null
+
+      - name: Check publishing token
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo "The CARGO_REGISTRY_TOKEN repository secret is not set." >&2
+            exit 1
+          fi
+
+      - name: Commit and tag release
+        if: steps.release.outputs.mode == 'new'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock runeweaver/Cargo.toml runeweaver-codegen/Cargo.toml runeweaver-derive/Cargo.toml
+          git commit --allow-empty -m "chore(release): $TAG"
+          git tag -a "$TAG" -m "$TAG"
+          git push --atomic origin HEAD:main "refs/tags/$TAG"
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo "The CARGO_REGISTRY_TOKEN repository secret is not set." >&2
+            exit 1
+          fi
+
+          crate_exists() {
+            curl --fail --silent --show-error \
+              "https://crates.io/api/v1/crates/$1/$VERSION" >/dev/null 2>&1
+          }
+
+          index_path() {
+            local name="${1,,}"
+            case "${#name}" in
+              1) echo "1/$name" ;;
+              2) echo "2/$name" ;;
+              3) echo "3/${name:0:1}/$name" ;;
+              *) echo "${name:0:2}/${name:2:2}/$name" ;;
+            esac
+          }
+
+          version_is_indexed() {
+            curl --fail --silent --show-error \
+              "https://index.crates.io/$(index_path "$1")" 2>/dev/null \
+              | grep --fixed-strings "\"vers\":\"$VERSION\"" >/dev/null
+          }
+
+          wait_for_crate() {
+            for attempt in {1..20}; do
+              if crate_exists "$1" && version_is_indexed "$1"; then
+                return 0
+              fi
+              echo "Waiting for $1 $VERSION to appear in the registry ($attempt/20)..."
+              sleep 15
+            done
+            echo "$1 $VERSION did not appear in crates.io in time." >&2
+            return 1
+          }
+
+          publish_crate() {
+            if crate_exists "$1"; then
+              echo "$1 $VERSION is already published; skipping."
+            else
+              cargo publish --locked -p "$1"
+            fi
+            wait_for_crate "$1"
+          }
+
+          publish_crate runeweaver-codegen
+          publish_crate runeweaver-derive
+          publish_crate runeweaver
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+
+      - name: Summarize release
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CHANGE: ${{ steps.release.outputs.change }}
+        run: |
+          echo "## Released $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "Selected change level: **$CHANGE**" >> "$GITHUB_STEP_SUMMARY"

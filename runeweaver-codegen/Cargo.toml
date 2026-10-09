@@ -1,0 +1,22 @@
+[package]
+name = "runeweaver-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Lexer automata and code generation for runeweaver"
+repository.workspace = true
+documentation = "https://docs.rs/runeweaver-codegen"
+publish = ["crates-io"]
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+
+[[bench]]
+name = "generation"
+harness = false
+
+
+[lints]
+workspace = true

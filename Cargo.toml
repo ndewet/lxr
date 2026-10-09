@@ -1,11 +1,13 @@
 [workspace]
-members = ["lxr", "lxr-codegen", "lxr-derive"]
+members = ["runeweaver", "runeweaver-codegen", "runeweaver-derive"]
 resolver = "3"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.1.0"
 edition = "2024"
 license = "MIT"
+rust-version = "1.85"
+repository = "https://github.com/ndewet/runeweaver"
 
 # The lints mechanise the error handling rule in CLAUDE.md.
 [workspace.lints.rust]
@@ -14,8 +16,8 @@ unreachable_pub = "warn"
 unsafe_code = "forbid"
 
 # `clippy::panic_in_result_fn` stays off. A function that gives a `Result` for
-# a fault in the input still panics for a defect in lxr. The lint rejects that
-# pattern, thus it disagrees with the rule.
+# a fault in the input still panics for a defect in runeweaver. The lint
+# rejects that pattern, thus it disagrees with the rule.
 [workspace.lints.clippy]
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"

@@ -1,0 +1,26 @@
+[package]
+name = "runeweaver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "A lexer generator with derive macros and streaming input support"
+repository.workspace = true
+documentation = "https://docs.rs/runeweaver"
+readme = "../README.md"
+keywords = ["lexer", "parser", "tokenizer", "automata", "proc-macro"]
+categories = ["parsing", "development-tools"]
+publish = ["crates-io"]
+
+[lib]
+name = "runeweaver"
+
+[dependencies]
+runeweaver-derive = { version = "=0.1.0", path = "../runeweaver-derive" }
+
+[[bench]]
+name = "scanner"
+harness = false
+
+[lints]
+workspace = true
