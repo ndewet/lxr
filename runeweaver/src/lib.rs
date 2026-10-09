@@ -64,6 +64,7 @@ pub mod __private {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadError {
     message: String,
+    transition: Transition,
 }
 
 /// The result of selecting and executing one lexer rule.
@@ -86,7 +87,19 @@ impl PayloadError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            transition: Transition::Stay,
         }
+    }
+
+    /// Associates the winning rule's lexical-mode transition with this error.
+    #[doc(hidden)]
+    pub fn with_transition(mut self, transition: Transition) -> Self {
+        self.transition = transition;
+        self
+    }
+
+    fn transition(&self) -> Transition {
+        self.transition
     }
 }
 
@@ -196,8 +209,9 @@ impl<E: Error + 'static> Error for ScanError<E> {
 /// Iterates over tokens and scanning errors.
 ///
 /// Invalid input and payload errors consume their byte ranges and scanning
-/// continues. A source error or over-limit token ends iteration because
-/// maximal-munch selection cannot safely produce the current token.
+/// continues. A rule's lexical-mode transition still takes effect when its
+/// payload conversion fails. A source error or over-limit token ends iteration
+/// because maximal-munch selection cannot safely produce the current token.
 ///
 /// # Examples
 ///
@@ -505,6 +519,7 @@ impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
             let (token, transition) = match result {
                 Ok(result) => result,
                 Err(error) => {
+                    self.apply_transition(error.transition(), start);
                     return Some(Err(ScanError::InvalidPayload {
                         span: Span::new(start, self.offset),
                         message: error.to_string(),
