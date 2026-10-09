@@ -64,7 +64,7 @@ where
             for &index in class.get_matching_labels() {
                 let (source, target) = transitions[index];
 
-                debug_assert!(
+                assert!(
                     target_by_source[source.index()].replace(target).is_none(),
                     "invariant broken: transitions can not overlap"
                 );
