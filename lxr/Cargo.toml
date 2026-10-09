@@ -10,8 +10,5 @@ lxr-derive = { path = "../lxr-derive" }
 name = "scanner"
 harness = false
 
-[dev-dependencies]
-trybuild = "1"
-
 [lints]
 workspace = true
