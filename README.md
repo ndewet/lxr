@@ -16,6 +16,12 @@ generated deterministic finite automaton.
 
 ## Installation
 
+Packages are available on crates.io:
+
+- [`runeweaver`](https://crates.io/crates/runeweaver)
+- [`runeweaver-derive`](https://crates.io/crates/runeweaver-derive)
+- [`runeweaver-codegen`](https://crates.io/crates/runeweaver-codegen)
+
 Add `runeweaver` to your manifest:
 
 ```toml
