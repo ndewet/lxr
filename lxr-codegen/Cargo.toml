@@ -7,6 +7,10 @@ edition.workspace = true
 proc-macro2 = "1"
 quote = "1"
 
+[[bench]]
+name = "generation"
+harness = false
+
 
 [lints]
 workspace = true

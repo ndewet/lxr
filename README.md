@@ -115,6 +115,14 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+## Benchmarks
+
+Run the lexer generation and scanning benchmarks from the workspace root:
+
+```text
+cargo bench --workspace
+```
+
 On Windows, put the target directory outside the project. A build in
 `./target` fails with os error 4551.
 
