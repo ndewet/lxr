@@ -67,7 +67,14 @@ pub(crate) fn emit(
                 }
                 ResolvedTransition::Pop => quote!(#runtime::Transition::Pop),
             };
-            quote! { #index => (#action).map(|token| (token, #transition)), }
+            quote! {
+                #index => {
+                    let result: Result<Option<Self>, #runtime::PayloadError> = #action;
+                    result
+                        .map(|token| (token, #transition))
+                        .map_err(|error| error.with_transition(#transition))
+                },
+            }
         })
         .collect();
     let mode_names = lexer
