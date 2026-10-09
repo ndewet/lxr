@@ -278,11 +278,11 @@ cargo run -p runeweaver --example modes
 
 ## Stability and support
 
-`runeweaver` is currently pre-1.0. It follows Cargo's compatibility conventions for
-0.x releases: patch releases within the 0.1 series preserve the documented
-public API, while a new minor release may include breaking changes. Deprecated
-APIs will be called out in release notes when a practical migration path
-exists.
+`runeweaver` is currently pre-1.0, but its release policy is stricter than
+Cargo's default compatibility rules for 0.x versions. Patch and minor releases
+preserve the documented public API; a breaking change requires a major release.
+Deprecated APIs will be called out in release notes when a practical migration
+path exists.
 
 The supported public surface is the `runeweaver` runtime crate and its re-exported
 derive macro. `runeweaver-codegen` is an implementation-facing crate and does not
@@ -308,13 +308,6 @@ Performance benchmarks are included for lexer generation and scanning:
 
 ```console
 cargo bench --workspace
-```
-
-On Windows, put the target directory outside the project. A build in
-`./target` fails with os error 4551.
-
-```console
-set CARGO_TARGET_DIR=%TEMP%\runeweaver-target
 ```
 
 ## Releasing
