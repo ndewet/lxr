@@ -5,6 +5,8 @@
 
 #![deny(dead_code)]
 
+extern crate self as runeweaver;
+
 pub use runeweaver_derive::Lexer;
 pub use source::{Reader, Remainder, Slice, Source};
 
