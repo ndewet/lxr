@@ -1,9 +1,31 @@
 # lxr
 
-A lexer generator for Rust, written to learn the theory. A regular expression
-becomes an automaton, and the derive macro emits a matcher for it.
+[![CI](https://github.com/ndewet/lxr/actions/workflows/ci.yml/badge.svg)](https://github.com/ndewet/lxr/actions/workflows/ci.yml)
 
-## Core example
+`lxr` is a compile-time lexer generator for Rust. Describe tokens with regular
+expressions on an enum, derive `Lexer`, and receive a typed scanner backed by a
+generated deterministic finite automaton.
+
+- Longest-match token selection with declaration-order tie breaking
+- UTF-8 input, Unicode literals and character classes, and byte-accurate spans
+- In-memory and streaming input through one scanner API
+- Owned token payloads through `FromStr` or custom converters
+- Lexical modes for strings, interpolation, and nested comments
+- Recoverable errors for unrecognized input, invalid UTF-8, and invalid payloads
+- No runtime regular-expression engine
+
+## Installation
+
+Add `lxr` to your manifest:
+
+```toml
+[dependencies]
+lxr = "0.2"
+```
+
+`lxr` requires Rust 1.85 or newer.
+
+## Quick start
 
 ```rust
 use lxr::{Lexer, Span, Spanned};
@@ -11,121 +33,273 @@ use lxr::{Lexer, Span, Spanned};
 #[derive(Debug, PartialEq, Lexer)]
 #[lexer(skip = r"[ \t\r\n]+")]
 enum Token {
-    #[token("[a-z]+")]
+    #[token("[A-Za-z_][A-Za-z0-9_]*")]
     Identifier(String),
+
+    #[token("[0-9]+")]
+    Integer(u64),
+
+    #[token("==")]
+    Equal,
+}
+
+let tokens = Token::scanner("answer == 42")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("the input is valid");
+
+assert_eq!(
+    tokens,
+    vec![
+        Spanned {
+            token: Token::Identifier("answer".into()),
+            span: Span::new(0, 6),
+        },
+        Spanned {
+            token: Token::Equal,
+            span: Span::new(7, 9),
+        },
+        Spanned {
+            token: Token::Integer(42),
+            span: Span::new(10, 12),
+        },
+    ],
+);
+```
+
+Each enum variant defines one token rule. Unit variants produce token kinds;
+single-field tuple variants produce owned payloads. Struct variants, variants
+with multiple fields, and borrowed payloads are rejected at compile time.
+
+## Matching semantics
+
+Rules are anchored at the scanner's current position. The rule that consumes
+the most input wins. If several rules consume the same number of bytes, the
+rule declared first wins.
+
+This makes keywords and identifiers straightforward:
+
+```rust
+use lxr::Lexer;
+
+#[derive(Lexer)]
+enum Token {
+    #[token("if")]
+    If,
+
+    #[token("[A-Za-z_][A-Za-z0-9_]*")]
+    Identifier,
+}
+```
+
+`if` becomes `Token::If`, while `if_else` becomes one `Token::Identifier`.
+Patterns that can match an empty string are rejected because every lexer rule
+must make progress. A rule that can never win because an earlier rule always
+takes priority is also rejected.
+
+## Pattern syntax
+
+`lxr` implements the regular-language subset needed by lexers:
+
+| Syntax | Meaning |
+| --- | --- |
+| `abc` | Literal text |
+| `.` | Any Unicode scalar except newline |
+| `[abc]` | One character from a class |
+| `[a-z]` | One character from a range |
+| `[^a-z]` | One character outside a class |
+| <code>a&#124;b</code> | Alternation |
+| `(ab)` | Grouping |
+| `a?`, `a*`, `a+` | Optional, zero-or-more, and one-or-more |
+| `a{3}`, `a{2,}`, `a{2,5}` | Counted repetition |
+| `\n`, `\r`, `\t`, `\f`, `\v`, `\a` | Control-character escapes |
+| `\x7f`, `\x{1F600}` | Hexadecimal scalar escapes |
+| `\d`, `\w`, `\s` | ASCII digit, word, and whitespace classes |
+
+Punctuation can be escaped to match it literally. Non-ASCII literals and
+class ranges are supported directly. Shorthand classes are intentionally
+ASCII-defined.
+
+Anchors, look-around, backreferences, lazy quantifiers, capture modifiers,
+POSIX character classes, and octal escapes are not supported. Lexer rules are
+already anchored at the current position, and the generated matcher is a DFA,
+so features that require capture or backtracking state are outside the pattern
+model.
+
+## Payloads and converters
+
+By default, a tuple variant's field is parsed with `FromStr`:
+
+```rust
+use lxr::Lexer;
+
+#[derive(Lexer)]
+enum Token {
     #[token("[0-9]+")]
     Integer(u64),
 }
-
-let scanned: Vec<_> = Token::scanner("name 42").collect();
-assert_eq!(scanned[0], Ok(Spanned { token: Token::Identifier("name".into()), span: Span::new(0, 4) }));
-assert_eq!(scanned[1], Ok(Spanned { token: Token::Integer(42), span: Span::new(5, 7) }));
 ```
 
-Each variant has one `#[token("pattern")]` attribute. A variant may be unit or
-contain one owned tuple payload. Payloads use their `FromStr` implementation,
-so `String`, numeric types, and user types that implement `FromStr` work.
-
-Add `with = path` to name a converter function. The converter receives the
-matched lexeme. It returns the payload when a conversion cannot fail. It
-returns a `Result` of the payload when a conversion can fail. An `Err`
-gives `ScanError::InvalidPayload`, and the `Display` of the `Err` value
-becomes the message of that error. Only a variant with a payload accepts a
-converter.
+Use `with` when a lexeme needs custom conversion. A converter receives the
+matched text and may return the payload directly or return a `Result`:
 
 ```rust
-#[token("![a-z]+", with = strip_bang)]
-Shouted(String),
+use lxr::Lexer;
 
-fn strip_bang(text: &str) -> String {
-    text[1..].to_uppercase()
+#[derive(Lexer)]
+enum Token {
+    #[token("#[0-9a-fA-F]{6}", with = parse_color)]
+    Color(u32),
+}
+
+fn parse_color(text: &str) -> Result<u32, std::num::ParseIntError> {
+    u32::from_str_radix(&text[1..], 16)
 }
 ```
 
-`Token::scanner(input)` returns `Result<Spanned<Token>, ScanError>` items.
-`Spanned` records the matched token's UTF-8 byte range as a `Span`. Call
-`span.text(input)` to get the lexeme, and `span.range()` for an index of
-type `usize`. A `Span` holds two `u64` offsets, because a later streaming
-source can be longer than `usize`. An unrecognized
-character produces `ScanError` for that character and scanning continues.
-`Token::scan(input)` is a convenience method that returns the first token and
-the number of bytes consumed before it, including preceding trivia.
+A failed `FromStr` or converter becomes `ScanError::InvalidPayload`. The
+scanner consumes that lexeme, reports its span, and continues with subsequent
+input.
 
-Rules use longest-match semantics. Declaration order resolves equal-length
-matches.
+## Spans and errors
 
-## Input sources
-
-The scanner consumes a `Source`, a small trait that fills a byte buffer and has
-an associated error type. It does not require seeking, token-boundary-aware
-chunks, or access to the source's complete contents. The scanner owns the
-lookahead needed for longest-match selection and records absolute byte spans.
-
-`Token::scanner(&str)` remains the convenient in-memory entry point. Use
-`Slice` for a byte slice and `Reader` for files, network streams, and other
-standard `Read` implementations:
+`Token::scanner(input)` yields `Result<Spanned<Token>, ScanError>`. A `Span` is
+a half-open range of absolute UTF-8 byte offsets:
 
 ```rust
+use lxr::Span;
+
+let span = Span::new(5, 7);
+assert_eq!(span.text("name 42"), Some("42"));
+assert_eq!(span.range(), Some(5..7));
+```
+
+Scanning distinguishes five input failures:
+
+- `Unrecognized` for a valid UTF-8 character accepted by no rule
+- `InvalidUtf8` for malformed byte input
+- `InvalidPayload` when token conversion fails
+- `UnterminatedMode` when input ends inside a pushed lexical mode
+- `Source` when a streaming source cannot provide more input
+
+Unrecognized input, invalid UTF-8, and payload failures are recoverable: the
+scanner consumes the offending range and continues. A source failure ends the
+iterator because the scanner cannot determine whether more bytes would extend
+the current match.
+
+`Token::scan(input)` is a convenience for requesting only the first token. It
+returns the token and the total byte count consumed before it, including
+leading skipped input.
+
+## Streaming sources
+
+The scanner accepts any `Source`. Use `&str` for in-memory text, `Slice` for an
+arbitrary byte slice, and `Reader` for standard `Read` implementations:
+
+```rust,no_run
 use lxr::{Lexer, Reader};
 use std::fs::File;
 
-# #[derive(Lexer)]
-# enum Token { #[token("x")] X }
-let file = File::open("input.txt")?;
-for item in Token::scanner_from(Reader::new(file)) {
-    let token = item?;
-    println!("{:?}", token.span);
+#[derive(Lexer)]
+enum Token {
+    #[token("[A-Za-z_][A-Za-z0-9_]*")]
+    Identifier,
 }
-# Ok::<(), Box<dyn std::error::Error>>(())
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let file = File::open("input.txt")?;
+
+    for item in Token::scanner_from(Reader::new(file)) {
+        let token = item?;
+        println!("{:?}", token.span);
+    }
+
+    Ok(())
+}
 ```
 
-Implement `Source` directly when input comes from another storage model. Its
-error becomes the type parameter of `ScanError<E>`. Input is always interpreted
-as UTF-8; arbitrary byte sources receive a recoverable `InvalidUtf8` error for
-invalid sequences. `Scanner::into_source` returns unread lookahead together
-with the original source when a parser stops before end of input.
+A source does not need to seek or preserve token boundaries. The scanner owns
+the lookahead needed for longest-match selection. If a parser stops early,
+`Scanner::into_source` returns the unread lookahead followed by the original
+source.
 
-## More examples
+Streaming bounds the amount read from the underlying source at one time, but
+the scanner retains the current candidate lexeme and its lookahead. Memory use
+therefore scales with the longest candidate token, not only with the fixed read
+chunk. Applications processing untrusted input should design token rules with
+appropriate length bounds.
 
-The runnable examples are in [`lxr/examples`](lxr/examples).
+## Lexical modes
 
-- [`basic.rs`](lxr/examples/basic.rs) shows unit tokens, skips, `scan`, and
-  longest-match selection.
-- [`payloads.rs`](lxr/examples/payloads.rs) shows `FromStr` payloads and a
-  custom payload converter.
-- [`errors.rs`](lxr/examples/errors.rs) shows token spans and recovery after
-  unrecognized input or a payload error.
-- [`modes.rs`](lxr/examples/modes.rs) shows `modes`, `begin`, `push`, and
-  `pop`, including nested comments and an unterminated mode error.
-- [`patterns.rs`](lxr/examples/patterns.rs) shows literals, groups,
-  alternation, character classes, escapes, repetition, and Unicode.
-- [`sources.rs`](lxr/examples/sources.rs) shows byte slices and standard
-  readers as input sources.
+Modes enable different rules in different contexts. Rules can replace the
+current mode with `begin`, push a nested mode with `push`, or return to the
+previous mode with `pop`:
+
+```rust
+use lxr::Lexer;
+
+#[derive(Lexer)]
+#[lexer(mode = Comment)]
+#[lexer(skip = r"/\*", push = Comment)]
+#[lexer(skip = r"/\*", modes = Comment, push = Comment)]
+#[lexer(skip = r"\*/", modes = Comment, pop)]
+#[lexer(skip = r"[^*/]+|[*/]", modes = Comment)]
+enum Token {
+    #[token("[A-Za-z_][A-Za-z0-9_]*")]
+    Identifier,
+}
+```
+
+This lexer skips arbitrarily nested block comments. Reaching end of input with
+a pushed mode still active produces `ScanError::UnterminatedMode` with the
+mode's name and the range from its opening rule through end of input.
+
+## Examples
+
+The [`lxr/examples`](lxr/examples) directory contains runnable programs for:
+
+- basic matching, skipped input, and rule priority;
+- automatic and custom payload conversion;
+- error reporting and recovery;
+- lexical modes and nested comments;
+- supported pattern constructs; and
+- slices, readers, and custom input sources.
 
 Run an example from the workspace root:
 
-```text
+```console
 cargo run -p lxr --example modes
 ```
 
-## Build
+## Stability and support
 
-```
-cargo test --workspace
+`lxr` is currently pre-1.0. It follows Cargo's compatibility conventions for
+0.x releases: patch releases within the 0.2 series preserve the documented
+public API, while a new minor release may include breaking changes. Deprecated
+APIs will be called out in release notes when a practical migration path
+exists.
+
+The supported public surface is the `lxr` runtime crate and its re-exported
+derive macro. `lxr-codegen` is an implementation-facing crate and does not
+carry the same compatibility guarantee.
+
+Rust 1.85 is the minimum supported Rust version. Raising the MSRV requires at
+least a minor release. The latest release line receives bug fixes; there are no
+separate long-term-support branches. Report defects and support requests
+through the repository's GitHub issue tracker.
+
+## Development
+
+Run the same checks used by CI:
+
+```console
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo test --workspace --release
 ```
 
-## Benchmarks
+Performance benchmarks are included for lexer generation and scanning:
 
-Run the lexer generation and scanning benchmarks from the workspace root:
-
-```text
+```console
 cargo bench --workspace
-```
-
-On Windows, put the target directory outside the project. A build in
-`./target` fails with os error 4551.
-
-```
-export CARGO_TARGET_DIR="$TEMP/lxr-target"
 ```
