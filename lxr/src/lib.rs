@@ -1,6 +1,6 @@
 //! Provides runtime support for generated lxr lexers.
 //!
-//! Derive [`Lexer`] for a token enum and place one `#[lxr("pattern")]`
+//! Derive [`Lexer`] for a token enum and place one `#[token("pattern")]`
 //! attribute on each variant.
 
 #![deny(dead_code)]
@@ -187,7 +187,7 @@ impl<E: Error + 'static> Error for ScanError<E> {
 ///
 /// #[derive(Debug, PartialEq, Lexer)]
 /// enum Token {
-///     #[lxr("[a-z]+")]
+///     #[token("[a-z]+")]
 ///     Word,
 /// }
 ///
@@ -220,7 +220,7 @@ impl<T, S: Source> Scanner<T, S> {
     ///
     /// #[derive(Lexer)]
     /// enum Token {
-    ///     #[lxr("x")]
+    ///     #[token("x")]
     ///     X,
     /// }
     ///
@@ -463,7 +463,7 @@ impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
 ///
 /// #[derive(Debug, PartialEq, Lexer)]
 /// enum Token {
-///     #[lxr("[a-z]+")]
+///     #[token("[a-z]+")]
 ///     Word,
 /// }
 ///
@@ -527,7 +527,7 @@ pub trait Lexer: __private::Sealed + Sized {
     ///
     /// #[derive(Lexer)]
     /// enum Token {
-    ///     #[lxr("[a-z]+")]
+    ///     #[token("[a-z]+")]
     ///     Word,
     /// }
     ///
@@ -554,7 +554,7 @@ pub trait Lexer: __private::Sealed + Sized {
     ///
     /// #[derive(Debug, PartialEq, Lexer)]
     /// enum Token {
-    ///     #[lxr("[0-9]+")]
+    ///     #[token("[0-9]+")]
     ///     Integer,
     /// }
     ///

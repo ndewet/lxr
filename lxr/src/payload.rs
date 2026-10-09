@@ -5,7 +5,7 @@ use std::fmt::Display;
 
 /// Accepts the return type of a rule converter.
 ///
-/// A converter names a function with `#[lxr("pattern", with = path)]`. The
+/// A converter names a function with `#[token("pattern", with = path)]`. The
 /// function returns the payload when a conversion cannot fail. It returns a
 /// `Result` of the payload when a conversion can fail. An `Err` becomes a
 /// [`ScanError::InvalidPayload`](crate::ScanError::InvalidPayload), and the

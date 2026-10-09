@@ -4,9 +4,9 @@ use lxr::{Lexer, Reader, Slice};
 use std::io::Cursor;
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(skip = r"\s+")]
+#[lexer(skip = r"\s+")]
 enum Token {
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Word,
 }
 

@@ -2,7 +2,7 @@ use lxr::Lexer;
 
 #[derive(Lexer)]
 enum Token {
-    #[lxr("[")]
+    #[token("[")]
     Word,
 }
 

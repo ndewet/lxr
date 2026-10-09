@@ -3,21 +3,21 @@
 use lxr::{Lexer, ScanError};
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(mode = Directive)]
-#[lxr(mode = Comment)]
-#[lxr(skip = r"\s+", modes = [INITIAL, Directive])]
-#[lxr(skip = r"/\*", modes = [INITIAL, Directive], push = Comment)]
-#[lxr(skip = r"/\*", modes = Comment, push = Comment)]
-#[lxr(skip = r"\*/", modes = Comment, pop)]
-#[lxr(skip = r"[^*/]+|[*/]", modes = Comment)]
+#[lexer(mode = Directive)]
+#[lexer(mode = Comment)]
+#[lexer(skip = r"\s+", modes = [INITIAL, Directive])]
+#[lexer(skip = r"/\*", modes = [INITIAL, Directive], push = Comment)]
+#[lexer(skip = r"/\*", modes = Comment, push = Comment)]
+#[lexer(skip = r"\*/", modes = Comment, pop)]
+#[lexer(skip = r"[^*/]+|[*/]", modes = Comment)]
 enum Token {
-    #[lxr("@", begin = Directive)]
+    #[token("@", begin = Directive)]
     DirectiveStart,
-    #[lxr(";", modes = Directive, begin = INITIAL)]
+    #[token(";", modes = Directive, begin = INITIAL)]
     DirectiveEnd,
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Word,
-    #[lxr("[A-Z]+", modes = Directive)]
+    #[token("[A-Z]+", modes = Directive)]
     Command,
 }
 

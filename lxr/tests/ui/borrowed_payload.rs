@@ -2,7 +2,7 @@ use lxr::Lexer;
 
 #[derive(Lexer)]
 enum Token<'input> {
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Word(&'input str),
 }
 

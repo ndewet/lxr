@@ -9,11 +9,11 @@ becomes an automaton, and the derive macro emits a matcher for it.
 use lxr::{Lexer, Span, Spanned};
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(skip = r"[ \t\r\n]+")]
+#[lexer(skip = r"[ \t\r\n]+")]
 enum Token {
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Identifier(String),
-    #[lxr("[0-9]+")]
+    #[token("[0-9]+")]
     Integer(u64),
 }
 
@@ -22,7 +22,7 @@ assert_eq!(scanned[0], Ok(Spanned { token: Token::Identifier("name".into()), spa
 assert_eq!(scanned[1], Ok(Spanned { token: Token::Integer(42), span: Span::new(5, 7) }));
 ```
 
-Each variant has one `#[lxr("pattern")]` attribute. A variant may be unit or
+Each variant has one `#[token("pattern")]` attribute. A variant may be unit or
 contain one owned tuple payload. Payloads use their `FromStr` implementation,
 so `String`, numeric types, and user types that implement `FromStr` work.
 
@@ -34,7 +34,7 @@ becomes the message of that error. Only a variant with a payload accepts a
 converter.
 
 ```rust
-#[lxr("![a-z]+", with = strip_bang)]
+#[token("![a-z]+", with = strip_bang)]
 Shouted(String),
 
 fn strip_bang(text: &str) -> String {
@@ -70,7 +70,7 @@ use lxr::{Lexer, Reader};
 use std::fs::File;
 
 # #[derive(Lexer)]
-# enum Token { #[lxr("x")] X }
+# enum Token { #[token("x")] X }
 let file = File::open("input.txt")?;
 for item in Token::scanner_from(Reader::new(file)) {
     let token = item?;

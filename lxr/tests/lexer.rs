@@ -9,9 +9,9 @@ use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Lexer)]
 enum Token {
-    #[lxr("a+")]
+    #[token("a+")]
     As,
-    #[lxr("b")]
+    #[token("b")]
     B,
 }
 
@@ -25,9 +25,9 @@ fn derived_lexer_returns_the_longest_prefix() {
 #[allow(dead_code)]
 #[derive(Debug, PartialEq, Lexer)]
 enum Priority {
-    #[lxr("a")]
+    #[token("a")]
     First,
-    #[lxr("[a-z]")]
+    #[token("[a-z]")]
     Second,
 }
 
@@ -38,7 +38,7 @@ fn derived_lexer_breaks_equal_length_ties_by_rule_order() {
 
 #[derive(Debug, PartialEq, Lexer)]
 enum Unicode {
-    #[lxr("é+")]
+    #[token("é+")]
     EAcute,
 }
 
@@ -48,22 +48,22 @@ fn derived_lexer_counts_utf8_bytes() {
 }
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(skip = "[ \\t\\n]+")]
-#[lxr(skip = "//[^\\n]*")]
+#[lexer(skip = "[ \\t\\n]+")]
+#[lexer(skip = "//[^\\n]*")]
 enum WithTrivia {
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Identifier,
 }
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(mode = Comment)]
-#[lxr(skip = r"[ \t\r\n]+")]
-#[lxr(skip = r"/\*", push = Comment)]
-#[lxr(skip = r"/\*", modes = Comment, push = Comment)]
-#[lxr(skip = r"\*/", modes = Comment, pop)]
-#[lxr(skip = r"[^*/]+|[*/]", modes = Comment)]
+#[lexer(mode = Comment)]
+#[lexer(skip = r"[ \t\r\n]+")]
+#[lexer(skip = r"/\*", push = Comment)]
+#[lexer(skip = r"/\*", modes = Comment, push = Comment)]
+#[lexer(skip = r"\*/", modes = Comment, pop)]
+#[lexer(skip = r"[^*/]+|[*/]", modes = Comment)]
 enum WithNestedComments {
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Identifier,
 }
 
@@ -108,15 +108,15 @@ fn derived_lexer_reports_an_unterminated_nested_comment() {
 }
 
 #[derive(Debug, PartialEq, Lexer)]
-#[lxr(mode = String)]
+#[lexer(mode = String)]
 enum ModeTokens {
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Identifier,
-    #[lxr("\"", push = String)]
+    #[token("\"", push = String)]
     StringStart,
-    #[lxr(r#"[^"\\]+"#, modes = String)]
+    #[token(r#"[^"\\]+"#, modes = String)]
     StringText,
-    #[lxr("\"", modes = String, pop)]
+    #[token("\"", modes = String, pop)]
     StringEnd,
 }
 
@@ -186,13 +186,13 @@ impl FromStr for Identifier {
 
 #[derive(Debug, PartialEq, Lexer)]
 enum Value {
-    #[lxr("[0-9]+")]
+    #[token("[0-9]+")]
     Integer(u64),
-    #[lxr("[a-z]+")]
+    #[token("[a-z]+")]
     Identifier(Identifier),
-    #[lxr("![a-z]+", with = strip_bang)]
+    #[token("![a-z]+", with = strip_bang)]
     Shouted(String),
-    #[lxr("#[a-z]+", with = reject_hash)]
+    #[token("#[a-z]+", with = reject_hash)]
     Rejected(String),
 }
 
@@ -274,9 +274,9 @@ fn scanner_reports_explicit_converter_errors_and_recovers() {
 
 #[derive(Debug, PartialEq, Lexer)]
 enum Repetition {
-    #[lxr("a{2,}b")]
+    #[token("a{2,}b")]
     OpenEnded,
-    #[lxr("(a?)*b")]
+    #[token("(a?)*b")]
     NullableLoop,
 }
 
@@ -289,9 +289,9 @@ fn derived_lexer_handles_open_ended_and_nullable_repetition() {
 
 #[derive(Debug, PartialEq, Lexer)]
 enum UnicodeBoundaries {
-    #[lxr(r"[\x7f-\x{80}]")]
+    #[token(r"[\x7f-\x{80}]")]
     Boundary,
-    #[lxr("(é|€|𐐷)+")]
+    #[token("(é|€|𐐷)+")]
     Scalar,
 }
 
@@ -323,9 +323,9 @@ fn derived_lexer_matches_utf8_boundaries_and_keeps_byte_spans() {
 
 #[derive(Debug, PartialEq, Lexer)]
 enum NegatedClass {
-    #[lxr("a")]
+    #[token("a")]
     A,
-    #[lxr(r"[^a]")]
+    #[token(r"[^a]")]
     NotA,
 }
 
@@ -353,50 +353,50 @@ fn derived_lexer_matches_negated_classes_including_newlines_and_unicode() {
 }
 
 #[derive(Debug, Clone, PartialEq, Lexer)]
-#[lxr(skip = r"[ \t\r\n]+")]
-#[lxr(skip = r"//[^\n]*")]
+#[lexer(skip = r"[ \t\r\n]+")]
+#[lexer(skip = r"//[^\n]*")]
 enum RustToken {
-    #[lxr("fn")]
+    #[token("fn")]
     Fn,
-    #[lxr("let")]
+    #[token("let")]
     Let,
-    #[lxr("match")]
+    #[token("match")]
     Match,
-    #[lxr("[A-Za-z_][A-Za-z0-9_]*")]
+    #[token("[A-Za-z_][A-Za-z0-9_]*")]
     Identifier,
-    #[lxr("[0-9][0-9_]*")]
+    #[token("[0-9][0-9_]*")]
     Integer,
-    #[lxr(r#""([^"\\]|\\.)*""#)]
+    #[token(r#""([^"\\]|\\.)*""#)]
     String,
-    #[lxr("->")]
+    #[token("->")]
     Arrow,
-    #[lxr("::")]
+    #[token("::")]
     PathSeparator,
-    #[lxr(":")]
+    #[token(":")]
     Colon,
-    #[lxr("==")]
+    #[token("==")]
     EqualEqual,
-    #[lxr("=")]
+    #[token("=")]
     Equal,
-    #[lxr("=>")]
+    #[token("=>")]
     FatArrow,
-    #[lxr(r"\.\.=")]
+    #[token(r"\.\.=")]
     RangeInclusive,
-    #[lxr(r"\.\.")]
+    #[token(r"\.\.")]
     Range,
-    #[lxr(r"\.")]
+    #[token(r"\.")]
     Dot,
-    #[lxr(r"\(")]
+    #[token(r"\(")]
     LeftParen,
-    #[lxr(r"\)")]
+    #[token(r"\)")]
     RightParen,
-    #[lxr(r"\{")]
+    #[token(r"\{")]
     LeftBrace,
-    #[lxr(r"\}")]
+    #[token(r"\}")]
     RightBrace,
-    #[lxr(",")]
+    #[token(",")]
     Comma,
-    #[lxr(";")]
+    #[token(";")]
     Semicolon,
 }
 
@@ -539,11 +539,11 @@ fn rust_like_lexer_prefers_the_longest_compound_punctuation() {
 
 #[derive(Debug, PartialEq, Lexer)]
 enum Converters {
-    #[lxr("![a-z]+", with = direct)]
+    #[token("![a-z]+", with = direct)]
     Direct(String),
-    #[lxr("[0-9]+", with = checked)]
+    #[token("[0-9]+", with = checked)]
     Checked(u8),
-    #[lxr(r"\?[a-z]+", with = failing)]
+    #[token(r"\?[a-z]+", with = failing)]
     Rejected(String),
 }
 
@@ -594,15 +594,15 @@ fn a_converter_returns_a_payload_or_a_result() {
 
 #[derive(Debug, PartialEq, Lexer)]
 enum Streaming {
-    #[lxr("a")]
+    #[token("a")]
     A,
-    #[lxr("ab+c")]
+    #[token("ab+c")]
     Abc,
-    #[lxr("b+")]
+    #[token("b+")]
     Bs,
-    #[lxr("x")]
+    #[token("x")]
     X,
-    #[lxr("Ã©")]
+    #[token("Ã©")]
     EAcute,
 }
 
