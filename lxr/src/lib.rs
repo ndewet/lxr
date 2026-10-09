@@ -16,6 +16,13 @@ mod span;
 pub use payload::PayloadResult;
 pub use span::Span;
 
+/// The maximum candidate-token length used when a lexer does not override it.
+///
+/// A scanner retains the current candidate and a small amount of lookahead to
+/// implement longest-match selection. Lexer declarations can choose another
+/// limit with `#[lexer(max_token_bytes = N)]`.
+pub const DEFAULT_MAX_TOKEN_BYTES: usize = 16 * 1024 * 1024;
+
 use std::marker::PhantomData;
 use std::str::FromStr;
 use std::{
@@ -131,6 +138,13 @@ pub enum ScanError<E = std::convert::Infallible> {
         /// The payload conversion error's message.
         message: String,
     },
+    /// A candidate token exceeded the lexer's configured byte limit.
+    TokenTooLong {
+        /// The range of the observed over-limit prefix.
+        span: Span,
+        /// The maximum token length configured for this lexer.
+        limit: usize,
+    },
     /// Input ended while a pushed lexer mode was still active.
     UnterminatedMode {
         /// The range from the mode-opening rule through end of input.
@@ -155,6 +169,9 @@ impl<E: Display> Display for ScanError<E> {
             Self::InvalidPayload { span, message } => {
                 write!(formatter, "invalid token payload at {span}: {message}")
             }
+            Self::TokenTooLong { span, limit } => {
+                write!(formatter, "token exceeds the {limit}-byte limit at {span}")
+            }
             Self::UnterminatedMode { span, mode } => {
                 write!(formatter, "unterminated lexer mode {mode} at {span}")
             }
@@ -177,8 +194,8 @@ impl<E: Error + 'static> Error for ScanError<E> {
 /// Iterates over tokens and scanning errors.
 ///
 /// Invalid input and payload errors consume their byte ranges and scanning
-/// continues. A source error ends iteration because maximal-munch selection
-/// cannot know whether unread bytes would extend the current token.
+/// continues. A source error or over-limit token ends iteration because
+/// maximal-munch selection cannot safely produce the current token.
 ///
 /// # Examples
 ///
@@ -208,6 +225,11 @@ pub struct Scanner<T, S> {
 struct ModeFrame {
     id: usize,
     opened_at: u64,
+}
+
+enum SelectionError<E> {
+    Source(E),
+    TokenTooLong { observed: usize, limit: usize },
 }
 
 impl<T, S: Source> Scanner<T, S> {
@@ -260,17 +282,25 @@ impl<T, S: Source> Scanner<T, S> {
         &self.buffer[self.buffer_start..]
     }
 
-    fn read_more(&mut self) -> Result<(), S::Error> {
+    fn read_more(&mut self, max_buffered: usize) -> Result<(), S::Error> {
         const CHUNK_SIZE: usize = 8 * 1024;
 
         if self.buffer_start > 0 {
             self.buffer.drain(..self.buffer_start);
             self.buffer_start = 0;
         }
-        let mut chunk = [0; CHUNK_SIZE];
-        let length = self.source.read(&mut chunk)?;
+        let available = max_buffered
+            .checked_sub(self.buffer.len())
+            .expect("the scanner buffer stays within its configured capacity");
         assert!(
-            length <= chunk.len(),
+            available > 0,
+            "a buffered read has room for at least one byte"
+        );
+        let mut chunk = [0; CHUNK_SIZE];
+        let capacity = available.min(chunk.len());
+        let length = self.source.read(&mut chunk[..capacity])?;
+        assert!(
+            length <= capacity,
             "a Source returned more bytes than its buffer can hold"
         );
         if length == 0 {
@@ -281,9 +311,10 @@ impl<T, S: Source> Scanner<T, S> {
         Ok(())
     }
 
-    fn byte_at(&mut self, index: usize) -> Result<Option<u8>, S::Error> {
+    fn byte_at(&mut self, index: usize, max_buffered: usize) -> Result<Option<u8>, S::Error> {
+        debug_assert!(index < max_buffered, "buffered byte index exceeds capacity");
         while index >= self.unread().len() && !self.eof {
-            self.read_more()?;
+            self.read_more(max_buffered)?;
         }
         Ok(self.unread().get(index).copied())
     }
@@ -302,9 +333,9 @@ impl<T, S: Source> Scanner<T, S> {
             .expect("a source byte offset exceeds u64")
     }
 
-    fn invalid_input_length(&mut self) -> Result<(usize, bool), S::Error> {
+    fn invalid_input_length(&mut self, max_buffered: usize) -> Result<(usize, bool), S::Error> {
         let first = self
-            .byte_at(0)?
+            .byte_at(0, max_buffered)?
             .expect("invalid input is only measured when one byte is available");
         let expected = match first {
             0x00..=0x7f => 1,
@@ -314,7 +345,7 @@ impl<T, S: Source> Scanner<T, S> {
             _ => 1,
         };
         for index in 1..expected {
-            if self.byte_at(index)?.is_none() {
+            if self.byte_at(index, max_buffered)?.is_none() {
                 break;
             }
         }
@@ -327,22 +358,47 @@ impl<T, S: Source> Scanner<T, S> {
 }
 
 impl<T: Lexer, S: Source> Scanner<T, S> {
-    fn select_rule(&mut self, mode: usize) -> Result<Option<(usize, usize)>, S::Error> {
+    fn select_rule(
+        &mut self,
+        mode: usize,
+        max_buffered: usize,
+    ) -> Result<Option<(usize, usize)>, SelectionError<S::Error>> {
+        let limit = T::max_token_bytes();
         let mut state = T::start_state(mode).expect("the mode stack contains a generated mode");
         let mut latest = T::accepting_rule(state).map(|rule| (rule, 0));
         let mut index = 0;
 
-        while let Some(byte) = self.byte_at(index)? {
-            let Some(next) = T::next_state(state, byte) else {
-                break;
-            };
-            state = next;
-            index += 1;
-            if let Some(rule) = T::accepting_rule(state) {
-                latest = Some((rule, index));
+        loop {
+            let buffered_end = self.unread().len().min(limit);
+            while index < buffered_end {
+                let byte = self.unread()[index];
+                let Some(next) = T::next_state(state, byte) else {
+                    return Ok(latest);
+                };
+                state = next;
+                index += 1;
+                if let Some(rule) = T::accepting_rule(state) {
+                    latest = Some((rule, index));
+                }
             }
+            if index == limit {
+                let next = self
+                    .byte_at(index, max_buffered)
+                    .map_err(SelectionError::Source)?
+                    .and_then(|byte| T::next_state(state, byte));
+                return next.map_or(Ok(latest), |_| {
+                    Err(SelectionError::TokenTooLong {
+                        observed: index.saturating_add(1),
+                        limit,
+                    })
+                });
+            }
+            if self.eof {
+                return Ok(latest);
+            }
+            self.read_more(max_buffered)
+                .map_err(SelectionError::Source)?;
         }
-        Ok(latest)
     }
 
     fn apply_transition(&mut self, transition: Transition, start: u64) {
@@ -377,18 +433,32 @@ impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
             return None;
         }
         loop {
+            const MAX_UTF8_BYTES: usize = 4;
+
             let mode = self
                 .modes
                 .last()
                 .expect("the mode stack contains INITIAL")
                 .id;
-            let selected = match self.select_rule(mode) {
+            let max_buffered = T::max_token_bytes().saturating_add(MAX_UTF8_BYTES);
+            let selected = match self.select_rule(mode, max_buffered) {
                 Ok(selected) => selected,
-                Err(error) => {
+                Err(SelectionError::Source(error)) => {
                     self.finished = true;
                     return Some(Err(ScanError::Source {
                         offset: self.buffered_end(),
                         error,
+                    }));
+                }
+                Err(SelectionError::TokenTooLong { observed, limit }) => {
+                    self.finished = true;
+                    let end = self
+                        .offset
+                        .checked_add(observed as u64)
+                        .expect("a source byte offset exceeds u64");
+                    return Some(Err(ScanError::TokenTooLong {
+                        span: Span::new(self.offset, end),
+                        limit,
                     }));
                 }
             };
@@ -403,7 +473,7 @@ impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
                     }
                     return None;
                 }
-                let (length, invalid_utf8) = match self.invalid_input_length() {
+                let (length, invalid_utf8) = match self.invalid_input_length(max_buffered) {
                     Ok(result) => result,
                     Err(error) => {
                         self.finished = true;
@@ -470,6 +540,12 @@ impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
 /// assert_eq!(Token::scan("word"), Some((Token::Word, 4)));
 /// ```
 pub trait Lexer: __private::Sealed + Sized {
+    /// Returns the maximum candidate-token length retained by a scanner.
+    #[doc(hidden)]
+    fn max_token_bytes() -> usize {
+        DEFAULT_MAX_TOKEN_BYTES
+    }
+
     /// Returns the DFA start state for a generated start condition.
     #[doc(hidden)]
     fn start_state(mode: usize) -> Option<usize>;

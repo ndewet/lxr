@@ -8,7 +8,7 @@ use lxr_codegen::{RuleSpec, Transition, compile_with_modes};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Data, DeriveInput, Error, Expr, Fields, LitStr, Result, Type,
+    Data, DeriveInput, Error, Expr, Fields, LitInt, LitStr, Result, Type,
     parse::{Parse, ParseStream},
     parse_macro_input,
 };
@@ -18,6 +18,8 @@ use syn::{
 /// Every variant needs one `#[token("pattern")]` attribute. Unit variants
 /// emit no payload; a single-field tuple variant parses an owned payload.
 /// Rules are considered in declaration order when equal-length matches tie.
+/// The scanner accepts candidate tokens up to 16 MiB by default. Set
+/// `#[lexer(max_token_bytes = N)]` on the enum to choose another limit.
 ///
 /// # Examples
 ///
@@ -38,6 +40,7 @@ use syn::{
 /// # pub type RuleScan<T> = Result<(Option<T>, usize, Transition), (PayloadError, usize)>;
 /// # pub mod __private { pub trait Sealed {} }
 /// # pub trait Lexer: __private::Sealed + Sized {
+/// #     fn max_token_bytes() -> usize { 16 * 1024 * 1024 }
 /// #     fn start_state(mode: usize) -> Option<usize>;
 /// #     fn next_state(state: usize, byte: u8) -> Option<usize>;
 /// #     fn accepting_rule(state: usize) -> Option<usize>;
@@ -48,6 +51,7 @@ use syn::{
 /// use lxr_derive::Lexer;
 ///
 /// #[derive(Debug, PartialEq, Lexer)]
+/// #[lexer(max_token_bytes = 1_048_576)]
 /// enum Token {
 ///     #[token("[a-z]+")]
 ///     Word,
@@ -72,7 +76,12 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         ));
     };
 
-    let (modes, mut rules, mut patterns) = lexer_attributes(&input.attrs)?;
+    let LexerConfig {
+        modes,
+        mut rules,
+        mut patterns,
+        max_token_bytes,
+    } = lexer_attributes(&input.attrs)?;
     for variant in data.variants {
         let attribute = rule_attribute(&variant.attrs, &variant.ident)?;
         let pattern = attribute.pattern.clone();
@@ -148,6 +157,13 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
     })?;
     let ident = input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+    let max_token_bytes = max_token_bytes.map(|limit| {
+        quote! {
+            fn max_token_bytes() -> usize {
+                #limit
+            }
+        }
+    });
 
     Ok(quote! {
         impl #impl_generics #ident #type_generics #where_clause {
@@ -157,6 +173,8 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         impl #impl_generics ::lxr::__private::Sealed for #ident #type_generics #where_clause {}
 
         impl #impl_generics ::lxr::Lexer for #ident #type_generics #where_clause {
+            #max_token_bytes
+
             fn start_state(mode: usize) -> Option<usize> {
                 Self::__lxr_start(mode)
             }
@@ -183,12 +201,18 @@ fn derive_lexer_inner(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
     })
 }
 
-fn lexer_attributes(
-    attributes: &[syn::Attribute],
-) -> Result<(Vec<String>, Vec<RuleSpec>, Vec<LitStr>)> {
+struct LexerConfig {
+    modes: Vec<String>,
+    rules: Vec<RuleSpec>,
+    patterns: Vec<LitStr>,
+    max_token_bytes: Option<LitInt>,
+}
+
+fn lexer_attributes(attributes: &[syn::Attribute]) -> Result<LexerConfig> {
     let mut modes = Vec::new();
     let mut rules = Vec::new();
     let mut patterns = Vec::new();
+    let mut max_token_bytes = None;
     attributes
         .iter()
         .filter(|attribute| attribute.path().is_ident("lexer"))
@@ -201,10 +225,28 @@ fn lexer_attributes(
                 modes.push(mode);
                 return Ok(());
             }
+            if config.name == "max_token_bytes" {
+                let limit = config
+                    .max_token_bytes
+                    .expect("max_token_bytes attribute has an integer");
+                if limit.base10_parse::<usize>()? == 0 {
+                    return Err(Error::new_spanned(
+                        limit,
+                        "`max_token_bytes` must be greater than zero",
+                    ));
+                }
+                if max_token_bytes.replace(limit).is_some() {
+                    return Err(Error::new_spanned(
+                        attribute,
+                        "a lexer can declare `max_token_bytes` only once",
+                    ));
+                }
+                return Ok(());
+            }
             if config.name != "skip" {
                 return Err(Error::new_spanned(
                     attribute,
-                    "expected `mode = Name` or `skip = \"pattern\"`",
+                    "expected `mode`, `skip`, or `max_token_bytes`",
                 ));
             }
             let pattern = config.pattern.expect("skip attribute has a pattern");
@@ -222,13 +264,19 @@ fn lexer_attributes(
             patterns.push(pattern);
             Ok(())
         })?;
-    Ok((modes, rules, patterns))
+    Ok(LexerConfig {
+        modes,
+        rules,
+        patterns,
+        max_token_bytes,
+    })
 }
 
 struct LexerAttribute {
     name: String,
     mode: Option<String>,
     pattern: Option<LitStr>,
+    max_token_bytes: Option<LitInt>,
     rule: RuleConfig,
 }
 
@@ -251,6 +299,20 @@ impl Parse for LexerAttribute {
                 name: name.to_string(),
                 mode: Some(mode.to_string()),
                 pattern: None,
+                max_token_bytes: None,
+                rule: RuleConfig::stay(),
+            });
+        }
+        if name == "max_token_bytes" {
+            let max_token_bytes: LitInt = input.parse()?;
+            if !input.is_empty() {
+                return Err(input.error("unexpected max_token_bytes attribute content"));
+            }
+            return Ok(Self {
+                name: name.to_string(),
+                mode: None,
+                pattern: None,
+                max_token_bytes: Some(max_token_bytes),
                 rule: RuleConfig::stay(),
             });
         }
@@ -260,6 +322,7 @@ impl Parse for LexerAttribute {
             name: name.to_string(),
             mode: None,
             pattern: Some(pattern),
+            max_token_bytes: None,
             rule,
         })
     }
