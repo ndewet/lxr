@@ -848,6 +848,23 @@ fn scanner_reports_source_errors_without_accepting_an_ambiguous_prefix() {
 }
 
 #[test]
+fn scan_errors_expose_their_location_without_matching_variants() {
+    let ranged: ScanError = ScanError::InvalidPayload {
+        span: Span::new(3, 7),
+        message: "invalid value".to_owned(),
+    };
+    assert_eq!(ranged.span(), Some(Span::new(3, 7)));
+    assert_eq!(ranged.offset(), 3);
+
+    let source = ScanError::Source {
+        offset: 11,
+        error: "disconnected",
+    };
+    assert_eq!(source.span(), None);
+    assert_eq!(source.offset(), 11);
+}
+
+#[test]
 fn spanned_transformations_preserve_the_original_span() {
     let token = Spanned {
         token: "17",

@@ -232,6 +232,62 @@ pub enum ScanError<E = std::convert::Infallible> {
     },
 }
 
+impl<E> ScanError<E> {
+    /// Returns the byte range associated with this error, when one exists.
+    ///
+    /// Source errors identify the byte offset where reading failed, but they
+    /// do not identify a range in the input.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runeweaver::{ScanError, Span};
+    ///
+    /// let error: ScanError = ScanError::Unrecognized {
+    ///     span: Span::new(4, 5),
+    /// };
+    /// assert_eq!(error.span(), Some(Span::new(4, 5)));
+    /// ```
+    #[must_use]
+    pub const fn span(&self) -> Option<Span> {
+        match self {
+            Self::Unrecognized { span }
+            | Self::InvalidUtf8 { span }
+            | Self::InvalidPayload { span, .. }
+            | Self::TokenTooLong { span, .. }
+            | Self::UnterminatedMode { span, .. } => Some(*span),
+            Self::Source { .. } => None,
+        }
+    }
+
+    /// Returns the first byte offset associated with this error.
+    ///
+    /// This is the start of the error span for input errors and the read
+    /// failure offset for source errors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runeweaver::{ScanError, Span};
+    ///
+    /// let error: ScanError = ScanError::InvalidUtf8 {
+    ///     span: Span::new(7, 8),
+    /// };
+    /// assert_eq!(error.offset(), 7);
+    /// ```
+    #[must_use]
+    pub const fn offset(&self) -> u64 {
+        match self {
+            Self::Unrecognized { span }
+            | Self::InvalidUtf8 { span }
+            | Self::InvalidPayload { span, .. }
+            | Self::TokenTooLong { span, .. }
+            | Self::UnterminatedMode { span, .. } => span.start,
+            Self::Source { offset, .. } => *offset,
+        }
+    }
+}
+
 impl<E: Display> Display for ScanError<E> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
