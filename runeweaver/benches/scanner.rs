@@ -78,6 +78,25 @@ fn scan_reader(input: &[u8]) -> usize {
         .expect("the benchmark input is valid")
 }
 
+fn scan_slice_with_lexemes(input: &str) -> usize {
+    Token::scanner(black_box(input))
+        .with_lexemes()
+        .try_fold(0usize, |bytes, result| {
+            result.map(|token| bytes + token.lexeme.len())
+        })
+        .expect("the benchmark input is valid")
+}
+
+fn scan_reader_with_lexemes(input: &[u8]) -> usize {
+    let source = Reader::new(Cursor::new(black_box(input)));
+    Token::scanner_from(source)
+        .with_lexemes()
+        .try_fold(0usize, |bytes, result| {
+            result.map(|token| bytes + token.lexeme.len())
+        })
+        .expect("the benchmark input is valid")
+}
+
 fn measure(name: &str, bytes: usize, mut scan: impl FnMut() -> usize) {
     const ITERATIONS: u32 = 50;
 
@@ -97,4 +116,10 @@ fn main() {
     let input = input();
     measure("slice", input.len(), || scan_slice(input.as_str()));
     measure("reader", input.len(), || scan_reader(input.as_bytes()));
+    measure("slice with lexemes", input.len(), || {
+        scan_slice_with_lexemes(input.as_str())
+    });
+    measure("reader with lexemes", input.len(), || {
+        scan_reader_with_lexemes(input.as_bytes())
+    });
 }

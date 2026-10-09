@@ -109,6 +109,47 @@ impl<T> Spanned<T> {
     }
 }
 
+/// A token together with its byte range and matched text.
+///
+/// The lexeme is owned so this value has the same shape for in-memory and
+/// streaming sources. Use [`Scanner::with_lexemes`] to request this item type.
+/// The regular scanner does not allocate or retain lexemes.
+///
+/// # Examples
+///
+/// ```
+/// use runeweaver::{Lexer, Span, SpannedLexeme};
+///
+/// #[derive(Debug, PartialEq, Lexer)]
+/// enum Token {
+///     #[token("[a-z]+")]
+///     Word,
+/// }
+///
+/// let token = Token::scanner("hello")
+///     .with_lexemes()
+///     .next()
+///     .expect("the input has a token")
+///     .expect("the input is valid");
+/// assert_eq!(
+///     token,
+///     SpannedLexeme {
+///         token: Token::Word,
+///         span: Span::new(0, 5),
+///         lexeme: "hello".to_owned(),
+///     }
+/// );
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpannedLexeme<T> {
+    /// The token accepted by the lexer.
+    pub token: T,
+    /// The half-open UTF-8 byte range matched by this token.
+    pub span: Span,
+    /// The matched UTF-8 text.
+    pub lexeme: String,
+}
+
 /// Holds the items that generated code names, and that callers do not.
 #[doc(hidden)]
 pub mod __private {
@@ -386,6 +427,14 @@ pub struct Scanner<T, S> {
     marker: PhantomData<T>,
 }
 
+/// Iterates over tokens while retaining each matched lexeme.
+///
+/// Create this adapter with [`Scanner::with_lexemes`]. Each emitted token owns
+/// a new [`String`]. Skipped rules remain unobservable.
+pub struct LexemeScanner<T, S> {
+    scanner: Scanner<T, S>,
+}
+
 struct ModeFrame {
     id: usize,
     opened_at: u64,
@@ -432,6 +481,33 @@ impl<T, S: Source> Scanner<T, S> {
     /// Returns the byte offset at which the next token will begin.
     pub const fn position(&self) -> u64 {
         self.offset
+    }
+
+    /// Requests an owned copy of the matched text with every token.
+    ///
+    /// This is opt-in because it allocates for each emitted token. The adapter
+    /// works with in-memory and streaming sources.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runeweaver::Lexer;
+    ///
+    /// #[derive(Lexer)]
+    /// enum Token {
+    ///     #[token("[0-9]+")]
+    ///     Integer,
+    /// }
+    ///
+    /// let token = Token::scanner("42")
+    ///     .with_lexemes()
+    ///     .next()
+    ///     .expect("the input has a token")
+    ///     .expect("the input is valid");
+    /// assert_eq!(token.lexeme, "42");
+    /// ```
+    pub fn with_lexemes(self) -> LexemeScanner<T, S> {
+        LexemeScanner { scanner: self }
     }
 
     /// Stops scanning and returns all unread input.
@@ -587,12 +663,11 @@ impl<T: Lexer, S: Source> Scanner<T, S> {
             }
         }
     }
-}
 
-impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
-    type Item = Result<Spanned<T>, ScanError<S::Error>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next_with<U>(
+        &mut self,
+        mut attach: impl FnMut(T, Span, &str) -> U,
+    ) -> Option<Result<U, ScanError<S::Error>>> {
         if self.finished {
             return None;
         }
@@ -658,10 +733,16 @@ impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
             };
 
             let start = self.offset;
+            let end = start
+                .checked_add(consumed as u64)
+                .expect("a source byte offset exceeds u64");
+            let span = Span::new(start, end);
             let result = {
                 let text = std::str::from_utf8(&self.unread()[..consumed])
                     .expect("a generated lexer only accepts valid UTF-8");
-                T::run_action(rule, text)
+                T::run_action(rule, text).map(|(token, transition)| {
+                    (token.map(|token| attach(token, span, text)), transition)
+                })
             };
             self.commit(consumed);
             let (token, transition) = match result {
@@ -669,19 +750,56 @@ impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
                 Err(error) => {
                     self.apply_transition(error.transition(), start);
                     return Some(Err(ScanError::InvalidPayload {
-                        span: Span::new(start, self.offset),
+                        span,
                         message: error.to_string(),
                     }));
                 }
             };
             self.apply_transition(transition, start);
             if let Some(token) = token {
-                return Some(Ok(Spanned {
-                    token,
-                    span: Span::new(start, self.offset),
-                }));
+                return Some(Ok(token));
             }
         }
+    }
+}
+
+impl<T: Lexer, S: Source> Iterator for Scanner<T, S> {
+    type Item = Result<Spanned<T>, ScanError<S::Error>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_with(|token, span, _| Spanned { token, span })
+    }
+}
+
+impl<T, S: Source> LexemeScanner<T, S> {
+    /// Returns the byte offset at which the next token will begin.
+    pub const fn position(&self) -> u64 {
+        self.scanner.position()
+    }
+
+    /// Stops retaining lexemes and returns the underlying scanner.
+    pub fn into_scanner(self) -> Scanner<T, S> {
+        self.scanner
+    }
+
+    /// Stops scanning and returns all unread input.
+    ///
+    /// The returned source first replays bytes read during token lookahead,
+    /// then continues with the original source.
+    pub fn into_source(self) -> Remainder<S> {
+        self.scanner.into_source()
+    }
+}
+
+impl<T: Lexer, S: Source> Iterator for LexemeScanner<T, S> {
+    type Item = Result<SpannedLexeme<T>, ScanError<S::Error>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.scanner.next_with(|token, span, text| SpannedLexeme {
+            token,
+            span,
+            lexeme: text.to_owned(),
+        })
     }
 }
 
