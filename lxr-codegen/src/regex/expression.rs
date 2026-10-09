@@ -96,7 +96,6 @@ impl Expression {
     ///
     /// This estimate predicts Thompson construction size. It saturates at
     /// [`usize::MAX`].
-    #[cfg(test)]
     pub(crate) fn expanded_size(&self) -> usize {
         match self {
             Self::Epsilon | Self::Class(_) => 1,
@@ -117,7 +116,6 @@ impl Expression {
     }
 }
 
-#[cfg(test)]
 fn expanded_repetition_size(expression: &Expression, minimum: usize, maximum: usize) -> usize {
     expression
         .expanded_size()
