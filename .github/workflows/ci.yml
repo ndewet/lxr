@@ -55,10 +55,12 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      BASE_TARGET: ${{ runner.temp }}/runeweaver-benchmark-base
-      PR_TARGET: ${{ runner.temp }}/runeweaver-benchmark-pr
     steps:
+      - name: Set target directories
+        run: |
+          echo "BASE_TARGET=$RUNNER_TEMP/runeweaver-benchmark-base" >> "$GITHUB_ENV"
+          echo "PR_TARGET=$RUNNER_TEMP/runeweaver-benchmark-pr" >> "$GITHUB_ENV"
+
       - name: Check out the pull request
         uses: actions/checkout@v7
 
