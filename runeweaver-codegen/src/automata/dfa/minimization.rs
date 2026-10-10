@@ -3,6 +3,7 @@ use crate::automata::{
     dfa::{Builder, Dfa},
     label::Partitionable,
 };
+use std::collections::VecDeque;
 
 impl<L, A> Dfa<L, A>
 where
@@ -21,15 +22,7 @@ where
 {
     let classes = global_classes(&dfa);
     let dead_state = StateId::new(dfa.state_count());
-    let mut partition = initial_partition(&dfa, dead_state);
-
-    loop {
-        let next = refine(&classes, &partition, dead_state);
-        if next.states_by_block.len() == partition.states_by_block.len() {
-            break;
-        }
-        partition = next;
-    }
+    let partition = refine(&classes, initial_partition(&dfa, dead_state), dead_state);
 
     build_minimized(dfa, &classes, partition, dead_state)
 }
@@ -37,6 +30,11 @@ where
 struct GlobalClass<L> {
     label: L,
     target_by_source: Vec<Option<StateId>>,
+}
+
+struct Predecessors {
+    offsets: Vec<usize>,
+    sources: Vec<StateId>,
 }
 
 fn global_classes<L, A>(dfa: &Dfa<L, A>) -> Vec<GlobalClass<L>>
@@ -116,37 +114,118 @@ where
     }
 }
 
-fn refine<L>(classes: &[GlobalClass<L>], partition: &Partition, dead_state: StateId) -> Partition {
-    let mut states_by_block = Vec::new();
+fn refine<L>(
+    classes: &[GlobalClass<L>],
+    mut partition: Partition,
+    dead_state: StateId,
+) -> Partition {
+    let predecessors = predecessors(classes, dead_state);
+    let mut pending: VecDeque<_> = (0..partition.states_by_block.len()).collect();
+    let mut is_pending = vec![true; partition.states_by_block.len()];
+    let mut affected_by_block: Vec<Vec<StateId>> = partition
+        .states_by_block
+        .iter()
+        .map(|_| Vec::new())
+        .collect();
+    let mut is_affected = vec![false; dead_state.index() + 1];
 
-    for states in &partition.states_by_block {
-        let mut groups: Vec<(Vec<usize>, Vec<StateId>)> = Vec::new();
+    while let Some(splitter) = pending.pop_front() {
+        is_pending[splitter] = false;
+        let splitter_states = partition.states_by_block[splitter].clone();
 
-        for &state in states {
-            let signature = classes
-                .iter()
-                .map(|class| {
-                    let target = (state != dead_state)
-                        .then(|| class.target_by_source[state.index()])
-                        .flatten()
-                        .unwrap_or(dead_state);
-                    partition.blocks_by_state[target.index()]
-                })
-                .collect();
-            let group = groups
-                .iter()
-                .position(|(other, _)| *other == signature)
-                .unwrap_or_else(|| {
-                    groups.push((signature, Vec::new()));
-                    groups.len() - 1
-                });
-            groups[group].1.push(state);
+        for sources_by_target in &predecessors {
+            let mut affected_blocks = Vec::new();
+            for target in &splitter_states {
+                for &source in sources_by_target.get(*target) {
+                    let block = partition.blocks_by_state[source.index()];
+                    if affected_by_block[block].is_empty() {
+                        affected_blocks.push(block);
+                    }
+                    affected_by_block[block].push(source);
+                    is_affected[source.index()] = true;
+                }
+            }
+
+            for block in affected_blocks {
+                let affected = std::mem::take(&mut affected_by_block[block]);
+                if affected.len() == partition.states_by_block[block].len() {
+                    for state in affected {
+                        is_affected[state.index()] = false;
+                    }
+                    continue;
+                }
+
+                let states = std::mem::take(&mut partition.states_by_block[block]);
+                let unaffected: Vec<_> = states
+                    .into_iter()
+                    .filter(|state| !is_affected[state.index()])
+                    .collect();
+                for &state in &affected {
+                    is_affected[state.index()] = false;
+                }
+
+                let (kept, moved) = if affected.len() <= unaffected.len() {
+                    (unaffected, affected)
+                } else {
+                    (affected, unaffected)
+                };
+                partition.states_by_block[block] = kept;
+                let new_block = partition.states_by_block.len();
+                for &state in &moved {
+                    partition.blocks_by_state[state.index()] = new_block;
+                }
+                partition.states_by_block.push(moved);
+                affected_by_block.push(Vec::new());
+                is_pending.push(true);
+                pending.push_back(new_block);
+            }
         }
-
-        states_by_block.extend(groups.into_iter().map(|(_, states)| states));
     }
 
-    Partition::new(states_by_block, dead_state)
+    partition
+}
+
+fn predecessors<L>(classes: &[GlobalClass<L>], dead_state: StateId) -> Vec<Predecessors> {
+    classes
+        .iter()
+        .map(|class| Predecessors::new(class, dead_state))
+        .collect()
+}
+
+impl Predecessors {
+    fn new<L>(class: &GlobalClass<L>, dead_state: StateId) -> Self {
+        let state_count = dead_state.index() + 1;
+        let mut offsets = vec![0; state_count + 1];
+        for index in 0..state_count {
+            let target = target_of(class, StateId::new(index), dead_state);
+            offsets[target.index() + 1] += 1;
+        }
+        for index in 1..offsets.len() {
+            offsets[index] += offsets[index - 1];
+        }
+
+        let mut cursors = offsets.clone();
+        let mut sources = vec![dead_state; state_count];
+        for index in 0..state_count {
+            let source = StateId::new(index);
+            let target = target_of(class, source, dead_state);
+            sources[cursors[target.index()]] = source;
+            cursors[target.index()] += 1;
+        }
+        Self { offsets, sources }
+    }
+
+    fn get(&self, target: StateId) -> &[StateId] {
+        &self.sources[self.offsets[target.index()]..self.offsets[target.index() + 1]]
+    }
+}
+
+fn target_of<L>(class: &GlobalClass<L>, source: StateId, dead_state: StateId) -> StateId {
+    if source == dead_state {
+        dead_state
+    } else {
+        class.target_by_source[source.index()].unwrap_or(dead_state)
+    }
 }
 
 fn build_minimized<L, A>(
@@ -207,21 +286,6 @@ where
         .map(|block| state_by_block[block].expect("start blocks have output states"))
         .collect::<Vec<_>>();
     builder.build(&starts)
-}
-
-impl Partition {
-    fn new(states_by_block: Vec<Vec<StateId>>, dead_state: StateId) -> Self {
-        let mut blocks_by_state = vec![0; dead_state.index() + 1];
-        for (block, states) in states_by_block.iter().enumerate() {
-            for &state in states {
-                blocks_by_state[state.index()] = block;
-            }
-        }
-        Self {
-            blocks_by_state,
-            states_by_block,
-        }
-    }
 }
 
 fn accept_of<L, A>(dfa: &Dfa<L, A>, state: StateId, dead_state: StateId) -> Option<&A> {
