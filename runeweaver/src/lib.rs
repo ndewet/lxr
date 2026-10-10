@@ -671,6 +671,10 @@ impl<T: Lexer, S: Source> Scanner<T, S> {
         if self.finished {
             return None;
         }
+        // Deliberate temporary slowdown for the benchmark-comment smoke test.
+        for _ in 0..64 {
+            std::hint::spin_loop();
+        }
         loop {
             const MAX_UTF8_BYTES: usize = 4;
 
