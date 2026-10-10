@@ -34,29 +34,42 @@ function withTemporaryDirectory(callback) {
   }
 }
 
-test("only a confident change above the limit fails", () => {
+test("only confident changes above the limit are reported", () => {
   withTemporaryDirectory((root) => {
     writeResult(root, "clear-regression", 0.08, 0.06, 0.1);
     writeResult(root, "uncertain-change", 0.08, 0.04, 0.12);
     writeResult(root, "improvement", -0.08, -0.1, -0.06);
 
-    const { report, regressions } = makeReport(loadResults(root), 0.05);
+    const { report, changes, regressions } = makeReport(loadResults(root), 0.05);
 
     assert.deepEqual(
       regressions.map((result) => result.name),
       ["clear-regression"],
     );
-    assert.match(report, /uncertain-change/);
+    assert.deepEqual(
+      changes.map((result) => [result.name, result.status]),
+      [
+        ["clear-regression", "Regression"],
+        ["improvement", "Improvement"],
+      ],
+    );
+    assert.doesNotMatch(report, /uncertain-change/);
+    assert.match(report, /clear-regression/);
+    assert.match(report, /improvement/);
   });
 });
 
-test("a new benchmark has no comparison", () => {
+test("new and unchanged benchmarks are omitted", () => {
   withTemporaryDirectory((root) => {
     writeResult(root, "new-case", null);
+    writeResult(root, "unchanged-case", 0.01, -0.01, 0.03);
 
-    const { report, regressions } = makeReport(loadResults(root), 0.05);
+    const { report, changes, regressions } = makeReport(loadResults(root), 0.05);
 
+    assert.deepEqual(changes, []);
     assert.deepEqual(regressions, []);
-    assert.match(report, /Not compared/);
+    assert.doesNotMatch(report, /new-case/);
+    assert.doesNotMatch(report, /unchanged-case/);
+    assert.match(report, /No improvements or regressions were found/);
   });
 });

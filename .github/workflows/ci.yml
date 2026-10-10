@@ -55,6 +55,9 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Check out the pull request
         uses: actions/checkout@v7
@@ -255,4 +258,58 @@ jobs:
 
       - name: Check for regressions
         if: steps.affected-benchmarks.outputs.run == 'true'
+        id: benchmark-results
         run: node .github/scripts/check_benchmarks.mjs "$PR_TARGET/criterion" --threshold 0.05
+        env:
+          BENCHMARK_REPORT: ${{ runner.temp }}/benchmark-report.md
+
+      - name: Comment benchmark changes
+        if: always() && steps.benchmark-results.outputs.completed == 'true'
+        uses: actions/github-script@v9
+        env:
+          BENCHMARK_REPORT: ${{ runner.temp }}/benchmark-report.md
+          HAS_CHANGES: ${{ steps.benchmark-results.outputs.has_changes }}
+        with:
+          script: |
+            const fs = require("node:fs");
+            const marker = "<!-- runeweaver-benchmark-report -->";
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.login === "github-actions[bot]" &&
+                comment.body?.includes(marker),
+            );
+
+            if (process.env.HAS_CHANGES !== "true") {
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body: `${marker}\nNo benchmark improvements or regressions were found.`,
+                });
+              }
+              return;
+            }
+
+            const body = `${marker}\n${fs.readFileSync(process.env.BENCHMARK_REPORT, "utf8")}`;
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

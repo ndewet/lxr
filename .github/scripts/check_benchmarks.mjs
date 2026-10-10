@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { appendFileSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -51,31 +51,39 @@ function percentage(value) {
 }
 
 export function makeReport(results, threshold) {
-  const regressions = results.filter(
-    (result) => result.lowerBound !== null && result.lowerBound > threshold,
-  );
+  const changes = results
+    .map((result) => {
+      if (result.lowerBound !== null && result.lowerBound > threshold) {
+        return { ...result, status: "Regression" };
+      }
+      if (result.upperBound !== null && result.upperBound < -threshold) {
+        return { ...result, status: "Improvement" };
+      }
+      return null;
+    })
+    .filter((result) => result !== null);
+  const regressions = changes.filter((result) => result.status === "Regression");
   const lines = [
-    "## Benchmark comparison",
+    "## Benchmark changes",
     "",
-    `The regression limit is ${(threshold * 100).toFixed(1)}%.`,
-    "A benchmark fails only when its complete 99% confidence interval exceeds the limit.",
-    "",
-    "| Benchmark | Estimate | 99% confidence interval | Result |",
-    "| --- | ---: | ---: | --- |",
+    `Changes are shown when the complete 99% confidence interval exceeds ±${(threshold * 100).toFixed(1)}%.`,
   ];
-  for (const result of results) {
-    const isNew = result.estimate === null;
-    const interval = isNew
-      ? "new benchmark"
-      : `${percentage(result.lowerBound)} to ${percentage(result.upperBound)}`;
-    const status = isNew
-      ? "Not compared"
-      : regressions.includes(result)
-        ? "Regression"
-        : "Pass";
-    lines.push(`| \`${result.name}\` | ${percentage(result.estimate)} | ${interval} | ${status} |`);
+  if (changes.length === 0) {
+    lines.push("", "No improvements or regressions were found.");
+  } else {
+    lines.push(
+      "",
+      "| Benchmark | Difference | 99% confidence interval | Result |",
+      "| --- | ---: | ---: | --- |",
+    );
+    for (const result of changes) {
+      const interval = `${percentage(result.lowerBound)} to ${percentage(result.upperBound)}`;
+      lines.push(
+        `| \`${result.name}\` | ${percentage(result.estimate)} | ${interval} | ${result.status} |`,
+      );
+    }
   }
-  return { report: `${lines.join("\n")}\n`, regressions };
+  return { report: `${lines.join("\n")}\n`, changes, regressions };
 }
 
 function main() {
@@ -91,10 +99,20 @@ function main() {
     throw new Error("Criterion did not compare any benchmarks to the baseline");
   }
 
-  const { report, regressions } = makeReport(results, threshold);
+  const { report, changes, regressions } = makeReport(results, threshold);
   process.stdout.write(report);
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, report, "utf8");
+  }
+  if (process.env.BENCHMARK_REPORT && changes.length > 0) {
+    writeFileSync(process.env.BENCHMARK_REPORT, report, "utf8");
+  }
+  if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `completed=true\nhas_changes=${changes.length > 0}\n`,
+      "utf8",
+    );
   }
   process.exitCode = regressions.length === 0 ? 0 : 1;
 }

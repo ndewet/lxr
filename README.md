@@ -316,9 +316,10 @@ and throughput reports. Its configuration uses a 99% confidence level and a 1%
 significance level. Input construction stays outside each measured operation.
 
 Each pull request runs the same benchmark code against the base revision and
-the pull request revision on one runner. The check reports a regression only
-when the complete 99% confidence interval is above 5%. This rule keeps uncertain
-changes and normal runner noise from failing the check.
+the pull request revision on one runner. The check comments on the pull request
+with improvements and regressions whose complete 99% confidence interval is
+beyond 5%, and updates that comment on later runs. Regressions fail the check;
+uncertain changes and normal runner noise are omitted.
 
 The [benchmark guide](benchmarks/README.md) explains how to add and design a
 benchmark.
