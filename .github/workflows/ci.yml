@@ -56,47 +56,115 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Find benchmark changes
+        id: benchmark-changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          manifests=(benchmarks/Cargo.toml)
+          benchmark_inputs=()
+          declare -A inspected
+
+          for ((index = 0; index < ${#manifests[@]}; index++)); do
+            manifest="$(realpath "${manifests[index]}")"
+            if [[ -n "${inspected[$manifest]:-}" ]]; then
+              continue
+            fi
+            inspected[$manifest]=true
+
+            metadata="$(
+              cargo metadata \
+                --manifest-path "$manifest" \
+                --format-version 1 \
+                --no-deps \
+                --offline
+            )"
+
+            mapfile -t packages < <(
+              jq --raw-output '.packages[].manifest_path' <<< "$metadata"
+            )
+            for package in "${packages[@]}"; do
+              benchmark_inputs+=("$(dirname "$package")")
+              benchmark_inputs+=("$(
+                cargo locate-project \
+                  --workspace \
+                  --manifest-path "$package" \
+                  --message-format plain
+              )")
+            done
+
+            mapfile -t dependencies < <(
+              jq --raw-output \
+                '.packages[].dependencies[] | select(.path != null) | .path' \
+                <<< "$metadata"
+            )
+            for dependency in "${dependencies[@]}"; do
+              manifests+=("$dependency/Cargo.toml")
+            done
+          done
+
+          if git diff --quiet "$BASE_SHA" HEAD -- "${benchmark_inputs[@]}"; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            if (( status > 1 )); then
+              exit "$status"
+            fi
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set target directories
+        if: steps.benchmark-changes.outputs.run == 'true'
         run: |
           echo "BASE_TARGET=$RUNNER_TEMP/runeweaver-benchmark-base" >> "$GITHUB_ENV"
           echo "PR_TARGET=$RUNNER_TEMP/runeweaver-benchmark-pr" >> "$GITHUB_ENV"
 
-      - name: Check out the pull request
-        uses: actions/checkout@v7
-
       - name: Check out the base revision
+        if: steps.benchmark-changes.outputs.run == 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: .benchmark-base
 
       - name: Use the same benchmark suite for both revisions
+        if: steps.benchmark-changes.outputs.run == 'true'
         run: rsync --archive --delete benchmarks/ .benchmark-base/benchmarks/
 
       - name: Build the base benchmarks
+        if: steps.benchmark-changes.outputs.run == 'true'
         run: cargo bench --manifest-path .benchmark-base/benchmarks/Cargo.toml --bench benchmarks --no-run --locked
         env:
           CARGO_TARGET_DIR: ${{ env.BASE_TARGET }}
 
       - name: Build the pull request benchmarks
+        if: steps.benchmark-changes.outputs.run == 'true'
         run: cargo bench --manifest-path benchmarks/Cargo.toml --bench benchmarks --no-run --locked
         env:
           CARGO_TARGET_DIR: ${{ env.PR_TARGET }}
 
       - name: Measure the base revision
+        if: steps.benchmark-changes.outputs.run == 'true'
         run: cargo bench --manifest-path .benchmark-base/benchmarks/Cargo.toml --bench benchmarks -- --save-baseline main
         env:
           CARGO_TARGET_DIR: ${{ env.BASE_TARGET }}
 
       - name: Copy the base measurements
+        if: steps.benchmark-changes.outputs.run == 'true'
         run: |
           mkdir -p "$PR_TARGET/criterion"
           rsync --archive "$BASE_TARGET/criterion/" "$PR_TARGET/criterion/"
 
       - name: Measure the pull request
+        if: steps.benchmark-changes.outputs.run == 'true'
         run: cargo bench --manifest-path benchmarks/Cargo.toml --bench benchmarks -- --baseline main
         env:
           CARGO_TARGET_DIR: ${{ env.PR_TARGET }}
 
       - name: Check for regressions
+        if: steps.benchmark-changes.outputs.run == 'true'
         run: node .github/scripts/check_benchmarks.mjs "$PR_TARGET/criterion" --threshold 0.05
