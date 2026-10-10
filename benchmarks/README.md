@@ -23,7 +23,9 @@ each executable and compares both revisions. It measures only the cases whose
 runtime content differs.
 
 CI fails when the lower bound of the mean change exceeds 5%. Therefore, the
-complete 99% confidence interval must show a slowdown greater than 5%.
+complete 99% confidence interval must show a slowdown greater than 5%. It also
+maintains a pull request comment containing a short table of improvements and
+regressions beyond that threshold; unchanged and uncertain results are omitted.
 
 ## Add a benchmark
 
