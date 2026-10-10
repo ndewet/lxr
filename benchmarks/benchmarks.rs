@@ -1,0 +1,22 @@
+mod cases;
+mod support;
+
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::time::Duration;
+
+fn configuration() -> Criterion {
+    Criterion::default()
+        .confidence_level(0.99)
+        .significance_level(0.01)
+        .sample_size(200)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(3))
+        .without_plots()
+}
+
+criterion_group! {
+    name = benches;
+    config = configuration();
+    targets = cases::benchmarks
+}
+criterion_main!(benches);

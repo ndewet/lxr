@@ -1,0 +1,8 @@
+"alpha", 0x0, !hello; "beta value", 0xFF, !world;
+"escaped \"quote\"", 0x10, !callback; "lexer", 0xABCDEF, !payload;
+"short", 0x7, !upper; "a longer string value", 0x1234, !benchmark;
+"unicode-free fixture", 0xDEADBEEF, !deterministic; "scanner", 0xCAFE, !reader;
+"generation path", 0xBADC0DE, !compile; "runtime path", 0xFEED, !measure;
+"mixed words 123", 0x8000, !criterion; "quoted text", 0xFFFF, !throughput;
+"one", 0x1, !alpha; "two two", 0x22, !beta; "three three three", 0x333, !gamma;
+"escaped \\ slash", 0x4444, !delta; "final value", 0x55555, !complete;

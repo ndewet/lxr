@@ -1,0 +1,10 @@
+alpha beta gamma @ BUILD RELEASE 17,23 ; delta epsilon zeta
+parser scanner lexer @ CHECK FORMAT 3,5,8 ; token source reader
+lambda mu nu @ GENERATE TABLES 144,233 ; xi omicron pi
+benchmark criterion sample @ VERIFY OUTPUT 377,610 ; confidence interval
+stream buffer cursor @ RUN TESTS 987,1597 ; slice lexeme iterator
+keyword identifier literal @ EMIT CODE 2584,4181 ; automata transition state
+delta epsilon theta @ OPTIMIZE MATCHER 13,21 ; sigma tau upsilon
+input output result @ INSPECT REPORT 34,55 ; warmup measurement throughput
+alpha_1 beta_2 gamma_3 @ BUILD_2 RELEASE_2 89,144 ; final_section
+short long repeated @ COMPARE BASELINE 610,987 ; stable deterministic workload

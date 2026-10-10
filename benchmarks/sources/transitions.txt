@@ -1,0 +1,10 @@
+alpha { one two { three four } five } beta @ BUILD RELEASE ; gamma
+delta { outer { middle { inner } middle_end } outer_end } epsilon
+@ CHECK FORMAT TEST ; zeta { red green blue } eta theta
+iota { first { second } third { fourth { fifth } } sixth } kappa
+lambda mu @ GENERATE VERIFY ; { nested words { deeper words } trailing words }
+nu { a b c } xi { d { e { f { g } } } h } omicron
+@ RUN COMPLETE ; pi rho { sigma tau { upsilon phi } chi } psi omega
+source { token lexer { scanner reader } iterator } @ MEASURE BASELINE ; result
+alpha { wide block with many separate words for matching } beta gamma
+final { level_one { level_two { level_three } return_two } return_one } done
