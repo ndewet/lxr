@@ -24,7 +24,7 @@ jobs:
       - name: Check minimum supported Rust version
         run: cargo +1.85 check --workspace --all-targets
 
-  check:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
