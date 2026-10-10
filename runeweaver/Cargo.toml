@@ -18,9 +18,5 @@ name = "runeweaver"
 [dependencies]
 runeweaver-derive = { version = "=0.1.0", path = "../runeweaver-derive" }
 
-[[bench]]
-name = "scanner"
-harness = false
-
 [lints]
 workspace = true

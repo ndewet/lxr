@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog version="1">
+  <book id="bk101" language="en" available="true">
+    <title>Lexer Design</title>
+    <author>Ada Example</author>
+    <chapter number="1">Regular Languages</chapter>
+    <chapter number="2">Finite Automata</chapter>
+    <chapter number="3">Streaming Sources</chapter>
+  </book>
+  <book id="bk102" language="da" available="false">
+    <title>Compiler Construction</title>
+    <author>Grace Example</author>
+    <chapter number="1">Token Definitions</chapter>
+    <chapter number="2">Error Recovery</chapter>
+  </book>
+  <book id="bk103" language="en" available="true"/>
+  <metadata generated="true">
+    <entry name="lexer" value="runeweaver"/>
+    <entry name="format" value="xml"/>
+    <entry name="revision" value="2026"/>
+    <statistics>
+      <value name="documents">count125</value>
+      <value name="elements">count4096</value>
+      <value name="attributes">count8192</value>
+    </statistics>
+  </metadata>
+  <namespaces>
+    <namespace name="catalog" prefix="cat"/>
+    <namespace name="metadata" prefix="meta"/>
+  </namespaces>
+</catalog>

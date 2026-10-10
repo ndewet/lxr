@@ -1,0 +1,18 @@
+as async await break const continue else enum false fn for if impl in let loop
+match mod move mut pub ref return self static struct trait true type unsafe use where while
+identifier another_identifier value result scanner token source benchmark criterion
+pub struct lexer configuration token source scanner result error transition state
+impl trait for type where self static const unsafe
+async fn await move return value future output
+if true else false match enum variant value
+loop break continue while for item in collection
+let mut accumulator let ref borrowed_value let result
+use module as renamed_module mod nested_module pub type Alias
+identifier short a medium_identifier extraordinarily_long_identifier_name
+fn parse_input fn scan_token fn generate_automaton fn minimize_deterministic_state_machine
+struct SourceReader struct SliceScanner struct LexemeToken struct PayloadError
+trait Iterator trait Display trait Debug trait Conversion
+as async await break const continue else enum false fn for if impl in let loop
+match mod move mut pub ref return self static struct trait true type unsafe use where while
+alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+value_1 value_22 value_333 result_1 result_22 result_333

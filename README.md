@@ -288,7 +288,7 @@ The supported public surface is the `runeweaver` runtime crate and its re-export
 derive macro. `runeweaver-codegen` is an implementation-facing crate and does not
 carry the same compatibility guarantee.
 
-Rust 1.85 is the minimum supported Rust version. Raising the MSRV requires at
+Rust 1.86 is the minimum supported Rust version. Raising the MSRV requires at
 least a minor release. The latest release line receives bug fixes; there are no
 separate long-term-support branches. Report defects and support requests
 through the repository's GitHub issue tracker.
@@ -304,11 +304,24 @@ cargo test --workspace
 cargo test --workspace --release
 ```
 
-Performance benchmarks are included for lexer generation and scanning:
+The benchmark suite measures lexer generation and scanning. Run it from the
+repository root:
 
 ```console
-cargo bench --workspace
+cargo bench --manifest-path benchmarks/Cargo.toml
 ```
+
+The suite uses Criterion for warm-up, sampling, bootstrap confidence intervals,
+and throughput reports. Its configuration uses a 99% confidence level and a 1%
+significance level. Input construction stays outside each measured operation.
+
+Each pull request runs the same benchmark code against the base revision and
+the pull request revision on one runner. The check reports a regression only
+when the complete 99% confidence interval is above 5%. This rule keeps uncertain
+changes and normal runner noise from failing the check.
+
+The [benchmark guide](benchmarks/README.md) explains how to add and design a
+benchmark.
 
 ## Releasing
 

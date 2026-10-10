@@ -19,10 +19,13 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install minimum supported Rust version
-        run: rustup toolchain install 1.85 --profile minimal
+        run: rustup toolchain install 1.86 --profile minimal
 
       - name: Check minimum supported Rust version
-        run: cargo +1.85 check --workspace --all-targets
+        run: cargo +1.86 check --workspace --all-targets
+
+      - name: Check benchmarks with minimum supported Rust version
+        run: cargo +1.86 check --manifest-path benchmarks/Cargo.toml --benches --locked
 
   test:
     runs-on: ubuntu-latest
@@ -30,13 +33,67 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Formatting
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path benchmarks/Cargo.toml -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo clippy --manifest-path benchmarks/Cargo.toml --benches --locked -- -D warnings
 
       - name: Test
         run: cargo test --workspace
 
       - name: Release test
         run: cargo test --workspace --release
+
+      - name: Benchmark gate tests
+        run: node --test .github/scripts/check_benchmarks.test.mjs
+
+  benchmark:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      BASE_TARGET: ${{ runner.temp }}/runeweaver-benchmark-base
+      PR_TARGET: ${{ runner.temp }}/runeweaver-benchmark-pr
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v7
+
+      - name: Check out the base revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .benchmark-base
+
+      - name: Use the same benchmark suite for both revisions
+        run: rsync --archive --delete benchmarks/ .benchmark-base/benchmarks/
+
+      - name: Build the base benchmarks
+        run: cargo bench --manifest-path .benchmark-base/benchmarks/Cargo.toml --bench benchmarks --no-run --locked
+        env:
+          CARGO_TARGET_DIR: ${{ env.BASE_TARGET }}
+
+      - name: Build the pull request benchmarks
+        run: cargo bench --manifest-path benchmarks/Cargo.toml --bench benchmarks --no-run --locked
+        env:
+          CARGO_TARGET_DIR: ${{ env.PR_TARGET }}
+
+      - name: Measure the base revision
+        run: cargo bench --manifest-path .benchmark-base/benchmarks/Cargo.toml --bench benchmarks -- --save-baseline main
+        env:
+          CARGO_TARGET_DIR: ${{ env.BASE_TARGET }}
+
+      - name: Copy the base measurements
+        run: |
+          mkdir -p "$PR_TARGET/criterion"
+          rsync --archive "$BASE_TARGET/criterion/" "$PR_TARGET/criterion/"
+
+      - name: Measure the pull request
+        run: cargo bench --manifest-path benchmarks/Cargo.toml --bench benchmarks -- --baseline main
+        env:
+          CARGO_TARGET_DIR: ${{ env.PR_TARGET }}
+
+      - name: Check for regressions
+        run: node .github/scripts/check_benchmarks.mjs "$PR_TARGET/criterion" --threshold 0.05
