@@ -232,7 +232,7 @@ jobs:
               awk -F '\t' -v name="$benchmark" '$1 == name { print $2 }' \
                 "$RUNNER_TEMP/base-benchmarks.tsv"
             )"
-            "$executable" --save-baseline main
+            "$executable" --bench --save-baseline main
           done < "$RUNNER_TEMP/affected-benchmarks"
         env:
           CARGO_TARGET_DIR: ${{ env.BASE_TARGET }}
@@ -251,7 +251,7 @@ jobs:
               awk -F '\t' -v name="$benchmark" '$1 == name { print $2 }' \
                 "$RUNNER_TEMP/pr-benchmarks.tsv"
             )"
-            "$executable" --baseline main
+            "$executable" --bench --baseline main
           done < "$RUNNER_TEMP/affected-benchmarks"
         env:
           CARGO_TARGET_DIR: ${{ env.PR_TARGET }}
