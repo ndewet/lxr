@@ -9,10 +9,10 @@ Run the complete suite from the repository root:
 cargo bench --manifest-path benchmarks/Cargo.toml
 ```
 
-Criterion warms each case for 250 milliseconds. It then collects 100 samples
-over at least 1.2 seconds. Reports use a 99% confidence level and a 1%
+Criterion warms each case for one second. It then collects 200 samples over at
+least three seconds. Reports use a 99% confidence level and a 1%
 significance level. Flat sampling keeps the duration predictable for operations
-that take several milliseconds. The pull request job has a five-minute limit.
+that take several milliseconds. The pull request job has a 15-minute limit.
 
 CI checks out the pull request base revision into a separate directory. It
 copies the pull request benchmark suite there before it builds either revision.
