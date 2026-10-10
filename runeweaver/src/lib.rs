@@ -672,7 +672,7 @@ impl<T: Lexer, S: Source> Scanner<T, S> {
             return None;
         }
         // Deliberate temporary slowdown for the benchmark-comment smoke test.
-        for _ in 0..64 {
+        for _ in 0..6 {
             std::hint::spin_loop();
         }
         loop {
