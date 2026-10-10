@@ -54,7 +54,7 @@ jobs:
   benchmark:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Set target directories
         run: |
