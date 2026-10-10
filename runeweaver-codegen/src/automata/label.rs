@@ -38,7 +38,7 @@ impl<L> LabelClass<L> {
     }
 
     /// Returns the indexes of the matching input labels.
-    pub(crate) fn get_matching_labels(&self) -> &Vec<usize> {
+    pub(crate) fn get_matching_labels(&self) -> &[usize] {
         &self.matching_labels
     }
 }
