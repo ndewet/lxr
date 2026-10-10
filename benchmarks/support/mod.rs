@@ -1,31 +1,37 @@
+pub mod definition;
 pub mod generation;
 pub mod scanner;
 
 macro_rules! token_definition {
     (
-        $(#[lexer(skip = $skip:literal)])*
+        $(#[$enum_attribute:meta])*
         $visibility:vis enum $token:ident {
-            $(#[token($pattern:literal)] $variant:ident),* $(,)?
+            $(
+                $(#[$variant_attribute:meta])*
+                $variant:ident $(($payload:ty))?
+            ),* $(,)?
         }
     ) => {
         #[derive(runeweaver::Lexer)]
-        $(#[lexer(skip = $skip)])*
+        $(#[$enum_attribute])*
         $visibility enum $token {
-            $(#[token($pattern)] $variant),*
+            $(
+                $(#[$variant_attribute])*
+                $variant $(($payload))?
+            ),*
         }
 
-        pub fn definition() -> Vec<runeweaver_codegen::RuleSpec> {
+        pub fn definition() -> $crate::support::generation::Input {
             let _ = std::marker::PhantomData::<$token>;
-            let mut rules = vec![
-                $(runeweaver_codegen::RuleSpec::skip($skip)),*
-            ];
-            rules.extend([
-                $(runeweaver_codegen::RuleSpec::emit(
-                    $pattern,
-                    quote::quote!(Ok(Some(Self::$variant))),
-                )),*
-            ]);
-            rules
+            $crate::support::definition::parse(stringify!(
+                $(#[$enum_attribute])*
+                enum $token {
+                    $(
+                        $(#[$variant_attribute])*
+                        $variant $(($payload))?
+                    ),*
+                }
+            ))
         }
     };
 }

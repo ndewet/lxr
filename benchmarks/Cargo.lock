@@ -447,6 +447,7 @@ dependencies = [
  "quote",
  "runeweaver",
  "runeweaver-codegen",
+ "syn 2.0.119",
 ]
 
 [[package]]

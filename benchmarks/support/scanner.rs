@@ -1,4 +1,4 @@
-use criterion::{Criterion, Throughput};
+use criterion::{Criterion, SamplingMode, Throughput};
 use runeweaver::{Lexer, Reader};
 use std::hint::black_box;
 use std::io::Cursor;
@@ -49,6 +49,7 @@ fn scan_reader_with_lexemes<T: Lexer>(input: &[u8]) -> usize {
 pub fn benchmarks<T: Lexer>(criterion: &mut Criterion, name: &str, source: &str) {
     let input = input(source);
     let mut group = criterion.benchmark_group(format!("scanning/{name}"));
+    group.sampling_mode(SamplingMode::Flat);
     group.throughput(Throughput::Bytes(input.len() as u64));
 
     group.bench_function("slice", |bencher| {

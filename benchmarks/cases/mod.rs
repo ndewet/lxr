@@ -1,10 +1,14 @@
+mod callbacks;
 mod java_like;
 mod json;
 mod keywords;
 mod lisp_like;
+mod modes;
+mod payloads;
 mod punctuation;
 mod rust_like;
 mod small;
+mod transitions;
 mod xml;
 
 use crate::support::{generation, scanner};
@@ -22,6 +26,10 @@ pub fn benchmarks(criterion: &mut Criterion) {
             generation::Definition::new("xml", xml::definition),
             generation::Definition::new("punctuation", punctuation::definition),
             generation::Definition::new("keywords", keywords::definition),
+            generation::Definition::new("modes", modes::definition),
+            generation::Definition::new("payloads", payloads::definition),
+            generation::Definition::new("callbacks", callbacks::definition),
+            generation::Definition::new("transitions", transitions::definition),
         ],
     );
     scanner::benchmarks::<rust_like::Token>(criterion, "rust-like", rust_like::SOURCE);
@@ -31,4 +39,8 @@ pub fn benchmarks(criterion: &mut Criterion) {
     scanner::benchmarks::<xml::Token>(criterion, "xml", xml::SOURCE);
     scanner::benchmarks::<punctuation::Token>(criterion, "punctuation", punctuation::SOURCE);
     scanner::benchmarks::<keywords::Token>(criterion, "keywords", keywords::SOURCE);
+    scanner::benchmarks::<modes::Token>(criterion, "modes", modes::SOURCE);
+    scanner::benchmarks::<payloads::Token>(criterion, "payloads", payloads::SOURCE);
+    scanner::benchmarks::<callbacks::Token>(criterion, "callbacks", callbacks::SOURCE);
+    scanner::benchmarks::<transitions::Token>(criterion, "transitions", transitions::SOURCE);
 }

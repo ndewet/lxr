@@ -9,8 +9,8 @@ fn configuration() -> Criterion {
         .confidence_level(0.99)
         .significance_level(0.01)
         .sample_size(100)
-        .warm_up_time(Duration::from_secs(3))
-        .measurement_time(Duration::from_secs(5))
+        .warm_up_time(Duration::from_millis(250))
+        .measurement_time(Duration::from_millis(1_200))
         .without_plots()
 }
 

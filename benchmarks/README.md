@@ -9,9 +9,10 @@ Run the complete suite from the repository root:
 cargo bench --manifest-path benchmarks/Cargo.toml
 ```
 
-Criterion warms each case for three seconds. It then collects 100 samples over
-at least five seconds. Reports use a 99% confidence level and a 1% significance
-level.
+Criterion warms each case for 250 milliseconds. It then collects 100 samples
+over at least 1.2 seconds. Reports use a 99% confidence level and a 1%
+significance level. Flat sampling keeps the duration predictable for operations
+that take several milliseconds. The pull request job has a five-minute limit.
 
 CI checks out the pull request base revision into a separate directory. It
 copies the pull request benchmark suite there before it builds either revision.
@@ -39,6 +40,8 @@ token_definition! {
 
 The macro creates the derived token type and its codegen input. Register
 `definition` with `generation::benchmarks` in `cases/mod.rs`.
+The same form supports modes, payload fields, callbacks, and transitions. The
+corresponding files in `cases/` show each feature in isolation.
 
 For a scanner benchmark, add a source file in `sources/`. Then register the
 token type and the source with the shared scanner runner:
