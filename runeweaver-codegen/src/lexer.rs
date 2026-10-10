@@ -322,6 +322,11 @@ pub(crate) enum RuleAction {
 }
 
 impl RuleAction {
+    /// Reports whether this action consumes input without emitting a token.
+    pub(crate) const fn is_skip(&self) -> bool {
+        matches!(self, Self::Skip)
+    }
+
     /// Renders the generated action for the selected rule.
     pub(crate) fn rendered(&self) -> TokenStream {
         match self {
@@ -452,7 +457,14 @@ impl Lexer {
     /// Emits this lexer as one private matcher method.
     fn emit(&self, runtime: &TokenStream) -> Result<TokenStream, CompileError> {
         let dfa = self.compile_automaton()?;
-        Ok(emitter::emit(&dfa, self, runtime))
+        let matcher = crate::ir::Matcher::new(
+            &dfa,
+            self.rules().iter().map(|rule| crate::ir::RuleEffect {
+                skips: rule.action().is_skip(),
+                transition: rule.transition(),
+            }),
+        );
+        Ok(emitter::emit(&matcher, self, runtime))
     }
 }
 
