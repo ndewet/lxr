@@ -1,6 +1,3 @@
-mod cases;
-mod support;
-
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::time::Duration;
 
@@ -14,9 +11,20 @@ fn configuration() -> Criterion {
         .without_plots()
 }
 
+fn benchmarks(criterion: &mut Criterion) {
+    let name = env!("CARGO_CRATE_NAME").replace('_', "-");
+    support::generation::benchmarks(
+        criterion,
+        &[support::generation::Definition::new(
+            &name,
+            case::definition,
+        )],
+    );
+}
+
 criterion_group! {
     name = benches;
     config = configuration();
-    targets = cases::benchmarks
+    targets = benchmarks
 }
 criterion_main!(benches);

@@ -18,6 +18,10 @@ CI checks out the pull request base revision into a separate directory. It
 copies the pull request benchmark suite there before it builds either revision.
 Thus, both revisions use identical benchmark code on one runner.
 
+Each case has a separate benchmark executable. CI removes build metadata from
+each executable and compares both revisions. It measures only the cases whose
+runtime content differs.
+
 CI fails when the lower bound of the mean change exceeds 5%. Therefore, the
 complete 99% confidence interval must show a slowdown greater than 5%.
 
@@ -38,10 +42,11 @@ token_definition! {
 }
 ```
 
-The macro creates the derived token type and its codegen input. Register
-`definition` with `generation::benchmarks` in `cases/mod.rs`.
-The same form supports modes, payload fields, callbacks, and transitions. The
-corresponding files in `cases/` show each feature in isolation.
+The macro creates the derived token type and its codegen input. Add a matching
+benchmark target to `Cargo.toml`. Add a wrapper in `benches/` that includes
+`case_benchmark.rs`. The same form supports modes, payload fields, callbacks,
+and transitions. The corresponding files in `cases/` show each feature in
+isolation.
 
 For a scanner benchmark, add a source file in `sources/`. Then register the
 token type and the source with the shared scanner runner:

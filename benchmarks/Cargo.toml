@@ -15,8 +15,51 @@ runeweaver-codegen = { path = "../runeweaver-codegen" }
 syn = "2"
 
 [[bench]]
-name = "benchmarks"
-path = "benchmarks.rs"
+name = "callbacks"
+harness = false
+
+[[bench]]
+name = "java_like"
+harness = false
+
+[[bench]]
+name = "json"
+harness = false
+
+[[bench]]
+name = "keywords"
+harness = false
+
+[[bench]]
+name = "lisp_like"
+harness = false
+
+[[bench]]
+name = "modes"
+harness = false
+
+[[bench]]
+name = "payloads"
+harness = false
+
+[[bench]]
+name = "punctuation"
+harness = false
+
+[[bench]]
+name = "rust_like"
+harness = false
+
+[[bench]]
+name = "small"
+harness = false
+
+[[bench]]
+name = "transitions"
+harness = false
+
+[[bench]]
+name = "xml"
 harness = false
 
 [lints.rust]

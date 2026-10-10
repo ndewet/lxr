@@ -7,18 +7,18 @@ pub struct Input {
     pub rules: Vec<RuleSpec>,
 }
 
-pub struct Definition {
-    name: &'static str,
+pub struct Definition<'a> {
+    name: &'a str,
     make_input: fn() -> Input,
 }
 
-impl Definition {
-    pub const fn new(name: &'static str, make_input: fn() -> Input) -> Self {
+impl<'a> Definition<'a> {
+    pub const fn new(name: &'a str, make_input: fn() -> Input) -> Self {
         Self { name, make_input }
     }
 }
 
-pub fn benchmarks(criterion: &mut Criterion, definitions: &[Definition]) {
+pub fn benchmarks(criterion: &mut Criterion, definitions: &[Definition<'_>]) {
     let mut group = criterion.benchmark_group("generation");
     group.sampling_mode(SamplingMode::Flat);
 
