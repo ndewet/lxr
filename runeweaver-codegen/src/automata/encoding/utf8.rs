@@ -218,7 +218,7 @@ mod tests {
             assert_eq!(class.get_label(), label, "partition of {labels:?}");
             assert_eq!(
                 class.get_matching_labels(),
-                matching_labels,
+                *matching_labels,
                 "partition of {labels:?}"
             );
         }
