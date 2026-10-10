@@ -336,8 +336,10 @@ mod tests {
         };
         let start = builder.add_state();
         builder.add_state();
-        builder.add_state();
+        let rejected = builder.add_state();
 
+        assert_eq!(rejected, StateId::REJECTED);
+        assert_ne!(rejected, start);
         assert!(matches!(
             builder.table.build(&[start]),
             Err(BuildError::TooManyStates { capacity: 2 })

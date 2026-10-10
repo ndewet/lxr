@@ -30,7 +30,8 @@ impl<L, A> Builder<L, A> {
 
     /// Adds a state and returns its identifier.
     ///
-    /// An addition past the capacity records an error and returns a placeholder.
+    /// An addition past the capacity records an error and returns a rejected
+    /// state that cannot alias a state in the builder.
     pub(crate) fn add_state(&mut self) -> StateId {
         self.table.add_state()
     }
