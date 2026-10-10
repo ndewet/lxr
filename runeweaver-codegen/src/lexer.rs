@@ -4,7 +4,11 @@
 //! Automata retain [`RuleId`] values at accepting states; the associated
 //! pattern, action, and start-condition membership remain here.
 
-use crate::automata::{BuildError, dfa, encoding::Utf8, nfa};
+use crate::automata::{
+    BuildError, dfa,
+    encoding::{ByteRange, Utf8},
+    nfa,
+};
 use crate::emitter;
 use crate::regex::{Expression, ParseError};
 use proc_macro2::TokenStream;
@@ -384,7 +388,7 @@ impl Lexer {
         &self.start_conditions
     }
 
-    /// Builds, minimizes, and emits this lexer as one private matcher method.
+    /// Builds and minimizes the automaton for this lexer.
     ///
     /// # Errors
     ///
@@ -395,7 +399,7 @@ impl Lexer {
     ///
     /// Panics if a rule enables a start condition that this lexer does not
     /// define.
-    fn emit(&self, runtime: &TokenStream) -> Result<TokenStream, CompileError> {
+    fn compile_automaton(&self) -> Result<dfa::Dfa<ByteRange, RuleId>, CompileError> {
         let mut builder = nfa::Builder::new();
         let starts: Vec<_> = self
             .start_conditions
@@ -442,8 +446,12 @@ impl Lexer {
                 rule_index: Some(index),
             });
         }
-        let dfa = dfa.minimize()?;
+        Ok(dfa.minimize()?)
+    }
 
+    /// Emits this lexer as one private matcher method.
+    fn emit(&self, runtime: &TokenStream) -> Result<TokenStream, CompileError> {
+        let dfa = self.compile_automaton()?;
         Ok(emitter::emit(&dfa, self, runtime))
     }
 }
