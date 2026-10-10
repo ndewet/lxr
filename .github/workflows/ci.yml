@@ -129,25 +129,18 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          path: .benchmark-base
-
-      - name: Check out the pull request benchmark revision
-        if: steps.benchmark-changes.outputs.run == 'true'
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: .benchmark-pr
+          path: .benchmark-source
 
       - name: Use the same benchmark suite for both revisions
         if: steps.benchmark-changes.outputs.run == 'true'
-        run: rsync --archive --delete .benchmark-pr/benchmarks/ .benchmark-base/benchmarks/
+        run: rsync --archive --delete benchmarks/ .benchmark-source/benchmarks/
 
       - name: Build the base benchmarks
         if: steps.benchmark-changes.outputs.run == 'true'
         run: |
           set -o pipefail
           cargo bench \
-            --manifest-path .benchmark-base/benchmarks/Cargo.toml \
+            --manifest-path .benchmark-source/benchmarks/Cargo.toml \
             --no-run \
             --locked \
             --message-format json |
@@ -156,16 +149,21 @@ jobs:
               > "$RUNNER_TEMP/base-benchmarks.tsv"
         env:
           CARGO_TARGET_DIR: ${{ env.BASE_TARGET }}
-          RUSTFLAGS: >-
-            --remap-path-prefix=${{ github.workspace }}/.benchmark-base=/workspace
-            --remap-path-prefix=${{ github.workspace }}/.benchmark-pr=/workspace
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}/.benchmark-source=/workspace
+
+      - name: Check out the pull request benchmark revision
+        if: steps.benchmark-changes.outputs.run == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .benchmark-source
 
       - name: Build the pull request benchmarks
         if: steps.benchmark-changes.outputs.run == 'true'
         run: |
           set -o pipefail
           cargo bench \
-            --manifest-path .benchmark-pr/benchmarks/Cargo.toml \
+            --manifest-path .benchmark-source/benchmarks/Cargo.toml \
             --no-run \
             --locked \
             --message-format json |
@@ -174,9 +172,7 @@ jobs:
               > "$RUNNER_TEMP/pr-benchmarks.tsv"
         env:
           CARGO_TARGET_DIR: ${{ env.PR_TARGET }}
-          RUSTFLAGS: >-
-            --remap-path-prefix=${{ github.workspace }}/.benchmark-base=/workspace
-            --remap-path-prefix=${{ github.workspace }}/.benchmark-pr=/workspace
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}/.benchmark-source=/workspace
 
       - name: Find affected benchmark cases
         if: steps.benchmark-changes.outputs.run == 'true'
@@ -228,21 +224,15 @@ jobs:
       - name: Measure the base revision
         if: steps.affected-benchmarks.outputs.run == 'true'
         run: |
-          arguments=()
           while IFS= read -r benchmark; do
-            arguments+=(--bench "$benchmark")
+            executable="$(
+              awk -F '\t' -v name="$benchmark" '$1 == name { print $2 }' \
+                "$RUNNER_TEMP/base-benchmarks.tsv"
+            )"
+            "$executable" --save-baseline main
           done < "$RUNNER_TEMP/affected-benchmarks"
-          cargo bench \
-            --manifest-path .benchmark-base/benchmarks/Cargo.toml \
-            --locked \
-            "${arguments[@]}" \
-            -- \
-            --save-baseline main
         env:
           CARGO_TARGET_DIR: ${{ env.BASE_TARGET }}
-          RUSTFLAGS: >-
-            --remap-path-prefix=${{ github.workspace }}/.benchmark-base=/workspace
-            --remap-path-prefix=${{ github.workspace }}/.benchmark-pr=/workspace
 
       - name: Copy the base measurements
         if: steps.affected-benchmarks.outputs.run == 'true'
@@ -253,21 +243,15 @@ jobs:
       - name: Measure the pull request
         if: steps.affected-benchmarks.outputs.run == 'true'
         run: |
-          arguments=()
           while IFS= read -r benchmark; do
-            arguments+=(--bench "$benchmark")
+            executable="$(
+              awk -F '\t' -v name="$benchmark" '$1 == name { print $2 }' \
+                "$RUNNER_TEMP/pr-benchmarks.tsv"
+            )"
+            "$executable" --baseline main
           done < "$RUNNER_TEMP/affected-benchmarks"
-          cargo bench \
-            --manifest-path .benchmark-pr/benchmarks/Cargo.toml \
-            --locked \
-            "${arguments[@]}" \
-            -- \
-            --baseline main
         env:
           CARGO_TARGET_DIR: ${{ env.PR_TARGET }}
-          RUSTFLAGS: >-
-            --remap-path-prefix=${{ github.workspace }}/.benchmark-base=/workspace
-            --remap-path-prefix=${{ github.workspace }}/.benchmark-pr=/workspace
 
       - name: Check for regressions
         if: steps.affected-benchmarks.outputs.run == 'true'
