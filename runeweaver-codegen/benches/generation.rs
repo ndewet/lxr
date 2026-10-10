@@ -53,6 +53,33 @@ fn rust_like_rules() -> Vec<RuleSpec> {
     rules
 }
 
+fn huge_language_rules() -> Vec<RuleSpec> {
+    let mut rules = vec![
+        RuleSpec::skip(r"[ \t\r\n]+"),
+        RuleSpec::skip(r"//[^\n]*"),
+        RuleSpec::skip(r"/\*([^*]|\*[^/])*\*/"),
+    ];
+    rules.extend((0..1_000).map(|index| emit(&format!("keyword{index:04}"))));
+    rules.extend(
+        [
+            "[a-zA-Z_][a-zA-Z0-9_]*",
+            r"[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?",
+            "[0-9]+",
+            r#""([^"\\]|\\.)*""#,
+            "==",
+            "!=",
+            "<=",
+            ">=",
+            "->",
+            "=>",
+            r"[+*/%=<>{}(),;.-]",
+        ]
+        .into_iter()
+        .map(emit),
+    );
+    rules
+}
+
 fn measure(name: &str, iterations: u32, mut rules: impl FnMut() -> Vec<RuleSpec>) {
     let start = Instant::now();
     for _ in 0..iterations {
@@ -65,4 +92,5 @@ fn measure(name: &str, iterations: u32, mut rules: impl FnMut() -> Vec<RuleSpec>
 fn main() {
     measure("small", 500, small_rules);
     measure("rust_like", 50, rust_like_rules);
+    measure("huge_language", 5, huge_language_rules);
 }
